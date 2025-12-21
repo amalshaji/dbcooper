@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  publish-tauri:
+  macos:
     permissions:
       contents: write
     runs-on: macos-latest

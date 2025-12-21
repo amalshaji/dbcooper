@@ -1,7 +1,6 @@
-{
   "name": "dbcooper",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
