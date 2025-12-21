@@ -1,6 +1,6 @@
 # DBcooper
 
-A modern PostgreSQL database client built with Tauri, React, and TypeScript.
+A vibe-coded database client built with Tauri, React, and TypeScript.
 
 ![dbcooper](./dbcooper.png)
 
