@@ -3,13 +3,31 @@ import CodeMirror from "@uiw/react-codemirror";
 import { sql } from "@codemirror/lang-sql";
 import { rosePineDawn, barf } from "thememirror";
 import { keymap } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { Prec } from "@codemirror/state";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Sparkle } from "@phosphor-icons/react";
+import { Spinner } from "@/components/ui/spinner";
+
+interface TableSchema {
+  schema: string;
+  name: string;
+  columns?: Array<{
+    name: string;
+    type: string;
+    nullable: boolean;
+  }>;
+}
 
 interface SqlEditorProps {
   value: string;
   onChange: (value: string) => void;
   onRunQuery?: () => void;
   height?: string;
+  tables?: TableSchema[];
+  onGenerateSQL?: (instruction: string, existingSQL: string) => void;
+  generating?: boolean;
 }
 
 export function SqlEditor({
@@ -17,9 +35,13 @@ export function SqlEditor({
   onChange,
   onRunQuery,
   height = "300px",
+  tables = [],
+  onGenerateSQL,
+  generating = false,
 }: SqlEditorProps) {
   const [isDark, setIsDark] = useState(false);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const [instruction, setInstruction] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,33 +93,89 @@ export function SqlEditor({
     [onRunQuery]
   );
 
-  const extensions = useMemo(() => [runQueryKeymap, sql()], [runQueryKeymap]);
+  const fontTheme = useMemo(
+    () =>
+      EditorView.theme({
+        "&": {
+          fontFamily: "'Google Sans Code Variable', monospace",
+        },
+        ".cm-content": {
+          fontFamily: "'Google Sans Code Variable', monospace",
+        },
+      }),
+    []
+  );
+
+  const extensions = useMemo(
+    () => [runQueryKeymap, sql(), fontTheme, EditorView.lineWrapping],
+    [runQueryKeymap, fontTheme]
+  );
+
+  const handleGenerate = () => {
+    if (instruction.trim() && onGenerateSQL) {
+      onGenerateSQL(instruction, value);
+    }
+  };
 
   return (
-    <div
-      ref={containerRef}
-      className="border rounded-md overflow-hidden w-full"
-    >
-      <div className="overflow-x-auto">
-        <CodeMirror
-          value={value}
-          height={height}
-          width={containerWidth ? `${containerWidth}px` : "100%"}
-          extensions={extensions}
-          theme={isDark ? barf : rosePineDawn}
-          onChange={onChange}
-          basicSetup={{
-            lineNumbers: true,
-            foldGutter: true,
-            dropCursor: false,
-            allowMultipleSelections: false,
-            indentOnInput: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            highlightSelectionMatches: false,
-          }}
-        />
+    <div className="space-y-2">
+      {onGenerateSQL && tables.length > 0 && (
+        <div className="flex gap-2">
+          <Input
+            placeholder="Describe the SQL you want to generate..."
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !generating) {
+                handleGenerate();
+              }
+            }}
+            disabled={generating}
+          />
+          <Button
+            onClick={handleGenerate}
+            disabled={!instruction.trim() || generating}
+            className="whitespace-nowrap"
+          >
+            {generating ? (
+              <>
+                <Spinner className="mr-2 h-4 w-4" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkle className="mr-2 h-4 w-4" />
+                Generate
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="border rounded-md overflow-hidden w-full font-mono"
+      >
+        <div className="overflow-x-auto">
+          <CodeMirror
+            value={value}
+            height={height}
+            width={containerWidth ? `${containerWidth}px` : "100%"}
+            extensions={extensions}
+            theme={isDark ? barf : rosePineDawn}
+            onChange={onChange}
+            basicSetup={{
+              lineNumbers: true,
+              foldGutter: true,
+              dropCursor: false,
+              allowMultipleSelections: false,
+              indentOnInput: true,
+              bracketMatching: true,
+              closeBrackets: true,
+              autocompletion: true,
+              highlightSelectionMatches: false,
+            }}
+          />
+        </div>
       </div>
     </div>
   );

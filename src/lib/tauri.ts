@@ -191,4 +191,13 @@ export const api = {
 
 		delete: (id: number) => invoke<boolean>("delete_saved_query", { id }),
 	},
+
+	settings: {
+		get: (key: string) => invoke<string | null>("get_setting", { key }),
+
+		set: (key: string, value: string) =>
+			invoke<void>("set_setting", { key, value }),
+
+		getAll: () => invoke<Record<string, string>>("get_all_settings"),
+	},
 };

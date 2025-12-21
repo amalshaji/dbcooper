@@ -3,6 +3,7 @@ import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { api } from "@/lib/tauri";
 
 export function UpdateChecker() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -10,8 +11,19 @@ export function UpdateChecker() {
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    checkForUpdates();
+    checkSettingsAndUpdate();
   }, []);
+
+  const checkSettingsAndUpdate = async () => {
+    try {
+      const checkOnStartup = await api.settings.get("check_updates_on_startup");
+      if (checkOnStartup !== "false") {
+        checkForUpdates();
+      }
+    } catch (error) {
+      checkForUpdates();
+    }
+  };
 
   const checkForUpdates = async () => {
     try {

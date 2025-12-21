@@ -110,3 +110,9 @@ pub struct TestConnectionResult {
     pub success: bool,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct Setting {
+    pub key: String,
+    pub value: String,
+}

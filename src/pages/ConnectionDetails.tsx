@@ -71,6 +71,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { Spinner } from "@/components/ui/spinner";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
+import { useAIGeneration } from "@/hooks/useAIGeneration";
 
 export function ConnectionDetails() {
   const { uuid } = useParams<{ uuid: string }>();
@@ -95,6 +96,9 @@ export function ConnectionDetails() {
   // Save dialog state (for query tabs)
   const [saveQueryName, setSaveQueryName] = useState("");
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  // AI generation
+  const { generateSQL, generating } = useAIGeneration();
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) || null,
@@ -1002,6 +1006,82 @@ export function ConnectionDetails() {
             onChange={handleQueryChange}
             onRunQuery={handleRunQuery}
             height="300px"
+            tables={tables.map(t => ({
+              schema: t.schema,
+              name: t.name,
+              columns: tableColumns[`${t.schema}.${t.name}`]
+            }))}
+            onGenerateSQL={async (instruction, existingSQL) => {
+              try {
+                // Fetch schemas for all tables that don't have columns yet
+                const tablesToFetch = tables.filter(
+                  t => !tableColumns[`${t.schema}.${t.name}`]
+                );
+
+                if (tablesToFetch.length > 0 && connection) {
+                  const schemaPromises = tablesToFetch.map(async (table) => {
+                    try {
+                      const data = await api.postgres.getTableStructure(
+                        connection,
+                        table.schema,
+                        table.name
+                      );
+                      return {
+                        key: `${table.schema}.${table.name}`,
+                        columns: (data.columns as TableColumn[]) || []
+                      };
+                    } catch (error) {
+                      console.error(`Failed to fetch schema for ${table.schema}.${table.name}:`, error);
+                      return null;
+                    }
+                  });
+
+                  const results = await Promise.all(schemaPromises);
+                  const newColumns = { ...tableColumns };
+                  results.forEach(result => {
+                    if (result) {
+                      newColumns[result.key] = result.columns;
+                    }
+                  });
+                  setTableColumns(newColumns);
+
+                  // Use the updated columns for generation
+                  let generatedSQL = "";
+                  await generateSQL(
+                    instruction,
+                    existingSQL,
+                    tables.map(t => ({
+                      schema: t.schema,
+                      name: t.name,
+                      columns: newColumns[`${t.schema}.${t.name}`]
+                    })),
+                    (chunk) => {
+                      generatedSQL += chunk;
+                      handleQueryChange(generatedSQL);
+                    }
+                  );
+                } else {
+                  // All schemas already cached
+                  let generatedSQL = "";
+                  await generateSQL(
+                    instruction,
+                    existingSQL,
+                    tables.map(t => ({
+                      schema: t.schema,
+                      name: t.name,
+                      columns: tableColumns[`${t.schema}.${t.name}`]
+                    })),
+                    (chunk) => {
+                      generatedSQL += chunk;
+                      handleQueryChange(generatedSQL);
+                    }
+                  );
+                }
+              } catch (error) {
+                console.error("AI generation error:", error);
+              }
+            }}
+            generating={generating}
           />
         </CardContent>
       </Card>

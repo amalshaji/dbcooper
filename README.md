@@ -4,7 +4,8 @@ A vibe-coded database client built with Tauri, React, and TypeScript.
 
 > ⚠️ **Early Development**: This app is under active development. Expect breaking changes between versions.
 
-![dbcooper](./dbcooper.png)
+![dbcooper](./images/dbcooper.png)
+![ai](./images/ai.png)
 
 ## Installation
 
@@ -21,10 +22,12 @@ Then you can open the app normally.
 - 🔌 **Connection Management** - Create, edit, and manage multiple PostgreSQL connections
 - 📊 **Data Browsing** - View and filter table data with pagination
 - 🔍 **Table Structure** - Inspect columns, indexes, and foreign keys
-- 💾 **Query Editor** - Execute SQL queries with syntax highlighting
+- 💾 **Query Editor** - Execute SQL queries with syntax highlighting (Google Sans Code font)
+- 🤖 **AI SQL Generation** - Generate SQL queries using natural language with OpenAI (streaming)
 - 🔖 **Saved Queries** - Save and organize frequently used queries
+- ⚙️ **Settings** - Configure theme, update preferences, and OpenAI API settings
 - 🎨 **Modern UI** - Clean interface with light/dark mode support
-- 🔄 **Auto Updates** - Built-in updater for seamless updates
+- 🔄 **Auto Updates** - Built-in updater with update badge for seamless updates
 
 ## Tech Stack
 
@@ -54,6 +57,21 @@ bun run tauri dev
 # Build for production
 bun run tauri build
 ```
+
+### AI SQL Generation
+
+To use AI-powered SQL generation:
+
+1. Go to **Settings** (gear icon) and configure your OpenAI API settings:
+   - **API Key**: Your OpenAI API key (required)
+   - **Endpoint**: Custom endpoint URL (optional, defaults to `https://api.openai.com/v1`)
+
+2. In the **Query Editor**, you'll see an instruction input above the SQL editor:
+   - Type a natural language description (e.g., "show all users with posts from last week")
+   - Click **Generate** or press Enter
+   - Watch as SQL streams into the editor in real-time
+
+The AI uses GPT-4.1 and has access to your database schema (tables and columns) for accurate query generation.
 
 ## Building
 

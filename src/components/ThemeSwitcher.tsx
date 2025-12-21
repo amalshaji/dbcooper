@@ -7,6 +7,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sun, Moon, Monitor } from "@phosphor-icons/react";
+import { api } from "@/lib/tauri";
 
 type Theme = "light" | "dark" | "system";
 
@@ -17,6 +18,14 @@ export function ThemeSwitcher() {
     }
     return "system";
   });
+
+  useEffect(() => {
+    api.settings.get("theme").then((savedTheme) => {
+      if (savedTheme) {
+        setTheme(savedTheme as Theme);
+      }
+    }).catch(console.error);
+  }, []);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -43,6 +52,15 @@ export function ThemeSwitcher() {
     }
   }, [theme]);
 
+  const handleThemeChange = async (newTheme: Theme) => {
+    setTheme(newTheme);
+    try {
+      await api.settings.set("theme", newTheme);
+    } catch (error) {
+      console.error("Failed to save theme:", error);
+    }
+  };
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
@@ -50,15 +68,15 @@ export function ThemeSwitcher() {
         <span className="sr-only">Toggle theme</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
+        <DropdownMenuItem onClick={() => handleThemeChange("light")}>
           <Sun />
           Light
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
+        <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
           <Moon />
           Dark
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
+        <DropdownMenuItem onClick={() => handleThemeChange("system")}>
           <Monitor />
           System
         </DropdownMenuItem>

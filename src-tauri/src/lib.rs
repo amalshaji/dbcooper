@@ -11,6 +11,7 @@ use commands::postgres::{
 use commands::queries::{
     create_saved_query, delete_saved_query, get_saved_queries, update_saved_query,
 };
+use commands::settings::{get_all_settings, get_setting, set_setting};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -44,6 +45,9 @@ pub fn run() {
             create_saved_query,
             update_saved_query,
             delete_saved_query,
+            get_setting,
+            set_setting,
+            get_all_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

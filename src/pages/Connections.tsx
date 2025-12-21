@@ -13,8 +13,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Database, GithubLogo, PencilSimple, Trash } from "@phosphor-icons/react";
-import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import { Database, Gear, GithubLogo, PencilSimple, Trash } from "@phosphor-icons/react";
+
 import { api, Connection, ConnectionFormData } from "@/lib/tauri";
 import { Spinner } from "@/components/ui/spinner";
 import { UpdateChecker } from "@/components/UpdateChecker";
@@ -120,7 +120,14 @@ export function Connections() {
           >
             <GithubLogo className="w-5 h-5" />
           </a>
-          <ThemeSwitcher />
+
+          <button
+            onClick={() => navigate("/settings")}
+            className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent transition-colors"
+            title="Settings"
+          >
+            <Gear className="w-5 h-5" />
+          </button>
         </div>
         <Card>
           <CardHeader>
