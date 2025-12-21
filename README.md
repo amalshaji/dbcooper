@@ -2,6 +2,8 @@
 
 A vibe-coded database client built with Tauri, React, and TypeScript.
 
+> ⚠️ **Early Development**: This app is under active development. Expect breaking changes between versions.
+
 ![dbcooper](./dbcooper.png)
 
 ## Installation
