@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "@/lib/tauri";
 
 interface TableSchema {
@@ -14,6 +14,20 @@ interface TableSchema {
 export function useAIGeneration() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkConfig = async () => {
+      try {
+        const settings = await api.settings.getAll();
+        const hasKey = !!settings.openai_api_key;
+        setIsConfigured(hasKey);
+      } catch {
+        setIsConfigured(false);
+      }
+    };
+    checkConfig();
+  }, []);
 
   const generateSQL = async (
     instruction: string,
@@ -135,5 +149,5 @@ Rules:
     }
   };
 
-  return { generateSQL, generating, error };
+  return { generateSQL, generating, error, isConfigured };
 }

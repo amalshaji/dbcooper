@@ -14,7 +14,18 @@ type Theme = "light" | "dark" | "system";
 export function ThemeSwitcher() {
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window !== "undefined") {
-      return (localStorage.getItem("theme") as Theme) || "system";
+      const saved = localStorage.getItem("theme") as Theme;
+      if (saved) {
+        // Immediately apply theme to prevent flash
+        const root = window.document.documentElement;
+        if (saved === "system") {
+          const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          root.classList.toggle("dark", systemTheme === "dark");
+        } else {
+          root.classList.toggle("dark", saved === "dark");
+        }
+        return saved;
+      }
     }
     return "system";
   });
@@ -23,6 +34,7 @@ export function ThemeSwitcher() {
     api.settings.get("theme").then((savedTheme) => {
       if (savedTheme) {
         setTheme(savedTheme as Theme);
+        localStorage.setItem("theme", savedTheme);
       }
     }).catch(console.error);
   }, []);

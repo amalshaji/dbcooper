@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sparkle } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface TableSchema {
   schema: string;
@@ -28,6 +29,7 @@ interface SqlEditorProps {
   tables?: TableSchema[];
   onGenerateSQL?: (instruction: string, existingSQL: string) => void;
   generating?: boolean;
+  aiConfigured?: boolean | null;
 }
 
 export function SqlEditor({
@@ -38,6 +40,7 @@ export function SqlEditor({
   tables = [],
   onGenerateSQL,
   generating = false,
+  aiConfigured = null,
 }: SqlEditorProps) {
   const [isDark, setIsDark] = useState(false);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
@@ -117,38 +120,51 @@ export function SqlEditor({
     }
   };
 
+  const isButtonDisabled = !instruction.trim() || generating || aiConfigured === false;
+
   return (
     <div className="space-y-2">
       {onGenerateSQL && tables.length > 0 && (
         <div className="flex gap-2">
           <Input
-            placeholder="Describe the SQL you want to generate..."
+            placeholder={aiConfigured === false ? "Configure API in Settings to enable AI" : "Describe the SQL you want to generate..."}
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !generating) {
+              if (e.key === "Enter" && !generating && aiConfigured !== false) {
                 handleGenerate();
               }
             }}
-            disabled={generating}
+            disabled={generating || aiConfigured === false}
           />
-          <Button
-            onClick={handleGenerate}
-            disabled={!instruction.trim() || generating}
-            className="whitespace-nowrap"
-          >
-            {generating ? (
-              <>
-                <Spinner className="mr-2 h-4 w-4" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Sparkle className="mr-2 h-4 w-4" />
-                Generate
-              </>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  onClick={handleGenerate}
+                  disabled={isButtonDisabled}
+                  className="whitespace-nowrap"
+                >
+                  {generating ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkle className="mr-2 h-4 w-4" />
+                      Generate
+                    </>
+                  )}
+                </Button>
+              }
+            />
+            {aiConfigured === false && (
+              <TooltipContent>
+                <p>Set API endpoint and key in Settings to enable AI generation</p>
+              </TooltipContent>
             )}
-          </Button>
+          </Tooltip>
         </div>
       )}
       <div

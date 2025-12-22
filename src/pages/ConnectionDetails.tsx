@@ -133,7 +133,7 @@ export function ConnectionDetails() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
   // AI generation
-  const { generateSQL, generating } = useAIGeneration();
+  const { generateSQL, generating, isConfigured: aiConfigured } = useAIGeneration();
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) || null,
@@ -1117,6 +1117,7 @@ export function ConnectionDetails() {
               }
             }}
             generating={generating}
+            aiConfigured={aiConfigured}
           />
         </CardContent>
       </Card>
