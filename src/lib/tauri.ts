@@ -111,6 +111,29 @@ export interface SavedQueryFormData {
 	query: string;
 }
 
+// Redis types
+export interface RedisKeyInfo {
+	key: string;
+	key_type: string;
+	ttl: number;
+	size?: number;
+}
+
+export interface RedisKeyListResponse {
+	keys: RedisKeyInfo[];
+	total: number;
+}
+
+export interface RedisKeyDetails {
+	key: string;
+	key_type: string;
+	ttl: number;
+	value: unknown;
+	encoding?: string;
+	size?: number;
+	length?: number;
+}
+
 export const api = {
 	connections: {
 		list: () => invoke<Connection[]>("get_connections"),
@@ -283,6 +306,71 @@ export const api = {
 				ssl: connection.ssl === 1,
 				filePath: connection.file_path,
 				query,
+			}),
+	},
+
+	// Redis-specific API
+	redis: {
+		searchKeys: (
+			connection: Connection,
+			pattern: string,
+			limit: number = 100,
+		) =>
+			invoke<RedisKeyListResponse>("redis_search_keys", {
+				host: connection.host,
+				port: connection.port,
+				password: connection.password || undefined,
+				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				pattern,
+				limit,
+				ssh_enabled: connection.ssh_enabled === 1,
+				ssh_host: connection.ssh_host || undefined,
+				ssh_port: connection.ssh_port || undefined,
+				ssh_user: connection.ssh_user || undefined,
+				ssh_password: connection.ssh_password || undefined,
+				ssh_key_path: connection.ssh_key_path || undefined,
+				ssh_use_key: connection.ssh_use_key === 1,
+			}),
+
+		getKeyDetails: (connection: Connection, key: string) =>
+			invoke<RedisKeyDetails>("redis_get_key_details", {
+				host: connection.host,
+				port: connection.port,
+				password: connection.password || undefined,
+				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				key,
+				ssh_enabled: connection.ssh_enabled === 1,
+				ssh_host: connection.ssh_host || undefined,
+				ssh_port: connection.ssh_port || undefined,
+				ssh_user: connection.ssh_user || undefined,
+				ssh_password: connection.ssh_password || undefined,
+				ssh_key_path: connection.ssh_key_path || undefined,
+				ssh_use_key: connection.ssh_use_key === 1,
+			}),
+
+		deleteKey: (connection: Connection, key: string) =>
+			invoke<boolean>("redis_delete_key", {
+				host: connection.host,
+				port: connection.port,
+				password: connection.password || undefined,
+				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				key,
+			}),
+
+		setKey: (
+			connection: Connection,
+			key: string,
+			value: string,
+			ttl?: number,
+		) =>
+			invoke<void>("redis_set_key", {
+				host: connection.host,
+				port: connection.port,
+				password: connection.password || undefined,
+				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				key,
+				value,
+				ttl,
 			}),
 	},
 

@@ -27,6 +27,23 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -68,6 +85,7 @@ import {
   CaretRight,
   Columns,
 } from "@phosphor-icons/react";
+import { Check, Copy } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Spinner } from "@/components/ui/spinner";
@@ -109,6 +127,37 @@ function ContentHeader({ connection, navigate }: { connection: Connection; navig
   );
 }
 
+// Simplified header for Redis (no sidebar)
+function RedisContentHeader({ connection, navigate }: { connection: Connection; navigate: (path: string) => void }) {
+  return (
+    <header
+      data-tauri-drag-region
+      className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background"
+    >
+      <div className="flex items-center gap-2 flex-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate("/")}
+          className="gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </Button>
+        <span className="font-semibold">{connection.name}</span>
+        <span className="text-muted-foreground text-sm">
+          {connection.host}:{connection.port}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary" className="capitalize">
+          {connection.type}
+        </Badge>
+      </div>
+    </header>
+  );
+}
+
 export function ConnectionDetails() {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
@@ -128,6 +177,17 @@ export function ConnectionDetails() {
   // Tab state
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
+  // Redis-specific state (no tabs for Redis)
+  const [redisPattern, setRedisPattern] = useState("*");
+  const [redisKeys, setRedisKeys] = useState<any[] | null>(null);
+  const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
+  const [redisKeyDetails, setRedisKeyDetails] = useState<any>(null);
+  const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
+  const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
+  const [redisSheetOpen, setRedisSheetOpen] = useState(false);
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   // Save dialog state (for query tabs)
   const [saveQueryName, setSaveQueryName] = useState("");
@@ -610,6 +670,7 @@ export function ConnectionDetails() {
       console.error("Failed to delete query:", error);
     }
   };
+
 
   // Memoized columns for table data
   const tableDataColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
@@ -1245,6 +1306,283 @@ export function ConnectionDetails() {
     </Card>
   );
 
+  // ============================================================================
+  // Redis-specific handlers (simple view without tabs)
+  // ============================================================================
+
+  const handleRedisSearch = async () => {
+    if (!connection) return;
+    setLoadingRedisKeys(true);
+    setRedisSelectedKey(null);
+    setRedisKeyDetails(null);
+
+    try {
+      const result = await api.redis.searchKeys(connection, redisPattern, 100);
+      setRedisKeys(result.keys);
+    } catch (error) {
+      console.error("Failed to search Redis keys:", error);
+      toast.error("Failed to search keys");
+    } finally {
+      setLoadingRedisKeys(false);
+    }
+  };
+
+  const handleRedisKeySelect = async (key: string) => {
+    if (!connection) return;
+
+    setRedisSelectedKey(key);
+    setLoadingRedisDetails(true);
+    setRedisSheetOpen(true);
+
+    try {
+      const details = await api.redis.getKeyDetails(connection, key);
+      setRedisKeyDetails(details);
+    } catch (error) {
+      console.error("Failed to get Redis key details:", error);
+      toast.error("Failed to load key details");
+      setRedisSheetOpen(false);
+    } finally {
+      setLoadingRedisDetails(false);
+    }
+  };
+
+  const handleRedisDeleteKey = async () => {
+    setShowDeleteDialog(false);
+    if (!connection || !redisSelectedKey) return;
+
+    try {
+      await api.redis.deleteKey(connection, redisSelectedKey);
+      toast.success("Key deleted successfully");
+      // Close sheet, refresh keys list, and clear selection
+      setRedisSheetOpen(false);
+      handleRedisSearch();
+      setRedisSelectedKey(null);
+      setRedisKeyDetails(null);
+    } catch (error) {
+      console.error("Failed to delete Redis key:", error);
+      toast.error("Failed to delete key");
+    }
+  };
+
+  const handleCopyValue = () => {
+    if (!redisKeyDetails) return;
+    const valueString = JSON.stringify(redisKeyDetails.value, null, 2);
+    navigator.clipboard.writeText(valueString);
+    setCopiedToClipboard(true);
+    toast.success("Copied to clipboard");
+    setTimeout(() => setCopiedToClipboard(false), 2000);
+  };
+
+  const renderRedisView = () => (
+    <div className="flex flex-col h-full gap-4">
+      {/* Pattern Search */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Enter pattern (e.g., *, user:*, cache:*)"
+              value={redisPattern}
+              onChange={(e) => setRedisPattern(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleRedisSearch();
+                }
+              }}
+              className="flex-1 font-mono"
+              autoFocus
+            />
+            <Button onClick={handleRedisSearch} disabled={loadingRedisKeys}>
+              {loadingRedisKeys ? <Spinner className="mr-2" /> : null}
+              Search Keys
+            </Button>
+          </div>
+          {redisKeys !== null && (
+            <div className="mt-2 text-sm text-muted-foreground">
+              Found {redisKeys.length} key{redisKeys.length !== 1 ? "s" : ""}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Results */}
+      <Card className="flex-1 overflow-hidden flex flex-col">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Keys</CardTitle>
+        </CardHeader>
+        <CardContent className="flex-1 overflow-y-auto p-0">
+          {loadingRedisKeys ? (
+            <div className="flex items-center justify-center py-8">
+              <Spinner />
+            </div>
+          ) : redisKeys && redisKeys.length > 0 ? (
+            <div className="divide-y">
+              {redisKeys.map((keyInfo, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => handleRedisKeySelect(keyInfo.key)}
+                  className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-sm truncate flex-1">{keyInfo.key}</span>
+                    <span className="text-xs text-muted-foreground">{keyInfo.key_type}</span>
+                    {keyInfo.ttl !== -1 && (
+                      <span className="text-xs text-muted-foreground">TTL: {keyInfo.ttl}s</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : redisKeys && redisKeys.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              No keys found matching pattern "{redisPattern}"
+            </div>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              Enter a pattern and click Search to find keys
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Key Details Sheet */}
+      <Sheet open={redisSheetOpen} onOpenChange={setRedisSheetOpen}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          <div className="px-6">
+            {loadingRedisDetails ? (
+              <div className="flex items-center justify-center py-12">
+                <Spinner />
+              </div>
+            ) : redisKeyDetails ? (
+              <>
+                <SheetHeader>
+                  <SheetTitle>Key Details</SheetTitle>
+                  <SheetDescription>
+                    Viewing details for Redis key
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-6 space-y-6">
+                  {/* Key metadata */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-3">Metadata</h3>
+                    <div className="space-y-3 text-sm">
+                      {/* Key - full width */}
+                      <div>
+                        <span className="text-muted-foreground">Key:</span>
+                        <div className="mt-1 font-mono bg-muted px-3 py-2 rounded text-xs break-all">
+                          {redisKeyDetails.key}
+                        </div>
+                      </div>
+                      {/* Other metadata in grid */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-muted-foreground">Type:</span>
+                          <span className="ml-2">{redisKeyDetails.key_type}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">TTL:</span>
+                          <span className="ml-2">
+                            {redisKeyDetails.ttl === -1 ? "No expiration" : `${redisKeyDetails.ttl}s`}
+                          </span>
+                        </div>
+                        {redisKeyDetails.encoding && (
+                          <div>
+                            <span className="text-muted-foreground">Encoding:</span>
+                            <span className="ml-2">{redisKeyDetails.encoding}</span>
+                          </div>
+                        )}
+                        {redisKeyDetails.size !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Memory:</span>
+                            <span className="ml-2">{redisKeyDetails.size} bytes</span>
+                          </div>
+                        )}
+                        {redisKeyDetails.length !== undefined && (
+                          <div>
+                            <span className="text-muted-foreground">Length:</span>
+                            <span className="ml-2">{redisKeyDetails.length}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Value */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium">Value</h3>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopyValue}
+                        className="h-7 px-2"
+                      >
+                        {copiedToClipboard ? (
+                          <>
+                            <Check className="w-4 h-4 mr-1" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4 mr-1" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <div className="bg-muted rounded-md p-4">
+                      <pre className="text-sm overflow-x-auto whitespace-pre-wrap break-all">
+                        {JSON.stringify(redisKeyDetails.value, null, 2)}
+                      </pre>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2 pt-4 border-t">
+                    <Button
+                      variant="destructive"
+                      onClick={() => setShowDeleteDialog(true)}
+                    >
+                      Delete Key
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setRedisSheetOpen(false)}
+                    >
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center justify-center py-12 text-muted-foreground">
+                Failed to load key details
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Redis Key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the key <span className="font-mono bg-muted px-2 py-0.5 rounded">{redisSelectedKey}</span>? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRedisDeleteKey}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+
   const renderActiveTabContent = () => {
     if (!activeTab) return renderEmptyState();
 
@@ -1259,6 +1597,19 @@ export function ConnectionDetails() {
         return renderEmptyState();
     }
   };
+
+  // Redis-specific layout without sidebar or tabs
+  if (connection.type === "redis") {
+    return (
+      <div className="flex flex-col h-screen">
+        <RedisContentHeader connection={connection} navigate={navigate} />
+
+        <div className="flex-1 p-4 min-w-0 overflow-auto">
+          {renderRedisView()}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider>
@@ -1514,7 +1865,7 @@ export function ConnectionDetails() {
           activeTabId={activeTabId}
           onTabSelect={handleTabSelect}
           onTabClose={handleCloseTab}
-          onNewQuery={handleNewQuery}
+          onNewQuery={connection.type === "redis" ? handleNewRedisQuery : handleNewQuery}
         />
 
         <div className="flex-1 p-4 min-w-0 overflow-auto">

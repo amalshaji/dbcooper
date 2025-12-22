@@ -1,6 +1,7 @@
 import type { TableDataResponse } from "./tableData";
+import type { RedisKeyInfo, RedisKeyDetails } from "@/lib/tauri";
 
-export type TabType = "table-data" | "table-structure" | "query";
+export type TabType = "table-data" | "table-structure" | "query" | "redis-query";
 
 export interface TableColumn {
 	name: string;
@@ -64,7 +65,17 @@ export interface QueryTab extends BaseTab {
 	executing: boolean;
 }
 
-export type Tab = TableDataTab | TableStructureTab | QueryTab;
+export interface RedisQueryTab extends BaseTab {
+	type: "redis-query";
+	pattern: string;
+	keys: RedisKeyInfo[] | null;
+	selectedKey: string | null;
+	keyDetails: RedisKeyDetails | null;
+	loadingKeys: boolean;
+	loadingDetails: boolean;
+}
+
+export type Tab = TableDataTab | TableStructureTab | QueryTab | RedisQueryTab;
 
 export function createTableDataTab(tableName: string): TableDataTab {
 	return {
@@ -109,5 +120,19 @@ export function createQueryTab(
 		success: false,
 		executionTime: null,
 		executing: false,
+	};
+}
+
+export function createRedisQueryTab(pattern: string = "*"): RedisQueryTab {
+	return {
+		id: `redis-query-${Date.now()}`,
+		type: "redis-query",
+		title: "Redis Keys",
+		pattern,
+		keys: null,
+		selectedKey: null,
+		keyDetails: null,
+		loadingKeys: false,
+		loadingDetails: false,
 	};
 }

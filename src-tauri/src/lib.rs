@@ -8,6 +8,7 @@ use commands::connections::{
     update_connection,
 };
 use commands::database::{
+    redis_delete_key, redis_get_key_details, redis_search_keys, redis_set_key,
     unified_execute_query, unified_get_table_data, unified_get_table_structure,
     unified_list_tables, unified_test_connection,
 };
@@ -54,6 +55,10 @@ pub fn run() {
             unified_get_table_data,
             unified_get_table_structure,
             unified_execute_query,
+            redis_search_keys,
+            redis_get_key_details,
+            redis_delete_key,
+            redis_set_key,
             get_saved_queries,
             create_saved_query,
             update_saved_query,

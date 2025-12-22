@@ -38,7 +38,7 @@ interface ConnectionFormProps {
 const databaseTypes: { value: ConnectionType; label: string; disabled: boolean; icon: React.ReactNode }[] = [
   { value: "postgres", label: "PostgreSQL", disabled: false, icon: <PostgresqlIcon className="w-4 h-4" /> },
   { value: "sqlite", label: "SQLite", disabled: false, icon: <SqliteIcon className="w-4 h-4" /> },
-  { value: "redis", label: "Redis (Coming Soon)", disabled: true, icon: <RedisIcon className="w-4 h-4" /> },
+  { value: "redis", label: "Redis", disabled: false, icon: <RedisIcon className="w-4 h-4" /> },
   { value: "clickhouse", label: "ClickHouse (Coming Soon)", disabled: true, icon: <ClickhouseIcon className="w-4 h-4" /> },
 ];
 
@@ -116,21 +116,46 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
   const handleTestConnection = async () => {
     setIsTesting(true);
     try {
-      const result = await api.postgres.testConnection({
-        host: formData.host,
-        port: formData.port,
-        database: formData.database,
-        username: formData.username,
-        password: formData.password,
-        ssl: formData.ssl,
-        ssh_enabled: formData.ssh_enabled,
-        ssh_host: formData.ssh_host,
-        ssh_port: formData.ssh_port,
-        ssh_user: formData.ssh_user,
-        ssh_password: formData.ssh_password,
-        ssh_key_path: formData.ssh_key_path,
-        ssh_use_key: formData.ssh_use_key,
-      });
+      // Use unified test connection for Redis and SQLite, postgres test for Postgres
+      const result = formData.type === "redis" || formData.type === "sqlite"
+        ? await api.database.testConnection({
+            id: 0,
+            uuid: "",
+            type: formData.type,
+            name: formData.name,
+            host: formData.host,
+            port: formData.port,
+            database: formData.database,
+            username: formData.username,
+            password: formData.password,
+            ssl: formData.ssl ? 1 : 0,
+            db_type: formData.db_type,
+            file_path: formData.file_path || null,
+            ssh_enabled: formData.ssh_enabled ? 1 : 0,
+            ssh_host: formData.ssh_host || "",
+            ssh_port: formData.ssh_port || 22,
+            ssh_user: formData.ssh_user || "",
+            ssh_password: formData.ssh_password || "",
+            ssh_key_path: formData.ssh_key_path || "",
+            ssh_use_key: formData.ssh_use_key ? 1 : 0,
+            created_at: "",
+            updated_at: "",
+          })
+        : await api.postgres.testConnection({
+            host: formData.host,
+            port: formData.port,
+            database: formData.database,
+            username: formData.username,
+            password: formData.password,
+            ssl: formData.ssl,
+            ssh_enabled: formData.ssh_enabled,
+            ssh_host: formData.ssh_host,
+            ssh_port: formData.ssh_port,
+            ssh_user: formData.ssh_user,
+            ssh_password: formData.ssh_password,
+            ssh_key_path: formData.ssh_key_path,
+            ssh_use_key: formData.ssh_use_key,
+          });
 
       if (result.success) {
         toast.success(result.message || "Connection successful!");
@@ -269,32 +294,53 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                   </Field>
                 </div>
 
-                <Field>
-                  <FieldLabel htmlFor="connection-database">Database</FieldLabel>
-                  <Input
-                    id="connection-database"
-                    type="text"
-                    required
-                    value={formData.database}
-                    onChange={(e) => setFormData({ ...formData, database: e.target.value })}
-                    placeholder="my_database"
-                  />
-                </Field>
+                {/* Redis uses database index, not database name */}
+                {formData.type === "redis" ? (
+                  <Field>
+                    <FieldLabel htmlFor="connection-database">Database Index (0-15)</FieldLabel>
+                    <Input
+                      id="connection-database"
+                      type="number"
+                      min="0"
+                      max="15"
+                      value={formData.database}
+                      onChange={(e) => setFormData({ ...formData, database: e.target.value })}
+                      placeholder="0"
+                    />
+                  </Field>
+                ) : (
+                  <Field>
+                    <FieldLabel htmlFor="connection-database">Database</FieldLabel>
+                    <Input
+                      id="connection-database"
+                      type="text"
+                      required={formData.type !== "redis"}
+                      value={formData.database}
+                      onChange={(e) => setFormData({ ...formData, database: e.target.value })}
+                      placeholder="my_database"
+                    />
+                  </Field>
+                )}
+
+                {/* Redis doesn't use username */}
+                {formData.type !== "redis" && (
+                  <Field>
+                    <FieldLabel htmlFor="connection-username">Username</FieldLabel>
+                    <Input
+                      id="connection-username"
+                      type="text"
+                      required
+                      value={formData.username}
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                      placeholder="postgres"
+                    />
+                  </Field>
+                )}
 
                 <Field>
-                  <FieldLabel htmlFor="connection-username">Username</FieldLabel>
-                  <Input
-                    id="connection-username"
-                    type="text"
-                    required
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    placeholder="postgres"
-                  />
-                </Field>
-
-                <Field>
-                  <FieldLabel htmlFor="connection-password">Password</FieldLabel>
+                  <FieldLabel htmlFor="connection-password">
+                    {formData.type === "redis" ? "Password (Optional)" : "Password"}
+                  </FieldLabel>
                   <div className="relative">
                     <Input
                       id="connection-password"
@@ -313,16 +359,19 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                   </div>
                 </Field>
 
-                <Field orientation="horizontal">
-                  <input
-                    type="checkbox"
-                    id="connection-ssl"
-                    checked={formData.ssl}
-                    onChange={(e) => setFormData({ ...formData, ssl: e.target.checked })}
-                    className="rounded border-input"
-                  />
-                  <FieldLabel htmlFor="connection-ssl">Use SSL</FieldLabel>
-                </Field>
+                {/* Redis doesn't use SSL */}
+                {formData.type !== "redis" && (
+                  <Field orientation="horizontal">
+                    <input
+                      type="checkbox"
+                      id="connection-ssl"
+                      checked={formData.ssl}
+                      onChange={(e) => setFormData({ ...formData, ssl: e.target.checked })}
+                      className="rounded border-input"
+                    />
+                    <FieldLabel htmlFor="connection-ssl">Use SSL</FieldLabel>
+                  </Field>
+                )}
 
                 {/* SSH Tunnel Section */}
                 <div className="border-t pt-4 mt-2">
