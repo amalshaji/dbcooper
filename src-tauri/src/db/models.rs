@@ -15,6 +15,8 @@ pub struct Connection {
     pub username: String,
     pub password: String,
     pub ssl: i64,
+    pub db_type: String,
+    pub file_path: Option<String>,
     pub ssh_enabled: i64,
     pub ssh_host: String,
     pub ssh_port: i64,
@@ -37,6 +39,10 @@ pub struct ConnectionFormData {
     pub username: String,
     pub password: String,
     pub ssl: bool,
+    #[serde(default = "default_db_type")]
+    pub db_type: String,
+    #[serde(default)]
+    pub file_path: Option<String>,
     #[serde(default)]
     pub ssh_enabled: bool,
     #[serde(default)]
@@ -51,6 +57,10 @@ pub struct ConnectionFormData {
     pub ssh_key_path: String,
     #[serde(default)]
     pub ssh_use_key: bool,
+}
+
+fn default_db_type() -> String {
+    "postgres".to_string()
 }
 
 fn default_ssh_port() -> i64 {

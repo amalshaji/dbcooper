@@ -738,6 +738,7 @@ name = "dbcooper"
 version = "0.1.0"
 dependencies = [
  "async-ssh2-lite",
+ "async-trait",
  "chrono",
  "dirs 5.0.1",
  "hex",

@@ -35,8 +35,8 @@ pub async fn create_connection(
 
     sqlx::query_as::<_, Connection>(
         r#"
-        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -49,6 +49,8 @@ pub async fn create_connection(
     .bind(&data.username)
     .bind(&data.password)
     .bind(ssl)
+    .bind(&data.db_type)
+    .bind(&data.file_path)
     .bind(ssh_enabled)
     .bind(&data.ssh_host)
     .bind(data.ssh_port)
@@ -75,6 +77,7 @@ pub async fn update_connection(
         r#"
         UPDATE connections
         SET type = ?, name = ?, host = ?, port = ?, database = ?, username = ?, password = ?, ssl = ?,
+            db_type = ?, file_path = ?,
             ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_user = ?, ssh_password = ?, ssh_key_path = ?, ssh_use_key = ?,
             updated_at = datetime('now')
         WHERE id = ?
@@ -89,6 +92,8 @@ pub async fn update_connection(
     .bind(&data.username)
     .bind(&data.password)
     .bind(ssl)
+    .bind(&data.db_type)
+    .bind(&data.file_path)
     .bind(ssh_enabled)
     .bind(&data.ssh_host)
     .bind(data.ssh_port)

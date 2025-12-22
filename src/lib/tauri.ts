@@ -11,6 +11,8 @@ export interface Connection {
 	username: string;
 	password: string;
 	ssl: number;
+	dbType: string;
+	filePath: string | null;
 	ssh_enabled: number;
 	ssh_host: string;
 	ssh_port: number;
@@ -32,6 +34,8 @@ export interface ConnectionFormData {
 	username: string;
 	password: string;
 	ssl: boolean;
+	dbType: string;
+	file_path?: string;
 	ssh_enabled?: boolean;
 	ssh_host?: string;
 	ssh_port?: number;
@@ -196,6 +200,88 @@ export const api = {
 				username: connection.username,
 				password: connection.password,
 				ssl: connection.ssl === 1,
+				query,
+			}),
+	},
+
+	// Unified database API that works with both Postgres and SQLite
+	database: {
+		testConnection: (connection: Connection) =>
+			invoke<TestConnectionResult>("unified_test_connection", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+			}),
+
+		listTables: (connection: Connection) =>
+			invoke<TableInfo[]>("unified_list_tables", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+			}),
+
+		getTableData: (
+			connection: Connection,
+			schema: string,
+			table: string,
+			page: number,
+			limit: number,
+			filter?: string,
+		) =>
+			invoke<TableDataResponse>("unified_get_table_data", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+				schema,
+				table,
+				page,
+				limit,
+				filter,
+			}),
+
+		getTableStructure: (
+			connection: Connection,
+			schema: string,
+			table: string,
+		) =>
+			invoke<TableStructure>("unified_get_table_structure", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+				schema,
+				table,
+			}),
+
+		executeQuery: (connection: Connection, query: string) =>
+			invoke<QueryResult>("unified_execute_query", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
 				query,
 			}),
 	},

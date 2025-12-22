@@ -15,6 +15,7 @@ import {
 import type { DatabaseTable } from "@/types/table";
 import type { SavedQuery } from "@/types/savedQuery";
 import { api, type Connection } from "@/lib/tauri";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -161,7 +162,7 @@ export function ConnectionDetails() {
     const fetchTables = async () => {
       if (!connection) return;
       try {
-        const data = await api.postgres.listTables(connection);
+        const data = await api.database.listTables(connection);
         setTables(data as DatabaseTable[]);
       } catch (error) {
         console.error("Failed to fetch tables:", error);
@@ -211,7 +212,7 @@ export function ConnectionDetails() {
 
       try {
         const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.postgres.getTableData(
+        const data = await api.database.getTableData(
           connection,
           schema,
           tableName,
@@ -223,6 +224,10 @@ export function ConnectionDetails() {
         updateTab<TableDataTab>(tab.id, { data, loading: false });
       } catch (error) {
         console.error("Failed to fetch table data:", error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        toast.error("Failed to load table data", {
+          description: errorMessage,
+        });
         updateTab<TableDataTab>(tab.id, { data: null, loading: false });
       }
     },
@@ -237,7 +242,7 @@ export function ConnectionDetails() {
 
       try {
         const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.postgres.getTableStructure(
+        const data = await api.database.getTableStructure(
           connection,
           schema,
           tableName
@@ -258,7 +263,7 @@ export function ConnectionDetails() {
 
       try {
         const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.postgres.getTableStructure(
+        const data = await api.database.getTableStructure(
           connection,
           schema,
           tableName
@@ -394,7 +399,7 @@ export function ConnectionDetails() {
 
     setRefreshingTables(true);
     try {
-      const data = await api.postgres.listTables(connection);
+      const data = await api.database.listTables(connection);
       setTables(data as DatabaseTable[]);
     } catch (error) {
       console.error("Failed to refresh tables:", error);
@@ -468,7 +473,7 @@ export function ConnectionDetails() {
       setLoadingColumns(newLoading);
 
       try {
-        const data = await api.postgres.getTableStructure(
+        const data = await api.database.getTableStructure(
           connection,
           schema,
           table
@@ -506,7 +511,7 @@ export function ConnectionDetails() {
     const startTime = performance.now();
 
     try {
-      const result = await api.postgres.executeQuery(connection, tab.query);
+      const result = await api.database.executeQuery(connection, tab.query);
 
       const endTime = performance.now();
       const executionTime = Math.round(endTime - startTime);
@@ -556,21 +561,44 @@ export function ConnectionDetails() {
     if (!tab.query.trim() || !saveQueryName.trim()) return;
 
     try {
-      const newQuery = await api.queries.create(uuid, {
-        name: saveQueryName,
-        query: tab.query,
-      });
+      // Check if this is an existing saved query
+      if (tab.savedQueryId) {
+        // Update existing query
+        const updatedQuery = await api.queries.update(tab.savedQueryId, {
+          name: saveQueryName,
+          query: tab.query,
+        });
 
-      setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
-      updateTab<QueryTab>(tab.id, {
-        savedQueryId: newQuery.id,
-        savedQueryName: newQuery.name,
-        title: newQuery.name,
-      });
+        setSavedQueries(
+          savedQueries.map((q) =>
+            q.id === tab.savedQueryId ? (updatedQuery as SavedQuery) : q
+          )
+        );
+        updateTab<QueryTab>(tab.id, {
+          savedQueryName: updatedQuery.name,
+          title: updatedQuery.name,
+        });
+        toast.success("Query updated successfully");
+      } else {
+        // Create new query
+        const newQuery = await api.queries.create(uuid, {
+          name: saveQueryName,
+          query: tab.query,
+        });
+
+        setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
+        updateTab<QueryTab>(tab.id, {
+          savedQueryId: newQuery.id,
+          savedQueryName: newQuery.name,
+          title: newQuery.name,
+        });
+        toast.success("Query saved successfully");
+      }
       setShowSaveDialog(false);
       setSaveQueryName("");
     } catch (error) {
       console.error("Failed to save query:", error);
+      toast.error("Failed to save query");
     }
   };
 
@@ -1005,7 +1033,13 @@ export function ConnectionDetails() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setShowSaveDialog(true)}
+                    onClick={() => {
+                      // Pre-populate name if this is an existing saved query
+                      if (tab.savedQueryName) {
+                        setSaveQueryName(tab.savedQueryName);
+                      }
+                      setShowSaveDialog(true);
+                    }}
                     disabled={!tab.query.trim()}
                   >
                     <FloppyDisk className="w-4 h-4 mr-2" />
@@ -1056,7 +1090,7 @@ export function ConnectionDetails() {
                 if (tablesToFetch.length > 0 && connection) {
                   const schemaPromises = tablesToFetch.map(async (table) => {
                     try {
-                      const data = await api.postgres.getTableStructure(
+                      const data = await api.database.getTableStructure(
                         connection,
                         table.schema,
                         table.name
@@ -1128,8 +1162,7 @@ export function ConnectionDetails() {
           <CardDescription>
             {tab.results !== null &&
               tab.results.length > 0 &&
-              `Returned ${tab.results.length} row${
-                tab.results.length !== 1 ? "s" : ""
+              `Returned ${tab.results.length} row${tab.results.length !== 1 ? "s" : ""
               }`}
             {tab.results !== null &&
               tab.results.length === 0 &&
@@ -1162,7 +1195,7 @@ export function ConnectionDetails() {
                 columns={queryColumns}
                 pageCount={1}
                 currentPage={1}
-                onPageChange={() => {}}
+                onPageChange={() => { }}
               />
             </div>
           ) : tab.success && tab.results && tab.results.length === 0 ? (
@@ -1296,9 +1329,8 @@ export function ConnectionDetails() {
                                 }
                               >
                                 <CaretRight
-                                  className={`w-3 h-3 transition-transform ${
-                                    isExpanded ? "rotate-90" : ""
-                                  }`}
+                                  className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""
+                                    }`}
                                 />
                                 <Table className="w-3 h-3" />
                                 <span className="truncate text-xs">

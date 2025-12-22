@@ -1,10 +1,15 @@
 mod commands;
+mod database;
 mod db;
 mod ssh_tunnel;
 
 use commands::connections::{
     create_connection, delete_connection, get_connection_by_uuid, get_connections,
     update_connection,
+};
+use commands::database::{
+    unified_execute_query, unified_get_table_data, unified_get_table_structure,
+    unified_list_tables, unified_test_connection,
 };
 use commands::postgres::{
     execute_query, get_table_data, get_table_structure, list_tables, test_connection,
@@ -44,6 +49,11 @@ pub fn run() {
             get_table_data,
             get_table_structure,
             execute_query,
+            unified_test_connection,
+            unified_list_tables,
+            unified_get_table_data,
+            unified_get_table_structure,
+            unified_execute_query,
             get_saved_queries,
             create_saved_query,
             update_saved_query,

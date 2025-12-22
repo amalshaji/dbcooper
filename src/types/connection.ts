@@ -1,4 +1,4 @@
-export type ConnectionType = "postgres" | "redis" | "clickhouse";
+export type ConnectionType = "postgres" | "sqlite" | "redis" | "clickhouse";
 
 export interface Connection {
   id: number;

@@ -23,6 +23,7 @@ import {
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { SqliteIcon } from "@/components/icons/sqlite";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
@@ -36,12 +37,14 @@ interface ConnectionFormProps {
 
 const databaseTypes: { value: ConnectionType; label: string; disabled: boolean; icon: React.ReactNode }[] = [
   { value: "postgres", label: "PostgreSQL", disabled: false, icon: <PostgresqlIcon className="w-4 h-4" /> },
+  { value: "sqlite", label: "SQLite", disabled: false, icon: <SqliteIcon className="w-4 h-4" /> },
   { value: "redis", label: "Redis (Coming Soon)", disabled: true, icon: <RedisIcon className="w-4 h-4" /> },
   { value: "clickhouse", label: "ClickHouse (Coming Soon)", disabled: true, icon: <ClickhouseIcon className="w-4 h-4" /> },
 ];
 
 const defaultPorts: Record<ConnectionType, number> = {
   postgres: 5432,
+  sqlite: 0,
   redis: 6379,
   clickhouse: 9000,
 };
@@ -55,6 +58,8 @@ const defaultFormData: ConnectionFormData = {
   username: "",
   password: "",
   ssl: false,
+  db_type: "postgres",
+  file_path: undefined,
   ssh_enabled: false,
   ssh_host: "",
   ssh_port: 22,
@@ -84,6 +89,8 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
         username: initialData.username,
         password: initialData.password,
         ssl: initialData.ssl === 1,
+        db_type: initialData.db_type || "postgres",
+        file_path: initialData.file_path || undefined,
         ssh_enabled: initialData.ssh_enabled === 1,
         ssh_host: initialData.ssh_host || "",
         ssh_port: initialData.ssh_port || 22,
@@ -101,6 +108,7 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
     setFormData({
       ...formData,
       type,
+      db_type: type,
       port: defaultPorts[type],
     });
   };
@@ -123,7 +131,7 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
         ssh_key_path: formData.ssh_key_path,
         ssh_use_key: formData.ssh_use_key,
       });
-      
+
       if (result.success) {
         toast.success(result.message || "Connection successful!");
       } else {
@@ -201,215 +209,255 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
               />
             </Field>
 
-            <div className="grid grid-cols-2 gap-4">
+            {/* SQLite-specific fields */}
+            {formData.type === "sqlite" && (
               <Field>
-                <FieldLabel htmlFor="connection-host">Host</FieldLabel>
-                <Input
-                  id="connection-host"
-                  type="text"
-                  required
-                  value={formData.host}
-                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                />
+                <FieldLabel htmlFor="connection-file-path">Database File</FieldLabel>
+                <div className="flex gap-2">
+                  <Input
+                    id="connection-file-path"
+                    type="text"
+                    required
+                    value={formData.file_path || ""}
+                    onChange={(e) => setFormData({ ...formData, file_path: e.target.value })}
+                    placeholder="/path/to/database.db"
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      const selected = await open({
+                        multiple: false,
+                        filters: [{ name: "SQLite Database", extensions: ["db", "sqlite", "sqlite3"] }],
+                      });
+                      if (selected) {
+                        setFormData({ ...formData, file_path: selected as string });
+                      }
+                    }}
+                  >
+                    Browse
+                  </Button>
+                </div>
               </Field>
+            )}
 
-              <Field>
-                <FieldLabel htmlFor="connection-port">Port</FieldLabel>
-                <Input
-                  id="connection-port"
-                  type="number"
-                  required
-                  value={formData.port}
-                  onChange={(e) => setFormData({ ...formData, port: Number(e.target.value) })}
-                />
-              </Field>
-            </div>
-
-            <Field>
-              <FieldLabel htmlFor="connection-database">Database</FieldLabel>
-              <Input
-                id="connection-database"
-                type="text"
-                required
-                value={formData.database}
-                onChange={(e) => setFormData({ ...formData, database: e.target.value })}
-                placeholder="my_database"
-              />
-            </Field>
-
-            <Field>
-              <FieldLabel htmlFor="connection-username">Username</FieldLabel>
-              <Input
-                id="connection-username"
-                type="text"
-                required
-                value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                placeholder="postgres"
-              />
-            </Field>
-
-            <Field>
-              <FieldLabel htmlFor="connection-password">Password</FieldLabel>
-              <div className="relative">
-                <Input
-                  id="connection-password"
-                  type={showPassword ? "text" : "password"}
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
-              </div>
-            </Field>
-
-            <Field orientation="horizontal">
-              <input
-                type="checkbox"
-                id="connection-ssl"
-                checked={formData.ssl}
-                onChange={(e) => setFormData({ ...formData, ssl: e.target.checked })}
-                className="rounded border-input"
-              />
-              <FieldLabel htmlFor="connection-ssl">Use SSL</FieldLabel>
-            </Field>
-
-            {/* SSH Tunnel Section */}
-            <div className="border-t pt-4 mt-2">
-              <Field orientation="horizontal">
-                <input
-                  type="checkbox"
-                  id="connection-ssh-enabled"
-                  checked={formData.ssh_enabled}
-                  onChange={(e) => setFormData({ ...formData, ssh_enabled: e.target.checked })}
-                  className="rounded border-input"
-                />
-                <FieldLabel htmlFor="connection-ssh-enabled">Connect over SSH</FieldLabel>
-              </Field>
-
-              {formData.ssh_enabled && (
-                <div className="mt-4 space-y-4 pl-6 border-l-2 border-muted">
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field>
-                      <FieldLabel htmlFor="ssh-host">SSH Host</FieldLabel>
-                      <Input
-                        id="ssh-host"
-                        type="text"
-                        value={formData.ssh_host}
-                        onChange={(e) => setFormData({ ...formData, ssh_host: e.target.value })}
-                        placeholder="jump-server.example.com"
-                      />
-                    </Field>
-
-                    <Field>
-                      <FieldLabel htmlFor="ssh-port">SSH Port</FieldLabel>
-                      <Input
-                        id="ssh-port"
-                        type="number"
-                        value={formData.ssh_port}
-                        onChange={(e) => setFormData({ ...formData, ssh_port: Number(e.target.value) })}
-                      />
-                    </Field>
-                  </div>
-
+            {/* Postgres/Server-based connection fields */}
+            {formData.type !== "sqlite" && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
                   <Field>
-                    <FieldLabel htmlFor="ssh-user">SSH User</FieldLabel>
+                    <FieldLabel htmlFor="connection-host">Host</FieldLabel>
                     <Input
-                      id="ssh-user"
+                      id="connection-host"
                       type="text"
-                      value={formData.ssh_user}
-                      onChange={(e) => setFormData({ ...formData, ssh_user: e.target.value })}
-                      placeholder="ubuntu"
+                      required
+                      value={formData.host}
+                      onChange={(e) => setFormData({ ...formData, host: e.target.value })}
                     />
                   </Field>
 
+                  <Field>
+                    <FieldLabel htmlFor="connection-port">Port</FieldLabel>
+                    <Input
+                      id="connection-port"
+                      type="number"
+                      required
+                      value={formData.port}
+                      onChange={(e) => setFormData({ ...formData, port: Number(e.target.value) })}
+                    />
+                  </Field>
+                </div>
+
+                <Field>
+                  <FieldLabel htmlFor="connection-database">Database</FieldLabel>
+                  <Input
+                    id="connection-database"
+                    type="text"
+                    required
+                    value={formData.database}
+                    onChange={(e) => setFormData({ ...formData, database: e.target.value })}
+                    placeholder="my_database"
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="connection-username">Username</FieldLabel>
+                  <Input
+                    id="connection-username"
+                    type="text"
+                    required
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    placeholder="postgres"
+                  />
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="connection-password">Password</FieldLabel>
+                  <div className="relative">
+                    <Input
+                      id="connection-password"
+                      type={showPassword ? "text" : "password"}
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                </Field>
+
+                <Field orientation="horizontal">
+                  <input
+                    type="checkbox"
+                    id="connection-ssl"
+                    checked={formData.ssl}
+                    onChange={(e) => setFormData({ ...formData, ssl: e.target.checked })}
+                    className="rounded border-input"
+                  />
+                  <FieldLabel htmlFor="connection-ssl">Use SSL</FieldLabel>
+                </Field>
+
+                {/* SSH Tunnel Section */}
+                <div className="border-t pt-4 mt-2">
                   <Field orientation="horizontal">
                     <input
                       type="checkbox"
-                      id="ssh-use-key"
-                      checked={formData.ssh_use_key}
-                      onChange={(e) => setFormData({ ...formData, ssh_use_key: e.target.checked })}
+                      id="connection-ssh-enabled"
+                      checked={formData.ssh_enabled}
+                      onChange={(e) => setFormData({ ...formData, ssh_enabled: e.target.checked })}
                       className="rounded border-input"
                     />
-                    <FieldLabel htmlFor="ssh-use-key">Use SSH Key</FieldLabel>
+                    <FieldLabel htmlFor="connection-ssh-enabled">Connect over SSH</FieldLabel>
                   </Field>
 
-                  {formData.ssh_use_key ? (
-                    <Field>
-                      <FieldLabel htmlFor="ssh-key-path">SSH Key Path</FieldLabel>
-                      <div className="flex gap-2">
+                  {formData.ssh_enabled && (
+                    <div className="mt-4 space-y-4 pl-6 border-l-2 border-muted">
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field>
+                          <FieldLabel htmlFor="ssh-host">SSH Host</FieldLabel>
+                          <Input
+                            id="ssh-host"
+                            type="text"
+                            value={formData.ssh_host}
+                            onChange={(e) => setFormData({ ...formData, ssh_host: e.target.value })}
+                            placeholder="jump-server.example.com"
+                          />
+                        </Field>
+
+                        <Field>
+                          <FieldLabel htmlFor="ssh-port">SSH Port</FieldLabel>
+                          <Input
+                            id="ssh-port"
+                            type="number"
+                            value={formData.ssh_port}
+                            onChange={(e) => setFormData({ ...formData, ssh_port: Number(e.target.value) })}
+                          />
+                        </Field>
+                      </div>
+
+                      <Field>
+                        <FieldLabel htmlFor="ssh-user">SSH User</FieldLabel>
                         <Input
-                          id="ssh-key-path"
+                          id="ssh-user"
                           type="text"
-                          value={formData.ssh_key_path}
-                          onChange={(e) => setFormData({ ...formData, ssh_key_path: e.target.value })}
-                          placeholder="~/.ssh/id_rsa"
-                          className="flex-1"
+                          value={formData.ssh_user}
+                          onChange={(e) => setFormData({ ...formData, ssh_user: e.target.value })}
+                          placeholder="ubuntu"
                         />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={async () => {
-                            const selected = await open({
-                              multiple: false,
-                              directory: false,
-                              title: "Select SSH Key",
-                            });
-                            if (selected) {
-                              setFormData({ ...formData, ssh_key_path: selected as string });
-                            }
-                          }}
-                        >
-                          Browse
-                        </Button>
-                      </div>
-                    </Field>
-                  ) : (
-                    <Field>
-                      <FieldLabel htmlFor="ssh-password">SSH Password</FieldLabel>
-                      <div className="relative">
-                        <Input
-                          id="ssh-password"
-                          type={showSshPassword ? "text" : "password"}
-                          value={formData.ssh_password}
-                          onChange={(e) => setFormData({ ...formData, ssh_password: e.target.value })}
-                          className="pr-10"
+                      </Field>
+
+                      <Field orientation="horizontal">
+                        <input
+                          type="checkbox"
+                          id="ssh-use-key"
+                          checked={formData.ssh_use_key}
+                          onChange={(e) => setFormData({ ...formData, ssh_use_key: e.target.checked })}
+                          className="rounded border-input"
                         />
-                        <button
-                          type="button"
-                          onClick={() => setShowSshPassword(!showSshPassword)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          {showSshPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        </button>
-                      </div>
-                    </Field>
+                        <FieldLabel htmlFor="ssh-use-key">Use SSH Key</FieldLabel>
+                      </Field>
+
+                      {formData.ssh_use_key ? (
+                        <Field>
+                          <FieldLabel htmlFor="ssh-key-path">SSH Key Path</FieldLabel>
+                          <div className="flex gap-2">
+                            <Input
+                              id="ssh-key-path"
+                              type="text"
+                              value={formData.ssh_key_path}
+                              onChange={(e) => setFormData({ ...formData, ssh_key_path: e.target.value })}
+                              placeholder="~/.ssh/id_rsa"
+                              className="flex-1"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                const selected = await open({
+                                  multiple: false,
+                                  directory: false,
+                                  title: "Select SSH Key",
+                                });
+                                if (selected) {
+                                  setFormData({ ...formData, ssh_key_path: selected as string });
+                                }
+                              }}
+                            >
+                              Browse
+                            </Button>
+                          </div>
+                        </Field>
+                      ) : (
+                        <Field>
+                          <FieldLabel htmlFor="ssh-password">SSH Password</FieldLabel>
+                          <div className="relative">
+                            <Input
+                              id="ssh-password"
+                              type={showSshPassword ? "text" : "password"}
+                              value={formData.ssh_password}
+                              onChange={(e) => setFormData({ ...formData, ssh_password: e.target.value })}
+                              className="pr-10"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowSshPassword(!showSshPassword)}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                            >
+                              {showSshPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        </Field>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </FieldGroup>
 
           <AlertDialogFooter className="mt-6">
             <Button variant="outline" type="button" onClick={onCancel}>
               Cancel
             </Button>
-            <Button 
-              variant="secondary" 
-              type="button" 
-              onClick={handleTestConnection}
-              disabled={isTesting}
-            >
-              {isTesting && <Spinner className="mr-2" />}
-              Test Connection
-            </Button>
+            {formData.type !== "sqlite" && (
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={handleTestConnection}
+                disabled={isTesting}
+              >
+                {isTesting && <Spinner className="mr-2" />}
+                Test Connection
+              </Button>
+            )}
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Spinner className="mr-2" />}
               {isEditMode ? "Save" : "Create"}
