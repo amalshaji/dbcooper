@@ -1,0 +1,4 @@
+@import "tailwindcss";
+@import "@fontsource/google-sans-flex";
+
+@custom-variant dark (&:where(.dark, .dark *));
