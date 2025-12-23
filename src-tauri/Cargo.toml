@@ -40,6 +40,12 @@ thiserror = "2"
 hex = "0.4"
 async-ssh2-lite = { version = "0.5", features = ["tokio"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+reqwest = { version = "0.12", features = [
+    "json",
+    "rustls-tls",
+    "stream",
+], default-features = false }
+futures-util = "0.3"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"

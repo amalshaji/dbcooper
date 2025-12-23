@@ -3,6 +3,7 @@ mod database;
 mod db;
 mod ssh_tunnel;
 
+use commands::ai::generate_sql;
 use commands::connections::{
     create_connection, delete_connection, get_connection_by_uuid, get_connections,
     update_connection,
@@ -66,6 +67,7 @@ pub fn run() {
             get_setting,
             set_setting,
             get_all_settings,
+            generate_sql,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

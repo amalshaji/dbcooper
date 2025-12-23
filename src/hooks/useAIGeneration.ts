@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/tauri";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 interface TableSchema {
   schema: string;
@@ -9,6 +11,62 @@ interface TableSchema {
     type: string;
     nullable: boolean;
   }>;
+}
+
+interface AiChunkPayload {
+  chunk: string;
+  session_id: string;
+}
+
+interface AiDonePayload {
+  session_id: string;
+  full_response: string;
+}
+
+interface AiErrorPayload {
+  session_id: string;
+  error: string;
+}
+
+// Global listener management to prevent duplicates in React Strict Mode
+let globalUnlistenChunk: UnlistenFn | null = null;
+let globalUnlistenDone: UnlistenFn | null = null;
+let globalUnlistenError: UnlistenFn | null = null;
+let listenerSessionId: string | null = null;
+let listenerOnStream: ((chunk: string) => void) | null = null;
+let listenerResolve: (() => void) | null = null;
+let listenerReject: ((error: Error) => void) | null = null;
+let listenersSetup = false;
+
+async function setupGlobalListeners() {
+  if (listenersSetup) return;
+  listenersSetup = true;
+
+  globalUnlistenChunk = await listen<AiChunkPayload>("ai-chunk", (event) => {
+    if (event.payload.session_id === listenerSessionId && listenerOnStream) {
+      listenerOnStream(event.payload.chunk);
+    }
+  });
+
+  globalUnlistenDone = await listen<AiDonePayload>("ai-done", (event) => {
+    if (event.payload.session_id === listenerSessionId) {
+      listenerSessionId = null;
+      if (listenerResolve) {
+        listenerResolve();
+        listenerResolve = null;
+      }
+    }
+  });
+
+  globalUnlistenError = await listen<AiErrorPayload>("ai-error", (event) => {
+    if (event.payload.session_id === listenerSessionId) {
+      listenerSessionId = null;
+      if (listenerReject) {
+        listenerReject(new Error(event.payload.error));
+        listenerReject = null;
+      }
+    }
+  });
 }
 
 export function useAIGeneration() {
@@ -29,7 +87,13 @@ export function useAIGeneration() {
     checkConfig();
   }, []);
 
-  const generateSQL = async (
+  useEffect(() => {
+    setupGlobalListeners();
+    // Don't cleanup global listeners since they're shared
+  }, []);
+
+  const generateSQL = useCallback(async (
+    dbType: string,
     instruction: string,
     existingSQL: string,
     tables: TableSchema[],
@@ -38,116 +102,34 @@ export function useAIGeneration() {
     setGenerating(true);
     setError(null);
 
-    try {
-      const settings = await api.settings.getAll();
-      const apiKey = settings.openai_api_key;
-      const endpoint = settings.openai_endpoint || "https://api.openai.com/v1";
-      const model = settings.openai_model || "gpt-4.1";
+    const sessionId = `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    listenerSessionId = sessionId;
+    listenerOnStream = onStream;
 
-      if (!apiKey) {
-        throw new Error("OpenAI API key not configured. Please add it in Settings.");
-      }
+    return new Promise<void>((resolve, reject) => {
+      listenerResolve = () => {
+        setGenerating(false);
+        resolve();
+      };
+      listenerReject = (err) => {
+        setGenerating(false);
+        setError(err.message);
+        reject(err);
+      };
 
-      const systemPrompt = `You are a PostgreSQL SQL expert. Generate SQL queries based on user instructions.
-
-Available tables and schemas:
-${tables.map(t => `${t.schema}.${t.name}${t.columns ? `\n  Columns: ${t.columns.map(c => `${c.name} (${c.type}${c.nullable ? ', nullable' : ''})`).join(', ')}` : ''}`).join('\n\n')}
-
-Rules:
-- Return ONLY the raw SQL query, no markdown formatting, no code blocks, no explanations
-- Use proper PostgreSQL syntax
-- Consider the existing SQL if provided as context`;
-
-      const userPrompt = existingSQL
-        ? `Modify this SQL query:\n\`\`\`sql\n${existingSQL}\n\`\`\`\n\nInstruction: ${instruction}`
-        : `Generate SQL query: ${instruction}`;
-
-      const response = await fetch(`${endpoint}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          stream: true,
-          temperature: 0.3,
-        }),
+      invoke("generate_sql", {
+        sessionId,
+        dbType,
+        instruction,
+        existingSql: existingSQL,
+        tables,
+      }).catch((err) => {
+        setGenerating(false);
+        setError(err instanceof Error ? err.message : String(err));
+        reject(err);
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || `API error: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No response body");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let accumulatedResponse = "";
-      let lastCleanedLength = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") continue;
-
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content;
-              if (content) {
-                accumulatedResponse += content;
-                
-                // Clean the accumulated response
-                let cleanedSQL = accumulatedResponse;
-                
-                // Remove opening ```sql or ``` if present at start
-                cleanedSQL = cleanedSQL.replace(/^```sql\s*/i, '').replace(/^```\s*/i, '');
-                
-                // Only remove closing ``` if we've seen it
-                if (cleanedSQL.includes('```')) {
-                  cleanedSQL = cleanedSQL.replace(/\s*```$/i, '');
-                }
-                
-                cleanedSQL = cleanedSQL.trim();
-                
-                // Only send the new portion since last update
-                if (cleanedSQL.length > lastCleanedLength) {
-                  const newContent = cleanedSQL.substring(lastCleanedLength);
-                  lastCleanedLength = cleanedSQL.length;
-                  onStream(newContent);
-                }
-              }
-            } catch (e) {
-              // Skip invalid JSON
-            }
-          }
-        }
-      }
-
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to generate SQL";
-      setError(message);
-      throw err;
-    } finally {
-      setGenerating(false);
-    }
-  };
+    });
+  }, []);
 
   return { generateSQL, generating, error, isConfigured };
 }

@@ -65,6 +65,7 @@ pub struct RedisConfig {
 }
 
 /// Database type enum for dispatching
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum DatabaseType {
     Postgres,
@@ -73,6 +74,7 @@ pub enum DatabaseType {
 }
 
 impl DatabaseType {
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "postgres" | "postgresql" => Some(DatabaseType::Postgres),

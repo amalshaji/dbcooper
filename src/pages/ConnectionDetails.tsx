@@ -1191,8 +1191,9 @@ export function ConnectionDetails() {
                   setTableColumns(newColumns);
 
                   // Use the updated columns for generation
-                  let generatedSQL = "";
+                  let accumulatedSQL = '';
                   await generateSQL(
+                    connection.db_type || 'postgres',
                     instruction,
                     existingSQL,
                     tables.map(t => ({
@@ -1201,14 +1202,15 @@ export function ConnectionDetails() {
                       columns: newColumns[`${t.schema}.${t.name}`]
                     })),
                     (chunk) => {
-                      generatedSQL += chunk;
-                      handleQueryChange(generatedSQL);
+                      accumulatedSQL += chunk;
+                      handleQueryChange(accumulatedSQL);
                     }
                   );
                 } else {
                   // All schemas already cached
-                  let generatedSQL = "";
+                  let accumulatedSQL = '';
                   await generateSQL(
+                    connection.db_type || 'postgres',
                     instruction,
                     existingSQL,
                     tables.map(t => ({
@@ -1217,8 +1219,8 @@ export function ConnectionDetails() {
                       columns: tableColumns[`${t.schema}.${t.name}`]
                     })),
                     (chunk) => {
-                      generatedSQL += chunk;
-                      handleQueryChange(generatedSQL);
+                      accumulatedSQL += chunk;
+                      handleQueryChange(accumulatedSQL);
                     }
                   );
                 }

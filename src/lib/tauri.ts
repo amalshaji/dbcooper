@@ -11,8 +11,8 @@ export interface Connection {
 	username: string;
 	password: string;
 	ssl: number;
-	dbType: string;
-	filePath: string | null;
+	db_type: string;
+	file_path: string | null;
 	ssh_enabled: number;
 	ssh_host: string;
 	ssh_port: number;

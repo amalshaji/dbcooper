@@ -1,12 +1,10 @@
 use async_trait::async_trait;
 use redis::AsyncCommands;
 use serde_json::{json, Value};
-use std::time::Duration;
 
 use super::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
-    TableStructure, TestConnectionResult,
+    QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -65,12 +63,12 @@ impl RedisDriver {
     }
 
     /// Create a Redis client connection
-    async fn get_connection(&self) -> Result<redis::aio::Connection, String> {
+    async fn get_connection(&self) -> Result<redis::aio::MultiplexedConnection, String> {
         let client = redis::Client::open(self.build_connection_string())
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(|e| format!("Failed to connect to Redis: {}", e))
     }
@@ -90,64 +88,55 @@ impl RedisDriver {
     }
 
     /// Create connection with SSH tunnel support
+    #[allow(dead_code)]
     async fn get_connection_with_tunnel(
         &self,
         tunnel: &SshTunnel,
-    ) -> Result<redis::aio::Connection, String> {
-        let conn_str = self.build_connection_string_with_host(
-            "127.0.0.1",
-            tunnel.local_port,
-        );
+    ) -> Result<redis::aio::MultiplexedConnection, String> {
+        let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
 
         let client = redis::Client::open(conn_str)
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(|e| format!("Failed to connect to Redis through tunnel: {}", e))
     }
 
     /// Convert Redis value to JSON
-    fn redis_value_to_json(value: &redis::Value, key_type: &str) -> Value {
+    fn redis_value_to_json(value: &redis::Value, _key_type: &str) -> Value {
         match value {
             redis::Value::Nil => json!(null),
             redis::Value::SimpleString(s) => json!(s),
-            redis::Value::BulkString(bytes) => {
-                match String::from_utf8(bytes.clone()) {
-                    Ok(s) => json!(s),
-                    Err(_) => json!(format!("<binary data: {} bytes>", bytes.len())),
-                }
-            }
+            redis::Value::BulkString(bytes) => match String::from_utf8(bytes.clone()) {
+                Ok(s) => json!(s),
+                Err(_) => json!(format!("<binary data: {} bytes>", bytes.len())),
+            },
             redis::Value::Array(arr) => {
                 let values: Vec<Value> = arr
                     .iter()
-                    .map(|v| Self::redis_value_to_json(v, key_type))
+                    .map(|v| Self::redis_value_to_json(v, _key_type))
                     .collect();
                 json!(values)
             }
             redis::Value::Int(i) => json!(i),
             redis::Value::Double(d) => json!(d),
             redis::Value::Map(map) => {
-                let obj = serde_json::Map::from_iter(
-                    map.iter()
-                        .filter_map(|(k, v)| {
-                            match k {
-                                redis::Value::BulkString(bytes) => {
-                                    String::from_utf8(bytes.clone()).ok().map(|key| {
-                                        (key, Self::redis_value_to_json(v, key_type))
-                                    })
-                                }
-                                _ => None,
-                            }
-                        })
-                );
+                let obj = serde_json::Map::from_iter(map.iter().filter_map(|(k, v)| {
+                    match k {
+                        redis::Value::BulkString(bytes) => String::from_utf8(bytes.clone())
+                            .ok()
+                            .map(|key| (key, Self::redis_value_to_json(v, _key_type))),
+                        _ => None,
+                    }
+                }));
                 json!(obj)
             }
             redis::Value::Set(set) => {
                 let values: Vec<Value> = set
                     .iter()
-                    .map(|v| Self::redis_value_to_json(v, key_type))
+                    .map(|v| Self::redis_value_to_json(v, _key_type))
                     .collect();
                 json!(values)
             }
@@ -156,7 +145,8 @@ impl RedisDriver {
     }
 
     /// Get the size/length of a Redis value
-    fn get_value_length(value: &redis::Value, key_type: &str) -> Option<usize> {
+    #[allow(dead_code)]
+    fn get_value_length(value: &redis::Value, _key_type: &str) -> Option<usize> {
         match value {
             redis::Value::BulkString(bytes) => Some(bytes.len()),
             redis::Value::Array(arr) => Some(arr.len()),
@@ -273,7 +263,11 @@ impl DatabaseDriver for RedisDriver {
 
 impl RedisDriver {
     /// Search for keys matching a pattern
-    pub async fn search_keys(&self, pattern: &str, limit: i64) -> Result<RedisKeyListResponse, String> {
+    pub async fn search_keys(
+        &self,
+        pattern: &str,
+        limit: i64,
+    ) -> Result<RedisKeyListResponse, String> {
         let mut conn = self.get_connection().await?;
 
         let keys: Vec<String> = conn
@@ -294,14 +288,16 @@ impl RedisDriver {
                 .unwrap_or_else(|_| "none".to_string());
 
             // Get TTL
-            let ttl: i64 = conn
-                .ttl(key)
-                .await
-                .unwrap_or(-1);
+            let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
 
             // Get memory usage (size) if available
             let size = if key_type != "none" {
-                match redis::cmd("MEMORY").arg("USAGE").arg(key).query_async::<i64>(&mut conn).await {
+                match redis::cmd("MEMORY")
+                    .arg("USAGE")
+                    .arg(key)
+                    .query_async::<i64>(&mut conn)
+                    .await
+                {
                     Ok(s) => Some(s as usize),
                     Err(_) => None,
                 }
@@ -354,7 +350,8 @@ impl RedisDriver {
                 json!(val)
             }
             "zset" => {
-                let val: Vec<(String, f64)> = conn.zrange_withscores(key, 0, -1).await.unwrap_or_default();
+                let val: Vec<(String, f64)> =
+                    conn.zrange_withscores(key, 0, -1).await.unwrap_or_default();
                 json!(val)
             }
             "hash" => {
@@ -370,7 +367,9 @@ impl RedisDriver {
         };
 
         // Get memory usage
-        let size = redis::cmd("MEMORY").arg("USAGE").arg(key)
+        let size = redis::cmd("MEMORY")
+            .arg("USAGE")
+            .arg(key)
             .query_async::<i64>(&mut conn)
             .await
             .ok()
@@ -390,7 +389,9 @@ impl RedisDriver {
         };
 
         // Get encoding
-        let encoding = redis::cmd("OBJECT").arg("ENCODING").arg(key)
+        let encoding = redis::cmd("OBJECT")
+            .arg("ENCODING")
+            .arg(key)
             .query_async::<String>(&mut conn)
             .await
             .ok();
@@ -420,7 +421,10 @@ impl RedisDriver {
         let mut conn = self.get_connection().await?;
 
         if let Some(expiry) = ttl {
-            let _: String = conn.set_ex(key, value, expiry as u64).await.map_err(|e| e.to_string())?;
+            let _: String = conn
+                .set_ex(key, value, expiry as u64)
+                .await
+                .map_err(|e| e.to_string())?;
         } else {
             let _: String = conn.set(key, value).await.map_err(|e| e.to_string())?;
         }
@@ -443,18 +447,21 @@ impl RedisDriver {
     ) -> Result<(Self, SshTunnel), String> {
         let driver = Self::new(config.clone());
 
-        let key_path = if ssh_use_key && ssh_key_path.is_some() {
-            let key = ssh_key_path.unwrap();
-            if !key.is_empty() {
-                // Expand ~ to home directory
-                if key.starts_with("~") {
-                    if let Some(home) = dirs::home_dir() {
-                        Some(key.replacen("~", home.to_str().unwrap_or(""), 1))
+        let key_path = if ssh_use_key {
+            if let Some(key) = ssh_key_path {
+                if !key.is_empty() {
+                    // Expand ~ to home directory
+                    if key.starts_with("~") {
+                        if let Some(home) = dirs::home_dir() {
+                            Some(key.replacen("~", home.to_str().unwrap_or(""), 1))
+                        } else {
+                            Some(key.to_string())
+                        }
                     } else {
                         Some(key.to_string())
                     }
                 } else {
-                    Some(key.to_string())
+                    None
                 }
             } else {
                 None
@@ -463,11 +470,7 @@ impl RedisDriver {
             None
         };
 
-        let password_opt = if !ssh_use_key {
-            ssh_password
-        } else {
-            None
-        };
+        let password_opt = if !ssh_use_key { ssh_password } else { None };
 
         let tunnel = SshTunnel::new(
             ssh_host,
@@ -496,7 +499,7 @@ impl RedisDriver {
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(|e| format!("Failed to connect to Redis: {}", e))?;
 
@@ -510,11 +513,19 @@ impl RedisDriver {
         let mut key_infos = Vec::new();
 
         for key in &limited_keys {
-            let key_type: String = conn.key_type(key).await.unwrap_or_else(|_| "none".to_string());
+            let key_type: String = conn
+                .key_type(key)
+                .await
+                .unwrap_or_else(|_| "none".to_string());
             let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
 
             let size = if key_type != "none" {
-                match redis::cmd("MEMORY").arg("USAGE").arg(key).query_async::<i64>(&mut conn).await {
+                match redis::cmd("MEMORY")
+                    .arg("USAGE")
+                    .arg(key)
+                    .query_async::<i64>(&mut conn)
+                    .await
+                {
                     Ok(s) => Some(s as usize),
                     Err(_) => None,
                 }
@@ -548,7 +559,7 @@ impl RedisDriver {
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(|e| format!("Failed to connect to Redis: {}", e))?;
 
@@ -574,7 +585,8 @@ impl RedisDriver {
                 json!(val)
             }
             "zset" => {
-                let val: Vec<(String, f64)> = conn.zrange_withscores(key, 0, -1).await.unwrap_or_default();
+                let val: Vec<(String, f64)> =
+                    conn.zrange_withscores(key, 0, -1).await.unwrap_or_default();
                 json!(val)
             }
             "hash" => {
@@ -585,7 +597,9 @@ impl RedisDriver {
             _ => json!(null),
         };
 
-        let size = redis::cmd("MEMORY").arg("USAGE").arg(key)
+        let size = redis::cmd("MEMORY")
+            .arg("USAGE")
+            .arg(key)
             .query_async::<i64>(&mut conn)
             .await
             .ok()
@@ -603,7 +617,9 @@ impl RedisDriver {
             _ => None,
         };
 
-        let encoding = redis::cmd("OBJECT").arg("ENCODING").arg(key)
+        let encoding = redis::cmd("OBJECT")
+            .arg("ENCODING")
+            .arg(key)
             .query_async::<String>(&mut conn)
             .await
             .ok();
@@ -620,19 +636,25 @@ impl RedisDriver {
     }
 
     /// Test connection through SSH tunnel
-    pub async fn test_connection_with_tunnel(&self, tunnel: &SshTunnel) -> Result<TestConnectionResult, String> {
+    #[allow(dead_code)]
+    pub async fn test_connection_with_tunnel(
+        &self,
+        tunnel: &SshTunnel,
+    ) -> Result<TestConnectionResult, String> {
         let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
 
         let client = redis::Client::open(conn_str)
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .map_err(|e| format!("Failed to connect to Redis: {}", e))?;
 
         // Test with PING
-        let _: String = redis::cmd("PING").query_async(&mut conn).await
+        let _: String = redis::cmd("PING")
+            .query_async(&mut conn)
+            .await
             .map_err(|e| format!("Redis PING failed: {}", e))?;
 
         Ok(TestConnectionResult {
