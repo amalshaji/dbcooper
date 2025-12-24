@@ -18,6 +18,7 @@ import { Database, Gear, GithubLogo, PencilSimple, Trash } from "@phosphor-icons
 import { api, Connection, ConnectionFormData } from "@/lib/tauri";
 import { Spinner } from "@/components/ui/spinner";
 import { UpdateChecker } from "@/components/UpdateChecker";
+import { handleDragStart } from "@/lib/windowDrag";
 
 export function Connections() {
   const navigate = useNavigate();
@@ -110,7 +111,7 @@ export function Connections() {
     <div className="min-h-screen bg-background flex flex-col">
       {/* Titlebar region */}
       <header
-        data-tauri-drag-region
+        onMouseDown={handleDragStart}
         className="h-10 shrink-0 flex items-center justify-end gap-2 px-4 pl-20 border-b bg-background"
       >
         <UpdateChecker />

@@ -96,6 +96,7 @@ import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { handleDragStart } from "@/lib/windowDrag";
 
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({ connection, navigate }: { connection: Connection; navigate: (path: string) => void }) {
@@ -104,7 +105,7 @@ function ContentHeader({ connection, navigate }: { connection: Connection; navig
 
   return (
     <header
-      data-tauri-drag-region
+      onMouseDown={handleDragStart}
       className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background ${isCollapsed ? 'pl-20' : ''}`}
     >
       <SidebarTrigger className="-ml-1" />
@@ -136,7 +137,7 @@ function ContentHeader({ connection, navigate }: { connection: Connection; navig
 function RedisContentHeader({ connection, navigate }: { connection: Connection; navigate: (path: string) => void }) {
   return (
     <header
-      data-tauri-drag-region
+      onMouseDown={handleDragStart}
       className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background"
     >
       <div className="flex items-center gap-2 flex-1">
@@ -1944,7 +1945,7 @@ export function ConnectionDetails() {
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarHeader className="border-b p-4 pt-10">
+        <SidebarHeader className="border-b p-4 pt-10" onMouseDown={handleDragStart}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Table className="w-5 h-5" />

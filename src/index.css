@@ -129,3 +129,33 @@
     @apply font-sans;
     }
 }
+
+/* Tauri window drag region styling */
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+  cursor: default;
+  user-select: none;
+}
+
+[data-tauri-drag-region] > *,
+[data-tauri-drag-region] div,
+[data-tauri-drag-region] span,
+[data-tauri-drag-region] p {
+  -webkit-app-region: drag;
+}
+
+/* Make interactive elements inside drag region clickable */
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] button *,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] a *,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] select,
+[data-tauri-drag-region] [role="button"],
+[data-tauri-drag-region] [role="button"] *,
+[data-tauri-drag-region] [data-slot="badge"],
+[data-tauri-drag-region] [data-slot="trigger"],
+[data-tauri-drag-region] [data-slot="trigger"] * {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}

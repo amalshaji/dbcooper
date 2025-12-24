@@ -9,6 +9,7 @@ import { ArrowLeft, Eye, EyeSlash } from "@phosphor-icons/react";
 import { api } from "@/lib/tauri";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { handleDragStart } from "@/lib/windowDrag";
 
 import {
   Combobox,
@@ -95,7 +96,7 @@ export function Settings() {
     <div className="min-h-screen bg-background flex flex-col">
       {/* Titlebar region */}
       <header
-        data-tauri-drag-region
+        onMouseDown={handleDragStart}
         className="h-10 shrink-0 flex items-center gap-2 px-4 pl-20 border-b bg-background"
       >
         <Button variant="ghost" onClick={() => navigate("/")}>
@@ -105,113 +106,113 @@ export function Settings() {
       </header>
 
       <div className="flex-1 p-8 overflow-auto">
-      <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto">
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Settings</CardTitle>
-            <CardDescription>Configure your preferences</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-8">
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Appearance</h3>
-              <div className="flex gap-2">
-                {(["light", "dark", "system"] as Theme[]).map((t) => (
-                  <Button
-                    key={t}
-                    variant={theme === t ? "default" : "outline"}
-                    onClick={() => setTheme(t)}
-                    className="capitalize"
-                  >
-                    {t}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Updates</h3>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="check-updates">Check for updates on startup</Label>
-                <Switch
-                  id="check-updates"
-                  checked={checkUpdates}
-                  onCheckedChange={setCheckUpdates}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">OpenAI</h3>
-              <div className="space-y-2">
-                <Label htmlFor="openai-endpoint">Endpoint (optional)</Label>
-                <Input
-                  id="openai-endpoint"
-                  placeholder="https://api.openai.com/v1"
-                  value={openaiEndpoint}
-                  onChange={(e) => setOpenaiEndpoint(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Model</Label>
-                <Combobox
-                  value={openaiModel}
-                  onValueChange={(val) => val && setOpenaiModel(val as string)}
-                >
-                  <ComboboxInput 
-                    placeholder="Select or type model..." 
-                    value={openaiModel}
-                    onChange={(e) => setOpenaiModel(e.target.value)} 
-                  />
-                  <ComboboxContent>
-                    <ComboboxList>
-                      <ComboboxItem value="gpt-4o">gpt-4o</ComboboxItem>
-                      <ComboboxItem value="gpt-4o-mini">gpt-4o-mini</ComboboxItem>
-                      <ComboboxItem value="gpt-4.1">gpt-4.1</ComboboxItem>
-                      <ComboboxItem value="gpt-4.1-mini">gpt-4.1-mini</ComboboxItem>
-                      {!["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"].includes(openaiModel) && (
-                        <ComboboxItem value={openaiModel}>{openaiModel}</ComboboxItem>
-                      )}
-                    </ComboboxList>
-                  </ComboboxContent>
-                </Combobox>
-                <p className="text-[0.8rem] text-muted-foreground">
-                  You can select a predefined model or type a custom model ID for your endpoint.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="openai-key">API Key</Label>
-                <div className="relative">
-                  <Input
-                    id="openai-key"
-                    type={showApiKey ? "text" : "password"}
-                    placeholder="sk-..."
-                    value={openaiApiKey}
-                    onChange={(e) => setOpenaiApiKey(e.target.value)}
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                  >
-                    {showApiKey ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle>Settings</CardTitle>
+              <CardDescription>Configure your preferences</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-8">
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">Appearance</h3>
+                <div className="flex gap-2">
+                  {(["light", "dark", "system"] as Theme[]).map((t) => (
+                    <Button
+                      key={t}
+                      variant={theme === t ? "default" : "outline"}
+                      onClick={() => setTheme(t)}
+                      className="capitalize"
+                    >
+                      {t}
+                    </Button>
+                  ))}
                 </div>
               </div>
-            </div>
 
-            <div className="pt-4">
-              <Button onClick={handleSave} disabled={saving}>
-                {saving && <Spinner className="mr-2" />}
-                Save Settings
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">Updates</h3>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="check-updates">Check for updates on startup</Label>
+                  <Switch
+                    id="check-updates"
+                    checked={checkUpdates}
+                    onCheckedChange={setCheckUpdates}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">OpenAI</h3>
+                <div className="space-y-2">
+                  <Label htmlFor="openai-endpoint">Endpoint (optional)</Label>
+                  <Input
+                    id="openai-endpoint"
+                    placeholder="https://api.openai.com/v1"
+                    value={openaiEndpoint}
+                    onChange={(e) => setOpenaiEndpoint(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Model</Label>
+                  <Combobox
+                    value={openaiModel}
+                    onValueChange={(val) => val && setOpenaiModel(val as string)}
+                  >
+                    <ComboboxInput
+                      placeholder="Select or type model..."
+                      value={openaiModel}
+                      onChange={(e) => setOpenaiModel(e.target.value)}
+                    />
+                    <ComboboxContent>
+                      <ComboboxList>
+                        <ComboboxItem value="gpt-4o">gpt-4o</ComboboxItem>
+                        <ComboboxItem value="gpt-4o-mini">gpt-4o-mini</ComboboxItem>
+                        <ComboboxItem value="gpt-4.1">gpt-4.1</ComboboxItem>
+                        <ComboboxItem value="gpt-4.1-mini">gpt-4.1-mini</ComboboxItem>
+                        {!["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"].includes(openaiModel) && (
+                          <ComboboxItem value={openaiModel}>{openaiModel}</ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                  <p className="text-[0.8rem] text-muted-foreground">
+                    You can select a predefined model or type a custom model ID for your endpoint.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="openai-key">API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="openai-key"
+                      type={showApiKey ? "text" : "password"}
+                      placeholder="sk-..."
+                      value={openaiApiKey}
+                      onChange={(e) => setOpenaiApiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                    >
+                      {showApiKey ? <EyeSlash className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4">
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving && <Spinner className="mr-2" />}
+                  Save Settings
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
