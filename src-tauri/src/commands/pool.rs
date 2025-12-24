@@ -39,6 +39,28 @@ pub async fn pool_connect(
         password: Some(conn.password),
         ssl: Some(conn.ssl == 1),
         file_path: conn.file_path,
+        ssh_enabled: conn.ssh_enabled == 1,
+        ssh_host: if conn.ssh_host.is_empty() {
+            None
+        } else {
+            Some(conn.ssh_host)
+        },
+        ssh_port: Some(conn.ssh_port),
+        ssh_user: if conn.ssh_user.is_empty() {
+            None
+        } else {
+            Some(conn.ssh_user)
+        },
+        ssh_password: if conn.ssh_password.is_empty() {
+            None
+        } else {
+            Some(conn.ssh_password)
+        },
+        ssh_key_path: if conn.ssh_key_path.is_empty() {
+            None
+        } else {
+            Some(conn.ssh_key_path)
+        },
     };
 
     match pool_manager.connect(&uuid, config).await {

@@ -17,6 +17,7 @@ use super::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::db::models::TestConnectionResult;
+use crate::ssh_tunnel::SshTunnel;
 
 /// Connection status enum
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -38,6 +39,13 @@ pub struct ConnectionConfig {
     pub password: Option<String>,
     pub ssl: Option<bool>,
     pub file_path: Option<String>,
+    // SSH tunnel fields
+    pub ssh_enabled: bool,
+    pub ssh_host: Option<String>,
+    pub ssh_port: Option<i64>,
+    pub ssh_user: Option<String>,
+    pub ssh_password: Option<String>,
+    pub ssh_key_path: Option<String>,
 }
 
 /// Entry in the connection pool
@@ -47,6 +55,8 @@ struct PoolEntry {
     status: ConnectionStatus,
     last_used: Instant,
     last_error: Option<String>,
+    #[allow(dead_code)]
+    ssh_tunnel: Option<SshTunnel>,
 }
 
 /// Connection pool manager
@@ -67,19 +77,55 @@ impl PoolManager {
         }
     }
 
-    /// Create a driver from configuration
-    fn create_driver(config: &ConnectionConfig) -> Result<Box<dyn DatabaseDriver>, String> {
+    /// Create a driver from configuration (with optional SSH tunnel)
+    async fn create_driver(
+        config: &ConnectionConfig,
+    ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
+        // Handle SSH tunnel if enabled
+        let (effective_host, effective_port, ssh_tunnel) = if config.ssh_enabled {
+            let ssh_host = config.ssh_host.as_ref().ok_or("SSH host is required")?;
+            let ssh_port = config.ssh_port.unwrap_or(22) as u16;
+            let ssh_user = config.ssh_user.as_ref().ok_or("SSH user is required")?;
+            let ssh_password = config.ssh_password.as_ref().map(|s| s.as_str());
+            let ssh_key_path = config.ssh_key_path.as_ref().map(|s| s.as_str());
+            let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
+            let remote_port = config.port.unwrap_or(5432) as u16;
+
+            let tunnel = SshTunnel::new(
+                ssh_host,
+                ssh_port,
+                ssh_user,
+                ssh_password,
+                ssh_key_path,
+                remote_host,
+                remote_port,
+            )
+            .await?;
+
+            (
+                "127.0.0.1".to_string(),
+                tunnel.local_port as i64,
+                Some(tunnel),
+            )
+        } else {
+            (
+                config.host.clone().unwrap_or_default(),
+                config.port.unwrap_or(5432),
+                None,
+            )
+        };
+
         match config.db_type.as_str() {
             "postgres" | "postgresql" => {
                 let pg_config = PostgresConfig {
-                    host: config.host.clone().unwrap_or_default(),
-                    port: config.port.unwrap_or(5432),
+                    host: effective_host,
+                    port: effective_port,
                     database: config.database.clone().unwrap_or_default(),
                     username: config.username.clone().unwrap_or_default(),
                     password: config.password.clone().unwrap_or_default(),
                     ssl: config.ssl.unwrap_or(false),
                 };
-                Ok(Box::new(PostgresDriver::new(pg_config)))
+                Ok((Box::new(PostgresDriver::new(pg_config)), ssh_tunnel))
             }
             "sqlite" | "sqlite3" => {
                 let path = config
@@ -87,25 +133,22 @@ impl PoolManager {
                     .clone()
                     .ok_or("File path is required for SQLite connections")?;
                 let sqlite_config = SqliteConfig { file_path: path };
-                Ok(Box::new(SqliteDriver::new(sqlite_config)))
+                Ok((Box::new(SqliteDriver::new(sqlite_config)), None))
             }
             "redis" => {
                 let redis_config = RedisConfig {
-                    host: config.host.clone().unwrap_or_default(),
-                    port: config.port.unwrap_or(6379),
+                    host: effective_host,
+                    port: effective_port,
                     password: config.password.clone(),
                     db: config.database.clone().and_then(|d| d.parse().ok()),
                     tls: config.ssl.unwrap_or(false),
                 };
-                Ok(Box::new(RedisDriver::new(redis_config)))
+                Ok((Box::new(RedisDriver::new(redis_config)), ssh_tunnel))
             }
             "clickhouse" => {
                 let ch_config = ClickhouseConfig {
-                    host: config
-                        .host
-                        .clone()
-                        .unwrap_or_else(|| "localhost".to_string()),
-                    port: config.port.unwrap_or(8123),
+                    host: effective_host,
+                    port: effective_port,
                     database: config
                         .database
                         .clone()
@@ -118,7 +161,7 @@ impl PoolManager {
                     protocol: ClickhouseProtocol::Http,
                     ssl: config.ssl.unwrap_or(false),
                 };
-                Ok(Box::new(ClickhouseDriver::new(ch_config)))
+                Ok((Box::new(ClickhouseDriver::new(ch_config)), ssh_tunnel))
             }
             _ => Err(format!("Unsupported database type: {}", config.db_type)),
         }
@@ -158,8 +201,8 @@ impl PoolManager {
             }
         }
 
-        // Create new driver
-        let driver = Self::create_driver(&config)?;
+        // Create new driver (with optional SSH tunnel)
+        let (driver, ssh_tunnel) = Self::create_driver(&config).await?;
         let driver = Arc::new(driver);
 
         // Test the connection
@@ -181,6 +224,7 @@ impl PoolManager {
             } else {
                 Some(test_result.message.clone())
             },
+            ssh_tunnel,
         };
 
         // Store in pool
