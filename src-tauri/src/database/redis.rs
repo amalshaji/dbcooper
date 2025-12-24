@@ -278,6 +278,7 @@ impl DatabaseDriver for RedisDriver {
 
 impl RedisDriver {
     /// Search for keys matching a pattern using SCAN (non-blocking)
+    /// Returns only key names for fast initial loading - metadata is fetched on demand via get_key_details
     pub async fn search_keys(
         &self,
         pattern: &str,
@@ -312,43 +313,18 @@ impl RedisDriver {
             }
         }
 
-        // Apply limit
-        let limited_keys: Vec<_> = keys.into_iter().take(limit as usize).collect();
-
-        let mut key_infos = Vec::new();
-
-        for key in &limited_keys {
-            // Get key type
-            let key_type: String = conn
-                .key_type(key)
-                .await
-                .unwrap_or_else(|_| "none".to_string());
-
-            // Get TTL
-            let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
-
-            // Get memory usage (size) if available
-            let size = if key_type != "none" {
-                match redis::cmd("MEMORY")
-                    .arg("USAGE")
-                    .arg(key)
-                    .query_async::<i64>(&mut conn)
-                    .await
-                {
-                    Ok(s) => Some(s as usize),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            };
-
-            key_infos.push(RedisKeyInfo {
-                key: key.clone(),
-                key_type,
-                ttl,
-                size,
-            });
-        }
+        // Apply limit and create key infos with placeholder values
+        // Actual metadata (type, ttl, size) is fetched lazily via get_key_details
+        let key_infos: Vec<RedisKeyInfo> = keys
+            .into_iter()
+            .take(limit as usize)
+            .map(|key| RedisKeyInfo {
+                key,
+                key_type: "".to_string(), // Loaded on demand
+                ttl: -2,                  // -2 indicates not yet loaded
+                size: None,
+            })
+            .collect();
 
         Ok(RedisKeyListResponse {
             total: key_infos.len() as i64,
@@ -525,6 +501,7 @@ impl RedisDriver {
     }
 
     /// Search keys through SSH tunnel using SCAN (non-blocking)
+    /// Returns only key names for fast initial loading - metadata is fetched on demand
     pub async fn search_keys_with_tunnel(
         &self,
         tunnel: &SshTunnel,
@@ -566,38 +543,18 @@ impl RedisDriver {
             }
         }
 
-        let limited_keys: Vec<_> = keys.into_iter().take(limit as usize).collect();
-
-        let mut key_infos = Vec::new();
-
-        for key in &limited_keys {
-            let key_type: String = conn
-                .key_type(key)
-                .await
-                .unwrap_or_else(|_| "none".to_string());
-            let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
-
-            let size = if key_type != "none" {
-                match redis::cmd("MEMORY")
-                    .arg("USAGE")
-                    .arg(key)
-                    .query_async::<i64>(&mut conn)
-                    .await
-                {
-                    Ok(s) => Some(s as usize),
-                    Err(_) => None,
-                }
-            } else {
-                None
-            };
-
-            key_infos.push(RedisKeyInfo {
-                key: key.clone(),
-                key_type,
-                ttl,
-                size,
-            });
-        }
+        // Apply limit and create key infos with placeholder values
+        // Actual metadata is fetched lazily via get_key_details_with_tunnel
+        let key_infos: Vec<RedisKeyInfo> = keys
+            .into_iter()
+            .take(limit as usize)
+            .map(|key| RedisKeyInfo {
+                key,
+                key_type: "".to_string(),
+                ttl: -2,
+                size: None,
+            })
+            .collect();
 
         Ok(RedisKeyListResponse {
             total: key_infos.len() as i64,

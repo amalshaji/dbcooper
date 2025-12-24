@@ -25,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   Sheet,
@@ -879,8 +880,59 @@ export function ConnectionDetails() {
 
   if (loading || !connection) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+      <div className="flex h-screen">
+        {/* Sidebar skeleton */}
+        <div className="w-64 border-r bg-background flex flex-col">
+          {/* Sidebar header skeleton */}
+          <div className="border-b p-4 pt-10">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-5 rounded" />
+              <Skeleton className="h-5 w-32 rounded" />
+            </div>
+          </div>
+
+          {/* Sidebar tabs skeleton */}
+          <div className="p-2 border-b">
+            <div className="flex gap-1">
+              <Skeleton className="h-8 flex-1 rounded" />
+              <Skeleton className="h-8 flex-1 rounded" />
+            </div>
+          </div>
+
+          {/* Sidebar content skeleton - Tables */}
+          <div className="flex-1 p-2 space-y-2">
+            <div className="px-2 py-1">
+              <Skeleton className="h-4 w-20 rounded" />
+            </div>
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                <Skeleton className="h-4 w-4 rounded" />
+                <Skeleton className="h-4 flex-1 rounded" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Main content skeleton */}
+        <div className="flex-1 flex flex-col">
+          {/* Header skeleton */}
+          <div className="h-10 border-b px-4 flex items-center gap-2 pl-20">
+            <Skeleton className="h-6 w-6 rounded" />
+            <Skeleton className="h-6 w-16 rounded" />
+            <div className="flex-1" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+
+          {/* Empty state skeleton */}
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <Skeleton className="h-16 w-16 rounded-lg mx-auto" />
+              <Skeleton className="h-6 w-48 rounded mx-auto" />
+              <Skeleton className="h-4 w-64 rounded mx-auto" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -963,8 +1015,19 @@ export function ConnectionDetails() {
       </div>
       <CardContent className="max-h-96 overflow-hidden">
         {tab.loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Spinner />
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-8 flex-1 rounded" />
+              ))}
+            </div>
+            {[...Array(6)].map((_, rowIndex) => (
+              <div key={rowIndex} className="flex items-center gap-2">
+                {[...Array(5)].map((_, colIndex) => (
+                  <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+                ))}
+              </div>
+            ))}
           </div>
         ) : tab.data && tab.data.data.length > 0 ? (
           <DataTable
@@ -998,8 +1061,27 @@ export function ConnectionDetails() {
       </CardHeader>
       <CardContent className="space-y-6">
         {tab.loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Spinner />
+          <div className="space-y-6">
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Skeleton className="h-5 w-5 rounded" />
+                <Skeleton className="h-6 w-32 rounded" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  {[...Array(5)].map((_, i) => (
+                    <Skeleton key={i} className="h-8 flex-1 rounded" />
+                  ))}
+                </div>
+                {[...Array(5)].map((_, rowIndex) => (
+                  <div key={rowIndex} className="flex items-center gap-2">
+                    {[...Array(5)].map((_, colIndex) => (
+                      <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : tab.structure ? (
           <>
@@ -1368,8 +1450,19 @@ export function ConnectionDetails() {
         </CardHeader>
         <CardContent>
           {tab.executing ? (
-            <div className="flex items-center justify-center py-8">
-              <Spinner />
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                {[...Array(4)].map((_, i) => (
+                  <Skeleton key={i} className="h-8 flex-1 rounded" />
+                ))}
+              </div>
+              {[...Array(5)].map((_, rowIndex) => (
+                <div key={rowIndex} className="flex items-center gap-2">
+                  {[...Array(4)].map((_, colIndex) => (
+                    <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+                  ))}
+                </div>
+              ))}
             </div>
           ) : tab.error ? (
             <div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
@@ -1557,10 +1650,6 @@ export function ConnectionDetails() {
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-mono text-sm truncate flex-1">{keyInfo.key}</span>
-                    <span className="text-xs text-muted-foreground">{keyInfo.key_type}</span>
-                    {keyInfo.ttl !== -1 && (
-                      <span className="text-xs text-muted-foreground">TTL: {keyInfo.ttl}s</span>
-                    )}
                   </div>
                 </button>
               ))}
@@ -1582,9 +1671,54 @@ export function ConnectionDetails() {
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           <div className="px-6">
             {loadingRedisDetails ? (
-              <div className="flex items-center justify-center py-12">
-                <Spinner />
-              </div>
+              <>
+                <SheetHeader>
+                  <SheetTitle>Key Details</SheetTitle>
+                  <SheetDescription>
+                    Loading key details...
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="mt-6 space-y-6">
+                  {/* Metadata skeleton */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-3">Metadata</h3>
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Key:</span>
+                        <Skeleton className="mt-1 h-8 w-full rounded" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <span className="text-muted-foreground">Type:</span>
+                          <Skeleton className="h-4 w-16 rounded" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-muted-foreground">TTL:</span>
+                          <Skeleton className="h-4 w-24 rounded" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-muted-foreground">Encoding:</span>
+                          <Skeleton className="h-4 w-20 rounded" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-muted-foreground">Memory:</span>
+                          <Skeleton className="h-4 w-20 rounded" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Value skeleton */}
+                  <div>
+                    <h3 className="text-sm font-medium mb-3">Value</h3>
+                    <Skeleton className="h-32 w-full rounded-md" />
+                  </div>
+                  {/* Actions skeleton */}
+                  <div className="flex gap-2 pt-4 border-t">
+                    <Skeleton className="h-9 w-24 rounded" />
+                    <Skeleton className="h-9 w-16 rounded" />
+                  </div>
+                </div>
+              </>
             ) : redisKeyDetails ? (
               <>
                 <SheetHeader>
