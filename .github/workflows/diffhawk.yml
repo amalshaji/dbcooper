@@ -18,6 +18,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: actions/create-github-app-token@v1
+        id: get-token
+        with:
+          app-id: ${{ secrets.DIFFHAWK_APP_ID }}
+          private-key: ${{ secrets.DIFFHAWK_APP_PRIVATE_KEY }}
       
       # Checkout diffhawk action
       - uses: actions/checkout@v4
@@ -29,7 +35,7 @@ jobs:
       # Use it locally
       - uses: ./.github/actions/diffhawk
         with:
-          github_token: ${{ secrets.GH_PAT }}
+          github_token: ${{ steps.get-token.outputs.token }}
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
 
@@ -46,11 +52,11 @@ jobs:
           repository: amalshaji/diffhawk
           path: .github/actions/diffhawk
           token: ${{ secrets.GH_PAT }}
-      
+
       # Use it locally
       - uses: ./.github/actions/diffhawk
         with:
-          github_token: ${{ secrets.GH_PAT }}
+          github_token: ${{ steps.get-token.outputs.token }}
           mode: conversation
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
