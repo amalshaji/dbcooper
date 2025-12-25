@@ -28,7 +28,7 @@ jobs:
       # Use it locally
       - uses: ./.github/actions/diffhawk
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT }}
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
 
@@ -48,7 +48,7 @@ jobs:
       # Use it locally
       - uses: ./.github/actions/diffhawk
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT }}
           mode: conversation
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
