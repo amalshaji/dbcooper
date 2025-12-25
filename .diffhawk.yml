@@ -11,10 +11,9 @@ workflows:
   pr_description:
     enabled: true
     mode: overwrite
-    sections:
-      - summary
-      - changes
-      - impact
+
+  pr_title:
+    auto_generate: true
 
   approval:
     enabled: false   
