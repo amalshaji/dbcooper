@@ -24,7 +24,6 @@ workflows:
   
   change_review:
     enabled: true
-    max_comments: 10
 
 # General Settings (optional)
 settings:
