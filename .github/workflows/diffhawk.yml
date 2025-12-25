@@ -18,8 +18,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - uses: amalshaji/diffhawk@main
+      
+      # Checkout diffhawk action
+      - uses: actions/checkout@v4
+        with:
+          repository: amalshaji/diffhawk
+          path: .github/actions/diffhawk
+      
+      # Use it locally
+      - uses: ./.github/actions/diffhawk
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
         env:
@@ -32,7 +39,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: amalshaji/diffhawk@main
+      # Checkout diffhawk action
+      - uses: actions/checkout@v4
+        with:
+          repository: amalshaji/diffhawk
+          path: .github/actions/diffhawk
+      
+      # Use it locally
+      - uses: ./.github/actions/diffhawk
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           mode: conversation
