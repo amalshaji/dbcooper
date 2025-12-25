@@ -24,6 +24,7 @@ jobs:
         with:
           repository: amalshaji/diffhawk
           path: .github/actions/diffhawk
+          token: ${{ secrets.GH_PAT }}
       
       # Use it locally
       - uses: ./.github/actions/diffhawk
@@ -44,6 +45,7 @@ jobs:
         with:
           repository: amalshaji/diffhawk
           path: .github/actions/diffhawk
+          token: ${{ secrets.GH_PAT }}
       
       # Use it locally
       - uses: ./.github/actions/diffhawk
