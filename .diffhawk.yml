@@ -1,0 +1,57 @@
+# DiffHawk Configuration
+# Copy this file to .diffhawk.yml and configure your settings
+
+# LLM Provider Configuration
+provider: glm  # openai | anthropic | gemini | glm
+api_key: ${{ secrets.LLM_API_KEY }}  # Reference to GitHub secret
+model: glm-4.7  # Model name for the provider
+
+# Workflow Settings (optional)
+workflows:
+  pr_description:
+    enabled: true
+    sections:
+      - summary
+      - changes
+      - impact
+  
+  symbol_usage:
+    enabled: false
+    search_depth: project  # file | project
+  
+  change_review:
+    enabled: true
+    max_comments: 10
+
+# General Settings (optional)
+settings:
+  languages:
+    - python
+    - typescript
+    - go
+    - rust
+  ignore_paths:
+    - "node_modules/**"
+    - "vendor/**"
+    - "*.generated.*"
+    - "dist/**"
+    - "build/**"
+  severity_threshold: warning  # info | warning | error
+
+# Pattern Preferences (optional)
+preferences:
+  patterns:
+    nested_conditionals:
+      rule: avoid
+      max_depth: 2
+      reason: "Use early returns or guard clauses"
+    
+    function_length:
+      rule: require
+      max_lines: 50
+      reason: "Keep functions focused and testable"
+  
+  naming:
+    functions: snake_case
+    classes: PascalCase
+    constants: SCREAMING_SNAKE_CASE
