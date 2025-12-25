@@ -27,11 +27,6 @@ workflows:
 
 # General Settings (optional)
 settings:
-  languages:
-    - python
-    - typescript
-    - go
-    - rust
   ignore_paths:
     - "node_modules/**"
     - "vendor/**"
