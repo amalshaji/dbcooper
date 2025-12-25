@@ -10,11 +10,15 @@ model: glm-4.7  # Model name for the provider
 workflows:
   pr_description:
     enabled: true
+    mode: overwrite
     sections:
       - summary
       - changes
       - impact
-  
+
+  approval:
+    enabled: false   
+
   symbol_usage:
     enabled: false
     search_depth: project  # file | project

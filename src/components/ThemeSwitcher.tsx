@@ -59,8 +59,27 @@ export function ThemeSwitcher() {
     if (theme === "system") {
       const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
       const handler = () => applyTheme("system");
+
+      // Listen for real-time system theme changes
       mediaQuery.addEventListener("change", handler);
-      return () => mediaQuery.removeEventListener("change", handler);
+
+      // Also recheck when app regains visibility or focus
+      // This catches theme changes that occurred while app was in background
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          applyTheme("system");
+        }
+      };
+      const handleFocus = () => applyTheme("system");
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("focus", handleFocus);
+
+      return () => {
+        mediaQuery.removeEventListener("change", handler);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("focus", handleFocus);
+      };
     }
   }, [theme]);
 
