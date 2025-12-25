@@ -3,7 +3,7 @@
 
 # LLM Provider Configuration
 provider: glm  # openai | anthropic | gemini | glm
-api_key: ${{ secrets.LLM_API_KEY }}  # Reference to GitHub secret
+api_key: ${{ env.LLM_API_KEY }}  # Reference to GitHub secret
 model: glm-4.7  # Model name for the provider
 
 # Workflow Settings (optional)
