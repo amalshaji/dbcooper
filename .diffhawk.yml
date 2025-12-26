@@ -19,7 +19,7 @@ workflows:
     enabled: true   
 
   symbol_usage:
-    enabled: false
+    enabled: true
     search_depth: project  # file | project
   
   change_review:
