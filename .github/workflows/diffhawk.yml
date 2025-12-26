@@ -46,6 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/create-github-app-token@v1
+        id: get-token
+        with:
+          app-id: ${{ secrets.DIFFHAWK_APP_ID }}
+          private-key: ${{ secrets.DIFFHAWK_APP_PRIVATE_KEY }}
+
       # Checkout diffhawk action
       - uses: actions/checkout@v4
         with:
