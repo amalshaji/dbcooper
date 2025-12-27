@@ -53,14 +53,14 @@ export function DataTable<TData>({
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap bg-background"
+                    className="text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background"
                   >
                     {header.isPlaceholder
                       ? null
                       : flexRender(
-                        header.column.columnDef.header,
-                        header.getContext()
-                      )}
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
                   </th>
                 ))}
               </tr>
@@ -72,22 +72,27 @@ export function DataTable<TData>({
                 <tr
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
-                  className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
+                    onRowClick ? "cursor-pointer" : ""
+                  }`}
                   onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
-                      className="p-2 align-middle whitespace-nowrap"
+                      className="p-3 align-middle whitespace-nowrap"
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
                     </td>
                   ))}
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={columns.length} className="h-24 text-center">
+                <td colSpan={columns.length} className="h-32 text-center p-3">
                   No results.
                 </td>
               </tr>
