@@ -1,6 +1,6 @@
 ## DBcooper
 
-- Do not add unnecessary comments
+- Do not add unnecessary comments unless absolutely necessary
 - The project uses tauri for the backend (https://v2.tauri.app/)
 - The project uses bun + react (ts) for the frontend
 - The project uses sqlite as the primary database

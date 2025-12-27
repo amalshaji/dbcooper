@@ -2,9 +2,9 @@
 # Copy this file to .diffhawk.yml and configure your settings
 
 # LLM Provider Configuration
-provider: glm  # openai | anthropic | gemini | glm
+provider: cerebras  # openai | anthropic | gemini | glm
 api_key: ${{ env.LLM_API_KEY }}  # Reference to GitHub secret
-model: glm-4.7  # Model name for the provider
+model: zai-glm-4.6  # Model name for the provider
 
 # Workflow Settings (optional)
 workflows:
@@ -16,23 +16,17 @@ workflows:
     auto_generate: true
 
   approval:
-    enabled: false   
+    enabled: true   
 
   symbol_usage:
-    enabled: false
+    enabled: true
     search_depth: project  # file | project
   
   change_review:
     enabled: true
-    max_comments: 10
 
 # General Settings (optional)
 settings:
-  languages:
-    - python
-    - typescript
-    - go
-    - rust
   ignore_paths:
     - "node_modules/**"
     - "vendor/**"
