@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sun, Moon, Monitor } from "@phosphor-icons/react";
 import { api } from "@/lib/tauri";
@@ -12,106 +12,112 @@ import { api } from "@/lib/tauri";
 type Theme = "light" | "dark" | "system";
 
 export function ThemeSwitcher() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("theme") as Theme;
-      if (saved) {
-        // Immediately apply theme to prevent flash
-        const root = window.document.documentElement;
-        if (saved === "system") {
-          const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-          root.classList.toggle("dark", systemTheme === "dark");
-        } else {
-          root.classList.toggle("dark", saved === "dark");
-        }
-        return saved;
-      }
-    }
-    return "system";
-  });
+	const [theme, setTheme] = useState<Theme>(() => {
+		if (typeof window !== "undefined") {
+			const saved = localStorage.getItem("theme") as Theme;
+			if (saved) {
+				return saved;
+			}
+		}
+		return "system";
+	});
 
-  useEffect(() => {
-    api.settings.get("theme").then((savedTheme) => {
-      if (savedTheme) {
-        setTheme(savedTheme as Theme);
-        localStorage.setItem("theme", savedTheme);
-      }
-    }).catch(console.error);
-  }, []);
+	const applyTheme = useCallback((currentTheme: Theme) => {
+		const root = window.document.documentElement;
+		if (currentTheme === "system") {
+			const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
+				.matches
+				? "dark"
+				: "light";
+			root.classList.toggle("dark", systemTheme === "dark");
+		} else {
+			root.classList.toggle("dark", currentTheme === "dark");
+		}
+	}, []);
 
-  useEffect(() => {
-    const root = window.document.documentElement;
+	useEffect(() => {
+		api.settings
+			.get("theme")
+			.then((savedTheme) => {
+				if (savedTheme) {
+					setTheme(savedTheme as Theme);
+					localStorage.setItem("theme", savedTheme);
+				}
+			})
+			.catch(console.error);
+	}, []);
 
-    const applyTheme = (t: Theme) => {
-      if (t === "system") {
-        const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light";
-        root.classList.toggle("dark", systemTheme === "dark");
-      } else {
-        root.classList.toggle("dark", t === "dark");
-      }
-    };
+	useEffect(() => {
+		applyTheme(theme);
+		localStorage.setItem("theme", theme);
 
-    applyTheme(theme);
-    localStorage.setItem("theme", theme);
+		if (theme === "system") {
+			const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
 
-    if (theme === "system") {
-      const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-      const handler = () => applyTheme("system");
+			const handleMediaChange = () => {
+				applyTheme("system");
+			};
+			mediaQuery.addEventListener("change", handleMediaChange);
 
-      // Listen for real-time system theme changes
-      mediaQuery.addEventListener("change", handler);
+			let unlistenFocus: (() => void) | undefined;
 
-      // Also recheck when app regains visibility or focus
-      // This catches theme changes that occurred while app was in background
-      const handleVisibilityChange = () => {
-        if (document.visibilityState === "visible") {
-          applyTheme("system");
-        }
-      };
-      const handleFocus = () => applyTheme("system");
+			import("@tauri-apps/api/window")
+				.then(async ({ getCurrentWindow }) => {
+					const currentWindow = getCurrentWindow();
+					unlistenFocus = await currentWindow.onFocusChanged(
+						({ payload: focused }) => {
+							if (focused) {
+								applyTheme("system");
+							}
+						},
+					);
+				})
+				.catch(console.error);
 
-      document.addEventListener("visibilitychange", handleVisibilityChange);
-      window.addEventListener("focus", handleFocus);
+			return () => {
+				mediaQuery.removeEventListener("change", handleMediaChange);
+				if (unlistenFocus) {
+					unlistenFocus();
+				}
+			};
+		}
+	}, [theme, applyTheme]);
 
-      return () => {
-        mediaQuery.removeEventListener("change", handler);
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-        window.removeEventListener("focus", handleFocus);
-      };
-    }
-  }, [theme]);
+	const handleThemeChange = async (newTheme: Theme) => {
+		setTheme(newTheme);
+		try {
+			await api.settings.set("theme", newTheme);
+		} catch (error) {
+			console.error("Failed to save theme:", error);
+		}
+	};
 
-  const handleThemeChange = async (newTheme: Theme) => {
-    setTheme(newTheme);
-    try {
-      await api.settings.set("theme", newTheme);
-    } catch (error) {
-      console.error("Failed to save theme:", error);
-    }
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
-        {theme === "dark" ? <Moon /> : theme === "light" ? <Sun /> : <Monitor />}
-        <span className="sr-only">Toggle theme</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => handleThemeChange("light")}>
-          <Sun />
-          Light
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("dark")}>
-          <Moon />
-          Dark
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleThemeChange("system")}>
-          <Monitor />
-          System
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger render={<Button variant="ghost" size="icon" />}>
+				{theme === "dark" ? (
+					<Moon />
+				) : theme === "light" ? (
+					<Sun />
+				) : (
+					<Monitor />
+				)}
+				<span className="sr-only">Toggle theme</span>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuItem onClick={() => handleThemeChange("light")}>
+					<Sun />
+					Light
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => handleThemeChange("dark")}>
+					<Moon />
+					Dark
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={() => handleThemeChange("system")}>
+					<Monitor />
+					System
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
