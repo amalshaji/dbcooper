@@ -1,91 +1,95 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  type Tab,
-  type TableDataTab,
-  type TableStructureTab,
-  type QueryTab,
-  type TableColumn,
-  type TableStructureData,
-  type ForeignKeyInfo,
-  createTableDataTab,
-  createTableStructureTab,
-  createQueryTab,
+	type Tab,
+	type TableDataTab,
+	type TableStructureTab,
+	type QueryTab,
+	type TableColumn,
+	type TableStructureData,
+	type ForeignKeyInfo,
+	createTableDataTab,
+	createTableStructureTab,
+	createQueryTab,
 } from "@/types/tabTypes";
 import type { DatabaseTable } from "@/types/table";
 import type { SavedQuery } from "@/types/savedQuery";
 import { api, type Connection } from "@/lib/tauri";
 import { toast } from "sonner";
+import { PostgresqlIcon } from "@/components/icons/postgres";
+import { SqliteIcon } from "@/components/icons/sqlite";
+import { RedisIcon } from "@/components/icons/redis";
+import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
 } from "@/components/ui/sheet";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
-  SidebarProvider,
-  SidebarInset,
-  SidebarTrigger,
-  useSidebar,
+	Sidebar,
+	SidebarContent,
+	SidebarGroup,
+	SidebarGroupContent,
+	SidebarGroupLabel,
+	SidebarHeader,
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+	SidebarMenuSub,
+	SidebarMenuSubItem,
+	SidebarMenuSubButton,
+	SidebarProvider,
+	SidebarInset,
+	SidebarTrigger,
+	useSidebar,
 } from "@/components/ui/sidebar";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Table,
-  ArrowLeft,
-  ArrowRight,
-  Code,
-  DotsThreeVertical,
-  FloppyDisk,
-  ArrowsClockwise,
-  Database,
-  CaretRight,
-  Columns,
-  DownloadSimple,
+	Table,
+	ArrowLeft,
+	ArrowRight,
+	Code,
+	DotsThreeVertical,
+	FloppyDisk,
+	ArrowsClockwise,
+	Database,
+	CaretRight,
+	Columns,
+	DownloadSimple,
 } from "@phosphor-icons/react";
 import { Check, Copy } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
@@ -99,2146 +103,2294 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 
 // Header component that uses useSidebar for conditional padding
-function ContentHeader({ connection, navigate }: { connection: Connection; navigate: (path: string) => void }) {
-  const { state } = useSidebar();
-  const isCollapsed = state === "collapsed";
+function ContentHeader({
+	connection,
+	navigate,
+	connectionStatus,
+	onReconnect,
+}: {
+	connection: Connection;
+	navigate: (path: string) => void;
+	connectionStatus: "connected" | "disconnected";
+	onReconnect: () => Promise<void>;
+}) {
+	const { state } = useSidebar();
+	const isCollapsed = state === "collapsed";
 
-  return (
-    <header
-      onMouseDown={handleDragStart}
-      className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background ${isCollapsed ? 'pl-20' : ''}`}
-    >
-      <SidebarTrigger className="-ml-1" />
-      <div className="flex items-center gap-2 flex-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/")}
-          className="gap-2"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </Button>
-      </div>
-      <div className="flex items-center gap-3">
-        <ConnectionStatus connectionUuid={connection.uuid} />
-        <Badge variant="secondary" className="capitalize">
-          {connection.type}
-        </Badge>
-        <Badge variant={connection.ssl ? "default" : "secondary"}>
-          SSL: {connection.ssl ? "Yes" : "No"}
-        </Badge>
-      </div>
-    </header>
-  );
+	return (
+		<header
+			onMouseDown={handleDragStart}
+			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background ${isCollapsed ? "pl-20" : ""}`}
+		>
+			<SidebarTrigger className="-ml-1" />
+			<div className="flex items-center gap-2 flex-1">
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={() => navigate("/")}
+					className="gap-2"
+				>
+					<ArrowLeft className="w-4 h-4" />
+					Back
+				</Button>
+			</div>
+			<div className="flex items-center gap-3">
+				<ConnectionStatus
+					connectionUuid={connection.uuid}
+					initialStatus={connectionStatus}
+					onReconnect={onReconnect}
+				/>
+				<Badge variant="secondary" className="capitalize">
+					{connection.type}
+				</Badge>
+				<Badge variant={connection.ssl ? "default" : "secondary"}>
+					SSL: {connection.ssl ? "Yes" : "No"}
+				</Badge>
+			</div>
+		</header>
+	);
 }
 
 // Simplified header for Redis (no sidebar)
-function RedisContentHeader({ connection, navigate }: { connection: Connection; navigate: (path: string) => void }) {
-  return (
-    <header
-      onMouseDown={handleDragStart}
-      className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background"
-    >
-      <div className="flex items-center gap-2 flex-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/")}
-          className="gap-2"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </Button>
-        <span className="font-semibold">{connection.name}</span>
-        <span className="text-muted-foreground text-sm">
-          {connection.host}:{connection.port}
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        <ConnectionStatus connectionUuid={connection.uuid} />
-        <Badge variant="secondary" className="capitalize">
-          {connection.type}
-        </Badge>
-      </div>
-    </header>
-  );
+function RedisContentHeader({
+	connection,
+	navigate,
+	connectionStatus,
+	onReconnect,
+}: {
+	connection: Connection;
+	navigate: (path: string) => void;
+	connectionStatus: "connected" | "disconnected";
+	onReconnect: () => Promise<void>;
+}) {
+	return (
+		<header
+			onMouseDown={handleDragStart}
+			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background"
+		>
+			<div className="flex items-center gap-2 flex-1">
+				<Button
+					variant="ghost"
+					size="sm"
+					onClick={() => navigate("/")}
+					className="gap-2"
+				>
+					<ArrowLeft className="w-4 h-4" />
+					Back
+				</Button>
+				<span className="font-semibold">{connection.name}</span>
+				<span className="text-muted-foreground text-sm">
+					{connection.host}:{connection.port}
+				</span>
+			</div>
+			<div className="flex items-center gap-3">
+				<ConnectionStatus
+					connectionUuid={connection.uuid}
+					initialStatus={connectionStatus}
+					onReconnect={onReconnect}
+				/>
+				<Badge variant="secondary" className="capitalize">
+					{connection.type}
+				</Badge>
+			</div>
+		</header>
+	);
 }
 
 export function ConnectionDetails() {
-  const { uuid } = useParams<{ uuid: string }>();
-  const navigate = useNavigate();
-  const [connection, setConnection] = useState<Connection | null>(null);
-  const [tables, setTables] = useState<DatabaseTable[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshingTables, setRefreshingTables] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"tables" | "queries">("tables");
-  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
-  const [loadingQueries, setLoadingQueries] = useState(false);
-  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
-  const [tableColumns, setTableColumns] = useState<
-    Record<string, TableColumn[]>
-  >({});
-  const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
-
-  // Tab state
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-
-  // Redis-specific state (no tabs for Redis)
-  const [redisPattern, setRedisPattern] = useState("*");
-  const [redisKeys, setRedisKeys] = useState<any[] | null>(null);
-  const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-  const [redisKeyDetails, setRedisKeyDetails] = useState<any>(null);
-  const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
-  const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
-  const [redisSheetOpen, setRedisSheetOpen] = useState(false);
-  const [copiedToClipboard, setCopiedToClipboard] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [redisSearchTime, setRedisSearchTime] = useState<number | null>(null);
-
-  // Save dialog state (for query tabs)
-  const [saveQueryName, setSaveQueryName] = useState("");
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-
-  // Query delete confirmation state
-  const [queryToDelete, setQueryToDelete] = useState<SavedQuery | null>(null);
-  const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
-
-  // AI generation
-  const { generateSQL, generating, isConfigured: aiConfigured } = useAIGeneration();
-
-  // Row edit state
-  const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
-  const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(null);
-  const [savingRow, setSavingRow] = useState(false);
-  const [deletingRow, setDeletingRow] = useState(false);
-
-  const activeTab = useMemo(
-    () => tabs.find((t) => t.id === activeTabId) || null,
-    [tabs, activeTabId]
-  );
-
-  useEffect(() => {
-    const fetchConnection = async () => {
-      if (!uuid) return;
-      try {
-        const data = await api.connections.getByUuid(uuid);
-        setConnection(data);
-      } catch (error) {
-        console.error("Failed to fetch connection:", error);
-        navigate("/");
-      }
-    };
-
-    if (uuid) {
-      fetchConnection();
-    }
-  }, [uuid, navigate]);
-
-  useEffect(() => {
-    const fetchTables = async () => {
-      if (!connection) return;
-      try {
-        const data = await api.database.listTables(connection);
-        setTables(data as DatabaseTable[]);
-      } catch (error) {
-        console.error("Failed to fetch tables:", error);
-        setTables([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (connection) {
-      fetchTables();
-    }
-  }, [connection]);
-
-  useEffect(() => {
-    const fetchSavedQueries = async () => {
-      if (!uuid || sidebarTab !== "queries") return;
-
-      setLoadingQueries(true);
-      try {
-        const data = await api.queries.list(uuid);
-        setSavedQueries(data as SavedQuery[]);
-      } catch (error) {
-        console.error("Failed to fetch saved queries:", error);
-      } finally {
-        setLoadingQueries(false);
-      }
-    };
-
-    fetchSavedQueries();
-  }, [uuid, sidebarTab]);
-
-  const updateTab = useCallback(
-    <T extends Tab>(tabId: string, updates: Partial<T>) => {
-      setTabs((prev) =>
-        prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t))
-      );
-    },
-    []
-  );
-
-  const fetchTableData = useCallback(
-    async (tab: TableDataTab) => {
-      if (!connection) return;
-
-      updateTab<TableDataTab>(tab.id, { loading: true });
-
-      try {
-        const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.database.getTableData(
-          connection,
-          schema,
-          tableName,
-          tab.currentPage,
-          100,
-          tab.filter || undefined
-        );
-
-        updateTab<TableDataTab>(tab.id, { data, loading: false });
-      } catch (error) {
-        console.error("Failed to fetch table data:", error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        toast.error("Failed to load table data", {
-          description: errorMessage,
-        });
-        updateTab<TableDataTab>(tab.id, { data: null, loading: false });
-      }
-    },
-    [connection, updateTab]
-  );
-
-  const fetchTableStructure = useCallback(
-    async (tab: TableStructureTab) => {
-      if (!connection) return;
-
-      updateTab<TableStructureTab>(tab.id, { loading: true });
-
-      try {
-        const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.database.getTableStructure(
-          connection,
-          schema,
-          tableName
-        );
-
-        updateTab<TableStructureTab>(tab.id, { structure: data as TableStructureData, loading: false });
-      } catch (error) {
-        console.error("Failed to fetch table structure:", error);
-        updateTab<TableStructureTab>(tab.id, { structure: null, loading: false });
-      }
-    },
-    [connection, updateTab]
-  );
-
-  const fetchForeignKeys = useCallback(
-    async (tab: TableDataTab) => {
-      if (!connection) return;
-
-      try {
-        const [schema, tableName] = tab.tableName.split(".");
-        const data = await api.database.getTableStructure(
-          connection,
-          schema,
-          tableName
-        );
-        updateTab<TableDataTab>(tab.id, {
-          foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
-          columns: (data.columns as TableColumn[]) || [],
-        });
-      } catch (error) {
-        console.error("Failed to fetch foreign keys:", error);
-      }
-    },
-    [connection, updateTab]
-  );
-
-  const handleOpenTableData = useCallback(
-    (tableName: string) => {
-      // Check if tab already exists
-      const existingTab = tabs.find(
-        (t) => t.type === "table-data" && (t as TableDataTab).tableName === tableName
-      );
-
-      if (existingTab) {
-        setActiveTabId(existingTab.id);
-        return;
-      }
-
-      const newTab = createTableDataTab(tableName);
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newTab.id);
-
-      // Fetch data and foreign keys for the new tab
-      fetchTableData(newTab);
-      fetchForeignKeys(newTab);
-    },
-    [tabs, fetchTableData, fetchForeignKeys]
-  );
-
-  const handleOpenTableDataWithFilter = useCallback(
-    (tableName: string, filterColumn: string, filterValue: unknown) => {
-      const filterStr = typeof filterValue === "string"
-        ? `${filterColumn} = '${filterValue}'`
-        : `${filterColumn} = ${filterValue}`;
-
-      const newTab = createTableDataTab(tableName);
-      newTab.filter = filterStr;
-      newTab.filterInput = filterStr;
-
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newTab.id);
-
-      // Fetch data and foreign keys for the new tab
-      fetchTableData(newTab);
-      fetchForeignKeys(newTab);
-    },
-    [fetchTableData, fetchForeignKeys]
-  );
-
-  const handleOpenTableStructure = useCallback(
-    (tableName: string) => {
-      // Check if tab already exists
-      const existingTab = tabs.find(
-        (t) =>
-          t.type === "table-structure" &&
-          (t as TableStructureTab).tableName === tableName
-      );
-
-      if (existingTab) {
-        setActiveTabId(existingTab.id);
-        return;
-      }
-
-      const newTab = createTableStructureTab(tableName);
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newTab.id);
-
-      // Fetch structure for the new tab
-      fetchTableStructure(newTab);
-    },
-    [tabs, fetchTableStructure]
-  );
-
-  const handleOpenQuery = useCallback(
-    (query: string, savedQueryId: number | null = null, savedQueryName: string | null = null) => {
-      // Check if saved query tab already exists
-      if (savedQueryId) {
-        const existingTab = tabs.find(
-          (t) => t.type === "query" && (t as QueryTab).savedQueryId === savedQueryId
-        );
-
-        if (existingTab) {
-          setActiveTabId(existingTab.id);
-          return;
-        }
-      }
-
-      const newTab = createQueryTab(query, savedQueryId, savedQueryName);
-      setTabs((prev) => [...prev, newTab]);
-      setActiveTabId(newTab.id);
-    },
-    [tabs]
-  );
-
-  const handleNewQuery = useCallback(() => {
-    const newTab = createQueryTab("SELECT * FROM ");
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-  }, []);
-
-  const handleCloseTab = useCallback(
-    (tabId: string) => {
-      setTabs((prev) => {
-        const newTabs = prev.filter((t) => t.id !== tabId);
-
-        // If closing active tab, switch to adjacent tab
-        if (activeTabId === tabId && newTabs.length > 0) {
-          const closedIndex = prev.findIndex((t) => t.id === tabId);
-          const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
-          setActiveTabId(newTabs[newActiveIndex].id);
-        } else if (newTabs.length === 0) {
-          setActiveTabId(null);
-        }
-
-        return newTabs;
-      });
-    },
-    [activeTabId]
-  );
-
-  const handleTabSelect = useCallback((tabId: string) => {
-    setActiveTabId(tabId);
-  }, []);
-
-  const handleRefreshTables = async () => {
-    if (!connection || refreshingTables) return;
-
-    setRefreshingTables(true);
-    try {
-      const data = await api.database.listTables(connection);
-      setTables(data as DatabaseTable[]);
-    } catch (error) {
-      console.error("Failed to refresh tables:", error);
-      setTables([]);
-    } finally {
-      setRefreshingTables(false);
-    }
-  };
-
-  const handleRefreshTableData = useCallback(async () => {
-    if (!activeTab || activeTab.type !== "table-data" || !uuid) return;
-    const tab = activeTab as TableDataTab;
-    updateTab<TableDataTab>(tab.id, { currentPage: 1 });
-    fetchTableData({ ...tab, currentPage: 1 });
-  }, [activeTab, uuid, updateTab, fetchTableData]);
-
-  const handlePageChange = useCallback(
-    (page: number) => {
-      if (!activeTab || activeTab.type !== "table-data") return;
-      const tab = activeTab as TableDataTab;
-      updateTab<TableDataTab>(tab.id, { currentPage: page });
-      fetchTableData({ ...tab, currentPage: page });
-    },
-    [activeTab, updateTab, fetchTableData]
-  );
-
-  const handleFilterInputChange = useCallback(
-    (value: string) => {
-      if (!activeTab || activeTab.type !== "table-data") return;
-      updateTab<TableDataTab>(activeTab.id, { filterInput: value });
-    },
-    [activeTab, updateTab]
-  );
-
-  const handleApplyFilter = useCallback(() => {
-    if (!activeTab || activeTab.type !== "table-data") return;
-    const tab = activeTab as TableDataTab;
-    updateTab<TableDataTab>(tab.id, { filter: tab.filterInput, currentPage: 1 });
-    fetchTableData({ ...tab, filter: tab.filterInput, currentPage: 1 });
-  }, [activeTab, updateTab, fetchTableData]);
-
-  const handleClearFilter = useCallback(() => {
-    if (!activeTab || activeTab.type !== "table-data") return;
-    const tab = activeTab as TableDataTab;
-    updateTab<TableDataTab>(tab.id, { filter: "", filterInput: "", currentPage: 1 });
-    fetchTableData({ ...tab, filter: "", currentPage: 1 });
-  }, [activeTab, updateTab, fetchTableData]);
-
-  const handleRunQueryForTable = (tableName: string) => {
-    const [schema, table] = tableName.split(".");
-    const query = `SELECT * FROM ${schema}.${table} LIMIT 10;`;
-    handleOpenQuery(query);
-  };
-
-  const handleToggleTableExpand = async (tableName: string) => {
-    const newExpanded = new Set(expandedTables);
-
-    if (newExpanded.has(tableName)) {
-      newExpanded.delete(tableName);
-      setExpandedTables(newExpanded);
-      return;
-    }
-
-    newExpanded.add(tableName);
-    setExpandedTables(newExpanded);
-
-    if (!tableColumns[tableName] && connection) {
-      const [schema, table] = tableName.split(".");
-      const newLoading = new Set(loadingColumns);
-      newLoading.add(tableName);
-      setLoadingColumns(newLoading);
-
-      try {
-        const data = await api.database.getTableStructure(
-          connection,
-          schema,
-          table
-        );
-        setTableColumns((prev) => ({
-          ...prev,
-          [tableName]: (data.columns as TableColumn[]) || [],
-        }));
-      } catch (error) {
-        console.error("Failed to fetch table columns:", error);
-      } finally {
-        setLoadingColumns((prev) => {
-          const updated = new Set(prev);
-          updated.delete(tableName);
-          return updated;
-        });
-      }
-    }
-  };
-
-  const handleRunQuery = useCallback(async () => {
-    if (!activeTab || activeTab.type !== "query" || !connection) return;
-
-    const tab = activeTab as QueryTab;
-    if (!tab.query.trim()) return;
-
-    updateTab<QueryTab>(tab.id, {
-      executing: true,
-      error: null,
-      results: null,
-      success: false,
-      executionTime: null,
-    });
-
-    try {
-      const result = await api.database.executeQuery(connection, tab.query);
-
-      // Use backend timing if available, otherwise use 0
-      const executionTime = result.time_taken_ms ?? 0;
-
-      if (result.error) {
-        updateTab<QueryTab>(tab.id, {
-          error: result.error,
-          executionTime,
-          executing: false,
-        });
-        return;
-      }
-
-      updateTab<QueryTab>(tab.id, {
-        results: result.data as Record<string, unknown>[],
-        success: true,
-        executionTime,
-        executing: false,
-      });
-    } catch (error) {
-      updateTab<QueryTab>(tab.id, {
-        error: error instanceof Error ? error.message : "Failed to execute query",
-        executionTime: null,
-        executing: false,
-      });
-    }
-  }, [activeTab, connection, updateTab]);
-
-  const handleQueryChange = useCallback(
-    (query: string) => {
-      if (!activeTab || activeTab.type !== "query") return;
-      updateTab<QueryTab>(activeTab.id, { query });
-    },
-    [activeTab, updateTab]
-  );
-
-  const handleLoadQuery = (savedQuery: SavedQuery) => {
-    handleOpenQuery(savedQuery.query, savedQuery.id, savedQuery.name);
-  };
-
-  const handleSaveQuery = async () => {
-    if (!activeTab || activeTab.type !== "query" || !uuid) return;
-    const tab = activeTab as QueryTab;
-    if (!tab.query.trim() || !saveQueryName.trim()) return;
-
-    try {
-      // Check if this is an existing saved query
-      if (tab.savedQueryId) {
-        // Update existing query
-        const updatedQuery = await api.queries.update(tab.savedQueryId, {
-          name: saveQueryName,
-          query: tab.query,
-        });
-
-        setSavedQueries(
-          savedQueries.map((q) =>
-            q.id === tab.savedQueryId ? (updatedQuery as SavedQuery) : q
-          )
-        );
-        updateTab<QueryTab>(tab.id, {
-          savedQueryName: updatedQuery.name,
-          title: updatedQuery.name,
-        });
-        toast.success("Query updated successfully");
-      } else {
-        // Create new query
-        const newQuery = await api.queries.create(uuid, {
-          name: saveQueryName,
-          query: tab.query,
-        });
-
-        setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
-        updateTab<QueryTab>(tab.id, {
-          savedQueryId: newQuery.id,
-          savedQueryName: newQuery.name,
-          title: newQuery.name,
-        });
-        toast.success("Query saved successfully");
-      }
-      setShowSaveDialog(false);
-      setSaveQueryName("");
-    } catch (error) {
-      console.error("Failed to save query:", error);
-      toast.error("Failed to save query");
-    }
-  };
-
-  const handleDeleteQuery = (query: SavedQuery) => {
-    setQueryToDelete(query);
-    setShowQueryDeleteDialog(true);
-  };
-
-  const confirmDeleteQuery = async () => {
-    if (!queryToDelete) return;
-
-    try {
-      await api.queries.delete(queryToDelete.id);
-      setSavedQueries(savedQueries.filter((q) => q.id !== queryToDelete.id));
-      setShowQueryDeleteDialog(false);
-      setQueryToDelete(null);
-      toast.success("Query deleted successfully");
-    } catch (error) {
-      console.error("Failed to delete query:", error);
-      toast.error("Failed to delete query");
-    }
-  };
-
-  // Row editing handlers
-  const handleRowClick = useCallback((row: Record<string, unknown>) => {
-    setEditingRow(row);
-    setRowEditSheetOpen(true);
-  }, []);
-
-  const handleSaveRow = useCallback(async (updates: Record<string, unknown>) => {
-    if (!connection || !activeTab || activeTab.type !== "table-data" || !editingRow) return;
-
-    const tab = activeTab as TableDataTab;
-    const [schema, tableName] = tab.tableName.split(".");
-
-    // Get primary key columns and values
-    const primaryKeyColumns = tab.columns
-      .filter((col) => col.primary_key)
-      .map((col) => col.name);
-    const primaryKeyValues = primaryKeyColumns.map((col) => editingRow[col]);
-
-    if (primaryKeyColumns.length === 0) {
-      toast.error("Cannot update row without primary key");
-      return;
-    }
-
-    setSavingRow(true);
-
-    try {
-      const result = await api.database.updateTableRow(
-        connection,
-        schema,
-        tableName,
-        primaryKeyColumns,
-        primaryKeyValues,
-        updates
-      );
-
-      if (result.error) {
-        toast.error("Failed to update row", { description: result.error });
-      } else {
-        toast.success("Row updated successfully");
-        setRowEditSheetOpen(false);
-        setEditingRow(null);
-        // Refresh table data
-        fetchTableData(tab);
-      }
-    } catch (error) {
-      console.error("Failed to update row:", error);
-      toast.error("Failed to update row", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setSavingRow(false);
-    }
-  }, [connection, activeTab, editingRow, fetchTableData]);
-
-  const handleDeleteRow = useCallback(async () => {
-    if (!connection || !activeTab || activeTab.type !== "table-data" || !editingRow) return;
-
-    const tab = activeTab as TableDataTab;
-    const [schema, tableName] = tab.tableName.split(".");
-
-    // Get primary key columns and values
-    const primaryKeyColumns = tab.columns
-      .filter((col) => col.primary_key)
-      .map((col) => col.name);
-    const primaryKeyValues = primaryKeyColumns.map((col) => editingRow[col]);
-
-    if (primaryKeyColumns.length === 0) {
-      toast.error("Cannot delete row without primary key");
-      return;
-    }
-
-    setDeletingRow(true);
-
-    try {
-      const result = await api.database.deleteTableRow(
-        connection,
-        schema,
-        tableName,
-        primaryKeyColumns,
-        primaryKeyValues
-      );
-
-      if (result.error) {
-        toast.error("Failed to delete row", { description: result.error });
-      } else {
-        toast.success("Row deleted successfully");
-        setRowEditSheetOpen(false);
-        setEditingRow(null);
-        // Refresh table data
-        fetchTableData(tab);
-      }
-    } catch (error) {
-      console.error("Failed to delete row:", error);
-      toast.error("Failed to delete row", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      setDeletingRow(false);
-    }
-  }, [connection, activeTab, editingRow, fetchTableData]);
-
-  // Memoized columns for table data
-  const tableDataColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-    if (!activeTab || activeTab.type !== "table-data") return [];
-    const tab = activeTab as TableDataTab;
-    if (!tab.data || tab.data.data.length === 0) return [];
-
-    const schema = tab.tableName.split(".")[0];
-    const firstRow = tab.data.data[0];
-    return Object.keys(firstRow).map((key) => {
-      const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
-
-      return {
-        accessorKey: key,
-        header: () => (
-          <span className="flex items-center gap-1">
-            {key}
-            {fkInfo && (
-              <span className="text-[10px] text-muted-foreground">(FK)</span>
-            )}
-          </span>
-        ),
-        cell: ({ getValue }) => {
-          const value = getValue();
-          if (value === null)
-            return <span className="text-muted-foreground italic">null</span>;
-
-          const displayValue = typeof value === "object" ? JSON.stringify(value) : String(value);
-
-          if (fkInfo && value !== null) {
-            const refTable = `${schema}.${fkInfo.references_table}`;
-            return (
-              <span className="group/fk flex items-center gap-1">
-                <span>{displayValue}</span>
-                <button
-                  type="button"
-                  className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenTableDataWithFilter(refTable, fkInfo.references_column, value);
-                  }}
-                  title={`View ${fkInfo.references_table} where ${fkInfo.references_column} = ${value}`}
-                >
-                  <ArrowRight className="w-3.5 h-3.5 text-primary" />
-                </button>
-              </span>
-            );
-          }
-
-          return displayValue;
-        },
-      };
-    });
-  }, [activeTab, handleOpenTableDataWithFilter]);
-
-  const tableDataPageCount = useMemo(() => {
-    if (!activeTab || activeTab.type !== "table-data") return 0;
-    const tab = activeTab as TableDataTab;
-    if (!tab.data) return 0;
-    return Math.ceil(tab.data.total / tab.data.limit);
-  }, [activeTab]);
-
-  // Memoized columns for query results
-  const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-    if (!activeTab || activeTab.type !== "query") return [];
-    const tab = activeTab as QueryTab;
-    if (!tab.results || tab.results.length === 0) return [];
-
-    const firstRow = tab.results[0];
-    return Object.keys(firstRow).map((key) => ({
-      accessorKey: key,
-      header: key,
-      cell: ({ getValue }) => {
-        const value = getValue();
-        if (value === null)
-          return <span className="text-muted-foreground italic">null</span>;
-        if (typeof value === "object") return JSON.stringify(value);
-        return String(value);
-      },
-    }));
-  }, [activeTab]);
-
-  if (loading || !connection) {
-    return (
-      <div className="flex h-screen">
-        {/* Sidebar skeleton */}
-        <div className="w-64 border-r bg-background flex flex-col">
-          {/* Sidebar header skeleton */}
-          <div className="border-b p-4 pt-10">
-            <div className="flex items-center gap-2">
-              <Skeleton className="h-5 w-5 rounded" />
-              <Skeleton className="h-5 w-32 rounded" />
-            </div>
-          </div>
-
-          {/* Sidebar tabs skeleton */}
-          <div className="p-2 border-b">
-            <div className="flex gap-1">
-              <Skeleton className="h-8 flex-1 rounded" />
-              <Skeleton className="h-8 flex-1 rounded" />
-            </div>
-          </div>
-
-          {/* Sidebar content skeleton - Tables */}
-          <div className="flex-1 p-2 space-y-2">
-            <div className="px-2 py-1">
-              <Skeleton className="h-4 w-20 rounded" />
-            </div>
-            {[...Array(8)].map((_, i) => (
-              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
-                <Skeleton className="h-4 w-4 rounded" />
-                <Skeleton className="h-4 flex-1 rounded" />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Main content skeleton */}
-        <div className="flex-1 flex flex-col">
-          {/* Header skeleton */}
-          <div className="h-10 border-b px-4 flex items-center gap-2 pl-20">
-            <Skeleton className="h-6 w-6 rounded" />
-            <Skeleton className="h-6 w-16 rounded" />
-            <div className="flex-1" />
-            <Skeleton className="h-5 w-20 rounded-full" />
-            <Skeleton className="h-5 w-16 rounded-full" />
-          </div>
-
-          {/* Empty state skeleton */}
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center space-y-4">
-              <Skeleton className="h-16 w-16 rounded-lg mx-auto" />
-              <Skeleton className="h-6 w-48 rounded mx-auto" />
-              <Skeleton className="h-4 w-64 rounded mx-auto" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const tablesBySchema = tables.reduce((acc, table) => {
-    if (!acc[table.schema]) {
-      acc[table.schema] = [];
-    }
-    acc[table.schema].push(table);
-    return acc;
-  }, {} as Record<string, DatabaseTable[]>);
-
-  const renderTableDataContent = (tab: TableDataTab) => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>{tab.tableName}</CardTitle>
-            <CardDescription>
-              {tab.data &&
-                (() => {
-                  const start = (tab.currentPage - 1) * 100 + 1;
-                  const end = Math.min(tab.currentPage * 100, tab.data.total);
-                  return `Showing ${start}-${end} of ${tab.data.total} records`;
-                })()}
-            </CardDescription>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshTableData}
-            disabled={tab.loading}
-            className="ml-4"
-          >
-            {tab.loading ? (
-              <Spinner className="mr-2" />
-            ) : (
-              <ArrowsClockwise className="w-4 h-4 mr-2" />
-            )}
-            Refresh Data
-          </Button>
-        </div>
-      </CardHeader>
-      <div className="px-6 pb-4">
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Filter: e.g. id = 1 AND status = 'active'"
-            value={tab.filterInput}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleFilterInputChange(e.target.value)}
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === "Enter") {
-                handleApplyFilter();
-              }
-            }}
-            className="flex-1 font-mono text-xs"
-          />
-          <Button
-            size="sm"
-            onClick={handleApplyFilter}
-            disabled={tab.loading || !tab.filterInput.trim()}
-          >
-            Apply
-          </Button>
-          {tab.filter && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleClearFilter}
-              disabled={tab.loading}
-            >
-              Clear
-            </Button>
-          )}
-        </div>
-        {tab.filter && (
-          <div className="mt-2 text-xs text-muted-foreground">
-            Active filter: <code className="bg-muted px-1 py-0.5 rounded">{tab.filter}</code>
-          </div>
-        )}
-      </div>
-      <CardContent className="max-h-96 overflow-hidden">
-        {tab.loading ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-8 flex-1 rounded" />
-              ))}
-            </div>
-            {[...Array(6)].map((_, rowIndex) => (
-              <div key={rowIndex} className="flex items-center gap-2">
-                {[...Array(5)].map((_, colIndex) => (
-                  <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-                ))}
-              </div>
-            ))}
-          </div>
-        ) : tab.data && tab.data.data.length > 0 ? (
-          <DataTable
-            data={tab.data.data}
-            columns={tableDataColumns}
-            pageCount={tableDataPageCount}
-            currentPage={tab.currentPage}
-            onPageChange={handlePageChange}
-            onRowClick={handleRowClick}
-          />
-        ) : (
-          <p className="text-muted-foreground text-center py-8">
-            No data found in this table.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  const renderTableStructureContent = (tab: TableStructureTab) => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Table Structure: {tab.tableName}</CardTitle>
-            <CardDescription>
-              Column information, indexes, and foreign keys
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {tab.loading ? (
-          <div className="space-y-6">
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Skeleton className="h-5 w-5 rounded" />
-                <Skeleton className="h-6 w-32 rounded" />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  {[...Array(5)].map((_, i) => (
-                    <Skeleton key={i} className="h-8 flex-1 rounded" />
-                  ))}
-                </div>
-                {[...Array(5)].map((_, rowIndex) => (
-                  <div key={rowIndex} className="flex items-center gap-2">
-                    {[...Array(5)].map((_, colIndex) => (
-                      <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : tab.structure ? (
-          <>
-            <div>
-              <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                <Database className="w-5 h-5" />
-                Columns ({tab.structure.columns?.length || 0})
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-border">
-                  <thead>
-                    <tr className="bg-muted/50">
-                      <th className="border border-border px-3 py-2 text-left font-medium">
-                        Name
-                      </th>
-                      <th className="border border-border px-3 py-2 text-left font-medium">
-                        Type
-                      </th>
-                      <th className="border border-border px-3 py-2 text-left font-medium">
-                        Nullable
-                      </th>
-                      <th className="border border-border px-3 py-2 text-left font-medium">
-                        Default
-                      </th>
-                      <th className="border border-border px-3 py-2 text-left font-medium">
-                        Primary Key
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tab.structure.columns?.map((column, index) => (
-                      <tr key={index} className="hover:bg-muted/30">
-                        <td className="border border-border px-3 py-2 font-mono text-xs">
-                          {column.name}
-                        </td>
-                        <td className="border border-border px-3 py-2 text-xs">
-                          {column.type}
-                        </td>
-                        <td className="border border-border px-3 py-2 text-sm">
-                          {column.nullable ? (
-                            <span className="text-green-600">✓</span>
-                          ) : (
-                            <span className="text-red-600">✗</span>
-                          )}
-                        </td>
-                        <td className="border border-border px-3 py-2 text-xs font-mono">
-                          {column.default || "-"}
-                        </td>
-                        <td className="border border-border px-3 py-2 text-sm">
-                          {column.primary_key ? (
-                            <span className="text-blue-600 font-semibold">✓</span>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {tab.structure.indexes && tab.structure.indexes.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <Table className="w-5 h-5" />
-                  Indexes ({tab.structure.indexes.length})
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse border border-border">
-                    <thead>
-                      <tr className="bg-muted/50">
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Name
-                        </th>
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Columns
-                        </th>
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Unique
-                        </th>
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Primary
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tab.structure.indexes.map((index, idx) => (
-                        <tr key={idx} className="hover:bg-muted/30">
-                          <td className="border border-border px-3 py-2 font-mono text-xs">
-                            {index.name}
-                          </td>
-                          <td className="border border-border px-3 py-2 text-sm">
-                            {Array.isArray(index.columns)
-                              ? index.columns.join(", ")
-                              : index.columns}
-                          </td>
-                          <td className="border border-border px-3 py-2 text-sm">
-                            {index.unique ? (
-                              <span className="text-orange-600">✓</span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                          <td className="border border-border px-3 py-2 text-sm">
-                            {index.primary ? (
-                              <span className="text-blue-600 font-semibold">✓</span>
-                            ) : (
-                              <span className="text-gray-400">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {tab.structure.foreign_keys && tab.structure.foreign_keys.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <ArrowLeft className="w-5 h-5" />
-                  Foreign Keys ({tab.structure.foreign_keys.length})
-                </h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse border border-border">
-                    <thead>
-                      <tr className="bg-muted/50">
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Name
-                        </th>
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          Column
-                        </th>
-                        <th className="border border-border px-3 py-2 text-left font-medium">
-                          References
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tab.structure.foreign_keys.map((fk, idx) => (
-                        <tr key={idx} className="hover:bg-muted/30">
-                          <td className="border border-border px-3 py-2 font-mono text-xs">
-                            {fk.name}
-                          </td>
-                          <td className="border border-border px-3 py-2 font-mono text-xs">
-                            {fk.column}
-                          </td>
-                          <td className="border border-border px-3 py-2 text-sm">
-                            {fk.references_table}.{fk.references_column}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-muted-foreground text-center py-8">
-            Failed to load table structure.
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  const renderQueryContent = (tab: QueryTab) => (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>SQL Editor</CardTitle>
-              <CardDescription>Write and execute SQL queries</CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {showSaveDialog ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="Query name"
-                    value={saveQueryName}
-                    onChange={(e) => setSaveQueryName(e.target.value)}
-                    className="w-40"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleSaveQuery();
-                      } else if (e.key === "Escape") {
-                        setShowSaveDialog(false);
-                        setSaveQueryName("");
-                      }
-                    }}
-                    autoFocus
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleSaveQuery}
-                    disabled={!saveQueryName.trim()}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setShowSaveDialog(false);
-                      setSaveQueryName("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      // Pre-populate name if this is an existing saved query
-                      if (tab.savedQueryName) {
-                        setSaveQueryName(tab.savedQueryName);
-                      }
-                      setShowSaveDialog(true);
-                    }}
-                    disabled={!tab.query.trim()}
-                  >
-                    <FloppyDisk className="w-4 h-4 mr-2" />
-                    Save Query
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleRunQuery}
-                    disabled={tab.executing || !tab.query.trim()}
-                  >
-                    {tab.executing ? (
-                      <>
-                        <Spinner className="mr-2" />
-                        Running...
-                      </>
-                    ) : (
-                      <>
-                        Run SQL{" "}
-                        <span className="text-xs opacity-60">
-                          ({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
-                        </span>
-                      </>
-                    )}
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <SqlEditor
-            value={tab.query}
-            onChange={handleQueryChange}
-            onRunQuery={handleRunQuery}
-            height="300px"
-            tables={tables.map(t => ({
-              schema: t.schema,
-              name: t.name,
-              columns: tableColumns[`${t.schema}.${t.name}`]
-            }))}
-            onGenerateSQL={async (instruction, existingSQL) => {
-              try {
-                // Fetch schemas for all tables that don't have columns yet
-                const tablesToFetch = tables.filter(
-                  t => !tableColumns[`${t.schema}.${t.name}`]
-                );
-
-                if (tablesToFetch.length > 0 && connection) {
-                  const schemaPromises = tablesToFetch.map(async (table) => {
-                    try {
-                      const data = await api.database.getTableStructure(
-                        connection,
-                        table.schema,
-                        table.name
-                      );
-                      return {
-                        key: `${table.schema}.${table.name}`,
-                        columns: (data.columns as TableColumn[]) || []
-                      };
-                    } catch (error) {
-                      console.error(`Failed to fetch schema for ${table.schema}.${table.name}:`, error);
-                      return null;
-                    }
-                  });
-
-                  const results = await Promise.all(schemaPromises);
-                  const newColumns = { ...tableColumns };
-                  results.forEach(result => {
-                    if (result) {
-                      newColumns[result.key] = result.columns;
-                    }
-                  });
-                  setTableColumns(newColumns);
-
-                  // Use the updated columns for generation
-                  let accumulatedSQL = '';
-                  await generateSQL(
-                    connection.db_type || 'postgres',
-                    instruction,
-                    existingSQL,
-                    tables.map(t => ({
-                      schema: t.schema,
-                      name: t.name,
-                      columns: newColumns[`${t.schema}.${t.name}`]
-                    })),
-                    (chunk) => {
-                      accumulatedSQL += chunk;
-                      handleQueryChange(accumulatedSQL);
-                    }
-                  );
-                } else {
-                  // All schemas already cached
-                  let accumulatedSQL = '';
-                  await generateSQL(
-                    connection.db_type || 'postgres',
-                    instruction,
-                    existingSQL,
-                    tables.map(t => ({
-                      schema: t.schema,
-                      name: t.name,
-                      columns: tableColumns[`${t.schema}.${t.name}`]
-                    })),
-                    (chunk) => {
-                      accumulatedSQL += chunk;
-                      handleQueryChange(accumulatedSQL);
-                    }
-                  );
-                }
-              } catch (error) {
-                console.error("AI generation error:", error);
-              }
-            }}
-            generating={generating}
-            aiConfigured={aiConfigured}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Query Results</CardTitle>
-              <CardDescription>
-                {tab.results !== null &&
-                  tab.results.length > 0 &&
-                  `Returned ${tab.results.length} row${tab.results.length !== 1 ? "s" : ""
-                  }`}
-                {tab.results !== null &&
-                  tab.results.length === 0 &&
-                  tab.success &&
-                  "Query executed successfully - no rows returned"}
-                {tab.error && (
-                  <span className="text-destructive">Error: {tab.error}</span>
-                )}
-                {tab.executionTime !== null && (
-                  <span className="ml-2 text-muted-foreground">
-                    • Executed in {tab.executionTime}ms
-                  </span>
-                )}
-              </CardDescription>
-            </div>
-            {tab.results && tab.results.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  if (!tab.results || tab.results.length === 0) return;
-
-                  const { save } = await import("@tauri-apps/plugin-dialog");
-                  const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-                  const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-
-                  const defaultName = `query_results_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.csv`;
-
-                  const filePath = await save({
-                    defaultPath: defaultName,
-                    filters: [{ name: "CSV", extensions: ["csv"] }],
-                  });
-
-                  if (!filePath) return;
-
-                  const headers = Object.keys(tab.results[0]);
-                  const csvContent = [
-                    headers.join(","),
-                    ...tab.results.map((row) =>
-                      headers
-                        .map((header) => {
-                          const value = row[header];
-                          if (value === null || value === undefined) return "";
-                          const stringValue = typeof value === "object"
-                            ? JSON.stringify(value)
-                            : String(value);
-                          if (stringValue.includes(",") || stringValue.includes('"') || stringValue.includes("\n")) {
-                            return `"${stringValue.replace(/"/g, '""')}"`;
-                          }
-                          return stringValue;
-                        })
-                        .join(",")
-                    ),
-                  ].join("\n");
-
-                  try {
-                    await writeTextFile(filePath, csvContent);
-                    toast.success("CSV saved successfully", {
-                      action: {
-                        label: "Show in Finder",
-                        onClick: () => revealItemInDir(filePath),
-                      },
-                    });
-                  } catch (error) {
-                    toast.error("Failed to save CSV", {
-                      description: error instanceof Error ? error.message : String(error),
-                    });
-                  }
-                }}
-              >
-                <DownloadSimple className="w-4 h-4 mr-2" />
-                Download CSV
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {tab.executing ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                {[...Array(4)].map((_, i) => (
-                  <Skeleton key={i} className="h-8 flex-1 rounded" />
-                ))}
-              </div>
-              {[...Array(5)].map((_, rowIndex) => (
-                <div key={rowIndex} className="flex items-center gap-2">
-                  {[...Array(4)].map((_, colIndex) => (
-                    <Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-                  ))}
-                </div>
-              ))}
-            </div>
-          ) : tab.error ? (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
-              <p className="text-sm text-destructive font-medium">Query Error</p>
-              <p className="text-sm text-destructive/80 mt-1">{tab.error}</p>
-            </div>
-          ) : tab.results && tab.results.length > 0 ? (
-            <div className="max-h-96 overflow-x-auto">
-              <DataTable
-                data={tab.results}
-                columns={queryColumns}
-                pageCount={1}
-                currentPage={1}
-                onPageChange={() => { }}
-              />
-            </div>
-          ) : tab.success && tab.results && tab.results.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
-                <p className="text-sm text-green-800 dark:text-green-200 font-medium">
-                  ✓ Query executed successfully
-                </p>
-                <p className="text-sm text-green-600 dark:text-green-300 mt-1">
-                  No rows returned
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <p>
-                No results yet. Write a SQL query and click &quot;Run SQL&quot; to
-                execute it.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderEmptyState = () => (
-    <Card>
-      <CardHeader>
-        <CardTitle>Welcome</CardTitle>
-        <CardDescription>
-          Select a table from the sidebar or create a new query to get started
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Click on a table to view its data, or use the &quot;+&quot; button to create
-            a new SQL query.
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Found {tables.length} tables across{" "}
-            {Object.keys(tablesBySchema).length} schemas.
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
-  // ============================================================================
-  // Redis-specific handlers (simple view without tabs)
-  // ============================================================================
-
-  const handleRedisSearch = async () => {
-    if (!connection) return;
-    setLoadingRedisKeys(true);
-    setRedisSelectedKey(null);
-    setRedisKeyDetails(null);
-    setRedisSearchTime(null);
-
-    try {
-      const result = await api.redis.searchKeys(connection, redisPattern, 100);
-      setRedisKeys(result.keys);
-      setRedisSearchTime(result.time_taken_ms ?? null);
-    } catch (error) {
-      console.error("Failed to search Redis keys:", error);
-      toast.error("Failed to search keys");
-    } finally {
-      setLoadingRedisKeys(false);
-    }
-  };
-
-  const handleRedisKeySelect = async (key: string) => {
-    if (!connection) return;
-
-    setRedisSelectedKey(key);
-    setLoadingRedisDetails(true);
-    setRedisSheetOpen(true);
-
-    try {
-      const details = await api.redis.getKeyDetails(connection, key);
-      setRedisKeyDetails(details);
-    } catch (error) {
-      console.error("Failed to get Redis key details:", error);
-      toast.error("Failed to load key details");
-      setRedisSheetOpen(false);
-    } finally {
-      setLoadingRedisDetails(false);
-    }
-  };
-
-  const handleRedisDeleteKey = async () => {
-    setShowDeleteDialog(false);
-    if (!connection || !redisSelectedKey) return;
-
-    try {
-      await api.redis.deleteKey(connection, redisSelectedKey);
-      toast.success("Key deleted successfully");
-      // Close sheet, refresh keys list, and clear selection
-      setRedisSheetOpen(false);
-      handleRedisSearch();
-      setRedisSelectedKey(null);
-      setRedisKeyDetails(null);
-    } catch (error) {
-      console.error("Failed to delete Redis key:", error);
-      toast.error("Failed to delete key");
-    }
-  };
-
-  const handleCopyValue = () => {
-    if (!redisKeyDetails) return;
-    const valueString = JSON.stringify(redisKeyDetails.value, null, 2);
-    navigator.clipboard.writeText(valueString);
-    setCopiedToClipboard(true);
-    toast.success("Copied to clipboard");
-    setTimeout(() => setCopiedToClipboard(false), 2000);
-  };
-
-  const renderRedisView = () => (
-    <div className="flex flex-col h-full gap-4">
-      {/* Pattern Search */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Enter pattern (e.g., *, user:*, cache:*)"
-              value={redisPattern}
-              onChange={(e) => setRedisPattern(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleRedisSearch();
-                }
-              }}
-              className="flex-1 font-mono"
-              autoFocus
-            />
-            <Button onClick={handleRedisSearch} disabled={loadingRedisKeys}>
-              {loadingRedisKeys ? <Spinner className="mr-2" /> : null}
-              Search Keys
-            </Button>
-          </div>
-          {redisKeys !== null && (
-            <div className="mt-2 text-sm text-muted-foreground">
-              Found {redisKeys.length} key{redisKeys.length !== 1 ? "s" : ""}
-              {redisSearchTime !== null && (
-                <span className="ml-2">• {redisSearchTime}ms</span>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Results */}
-      <Card className="flex-1 overflow-hidden flex flex-col">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Keys</CardTitle>
-        </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto p-0">
-          {loadingRedisKeys ? (
-            <div className="flex items-center justify-center py-8">
-              <Spinner />
-            </div>
-          ) : redisKeys && redisKeys.length > 0 ? (
-            <div className="divide-y">
-              {redisKeys.map((keyInfo, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={() => handleRedisKeySelect(keyInfo.key)}
-                  className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono text-sm truncate flex-1">{keyInfo.key}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : redisKeys && redisKeys.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No keys found matching pattern "{redisPattern}"
-            </div>
-          ) : (
-            <div className="text-center py-12 text-muted-foreground">
-              Enter a pattern and click Search to find keys
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Key Details Sheet */}
-      <Sheet open={redisSheetOpen} onOpenChange={setRedisSheetOpen}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          <div className="px-6">
-            {loadingRedisDetails ? (
-              <>
-                <SheetHeader>
-                  <SheetTitle>Key Details</SheetTitle>
-                  <SheetDescription>
-                    Loading key details...
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="mt-6 space-y-6">
-                  {/* Metadata skeleton */}
-                  <div>
-                    <h3 className="text-sm font-medium mb-3">Metadata</h3>
-                    <div className="space-y-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Key:</span>
-                        <Skeleton className="mt-1 h-8 w-full rounded" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <span className="text-muted-foreground">Type:</span>
-                          <Skeleton className="h-4 w-16 rounded" />
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-muted-foreground">TTL:</span>
-                          <Skeleton className="h-4 w-24 rounded" />
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-muted-foreground">Encoding:</span>
-                          <Skeleton className="h-4 w-20 rounded" />
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-muted-foreground">Memory:</span>
-                          <Skeleton className="h-4 w-20 rounded" />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  {/* Value skeleton */}
-                  <div>
-                    <h3 className="text-sm font-medium mb-3">Value</h3>
-                    <Skeleton className="h-32 w-full rounded-md" />
-                  </div>
-                  {/* Actions skeleton */}
-                  <div className="flex gap-2 pt-4 border-t">
-                    <Skeleton className="h-9 w-24 rounded" />
-                    <Skeleton className="h-9 w-16 rounded" />
-                  </div>
-                </div>
-              </>
-            ) : redisKeyDetails ? (
-              <>
-                <SheetHeader>
-                  <SheetTitle>Key Details</SheetTitle>
-                  <SheetDescription>
-                    Viewing details for Redis key
-                  </SheetDescription>
-                </SheetHeader>
-                <div className="mt-6 space-y-6">
-                  {/* Key metadata */}
-                  <div>
-                    <h3 className="text-sm font-medium mb-3">Metadata</h3>
-                    <div className="space-y-3 text-sm">
-                      {/* Key - full width */}
-                      <div>
-                        <span className="text-muted-foreground">Key:</span>
-                        <div className="mt-1 font-mono bg-muted px-3 py-2 rounded text-xs break-all">
-                          {redisKeyDetails.key}
-                        </div>
-                      </div>
-                      {/* Other metadata in grid */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <span className="text-muted-foreground">Type:</span>
-                          <span className="ml-2">{redisKeyDetails.key_type}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">TTL:</span>
-                          <span className="ml-2">
-                            {redisKeyDetails.ttl === -1 ? "No expiration" : `${redisKeyDetails.ttl}s`}
-                          </span>
-                        </div>
-                        {redisKeyDetails.encoding && (
-                          <div>
-                            <span className="text-muted-foreground">Encoding:</span>
-                            <span className="ml-2">{redisKeyDetails.encoding}</span>
-                          </div>
-                        )}
-                        {redisKeyDetails.size !== undefined && (
-                          <div>
-                            <span className="text-muted-foreground">Memory:</span>
-                            <span className="ml-2">{redisKeyDetails.size} bytes</span>
-                          </div>
-                        )}
-                        {redisKeyDetails.length !== undefined && (
-                          <div>
-                            <span className="text-muted-foreground">Length:</span>
-                            <span className="ml-2">{redisKeyDetails.length}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Value */}
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-medium">Value</h3>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleCopyValue}
-                        className="h-7 px-2"
-                      >
-                        {copiedToClipboard ? (
-                          <>
-                            <Check className="w-4 h-4 mr-1" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-4 h-4 mr-1" />
-                            Copy
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                    <div className="bg-muted rounded-md p-4">
-                      <pre className="text-sm overflow-x-auto whitespace-pre-wrap break-all">
-                        {JSON.stringify(redisKeyDetails.value, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 pt-4 border-t">
-                    <Button
-                      variant="destructive"
-                      onClick={() => setShowDeleteDialog(true)}
-                    >
-                      Delete Key
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setRedisSheetOpen(false)}
-                    >
-                      Close
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center py-12 text-muted-foreground">
-                Failed to load key details
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Redis Key?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete the key <span className="font-mono bg-muted px-2 py-0.5 rounded">{redisSelectedKey}</span>? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleRedisDeleteKey}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-
-  const renderActiveTabContent = () => {
-    if (!activeTab) return renderEmptyState();
-
-    switch (activeTab.type) {
-      case "table-data":
-        return renderTableDataContent(activeTab as TableDataTab);
-      case "table-structure":
-        return renderTableStructureContent(activeTab as TableStructureTab);
-      case "query":
-        return renderQueryContent(activeTab as QueryTab);
-      default:
-        return renderEmptyState();
-    }
-  };
-
-  // Redis-specific layout without sidebar or tabs
-  if (connection.type === "redis") {
-    return (
-      <div className="flex flex-col h-screen">
-        <RedisContentHeader connection={connection} navigate={navigate} />
-
-        <div className="flex-1 p-4 min-w-0 overflow-auto">
-          {renderRedisView()}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <SidebarProvider>
-      <Sidebar>
-        <SidebarHeader className="border-b p-4 pt-10" onMouseDown={handleDragStart}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Table className="w-5 h-5" />
-              <span className="font-semibold">{connection.name}</span>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleRefreshTables}
-              disabled={refreshingTables}
-              title="Refresh tables list"
-            >
-              {refreshingTables ? (
-                <Spinner />
-              ) : (
-                <ArrowsClockwise className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
-          <div className="text-xs text-muted-foreground mt-1">
-            {connection.database}
-          </div>
-        </SidebarHeader>
-        <SidebarContent className="p-2">
-          <Tabs
-            value={sidebarTab}
-            onValueChange={(v) => setSidebarTab(v as "tables" | "queries")}
-          >
-            <TabsList className="w-full grid grid-cols-2">
-              <TabsTrigger value="tables" className="flex items-center gap-2">
-                <Table className="w-4 h-4" />
-                Tables
-              </TabsTrigger>
-              <TabsTrigger value="queries" className="flex items-center gap-2">
-                <Code className="w-4 h-4" />
-                Queries
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="tables" className="mt-2">
-              {Object.entries(tablesBySchema).map(([schema, schemaTables]) => (
-                <SidebarGroup key={schema}>
-                  <SidebarGroupLabel>{schema}</SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {(schemaTables as DatabaseTable[]).map((table) => {
-                        const tableName = `${table.schema}.${table.name}`;
-                        const isExpanded = expandedTables.has(tableName);
-                        const isLoading = loadingColumns.has(tableName);
-                        const cols = tableColumns[tableName] || [];
-
-                        return (
-                          <Collapsible
-                            key={tableName}
-                            open={isExpanded}
-                            onOpenChange={() =>
-                              handleToggleTableExpand(tableName)
-                            }
-                          >
-                            <SidebarMenuItem>
-                              <CollapsibleTrigger
-                                render={
-                                  <SidebarMenuButton className="w-full" />
-                                }
-                              >
-                                <CaretRight
-                                  className={`w-3 h-3 transition-transform ${isExpanded ? "rotate-90" : ""
-                                    }`}
-                                />
-                                <Table className="w-3 h-3" />
-                                <span className="truncate text-xs">
-                                  {table.name}
-                                </span>
-                                {table.type === "view" && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="ml-auto text-xs"
-                                  >
-                                    View
-                                  </Badge>
-                                )}
-                              </CollapsibleTrigger>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger
-                                  render={
-                                    <button
-                                      type="button"
-                                      className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  }
-                                >
-                                  <DotsThreeVertical className="w-3 h-3" />
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    onClick={() => {
-                                      handleOpenTableData(tableName);
-                                    }}
-                                  >
-                                    <Table className="w-4 h-4 mr-2" />
-                                    View Data
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleRunQueryForTable(tableName)
-                                    }
-                                  >
-                                    <Code className="w-4 h-4 mr-2" />
-                                    Run Query
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleOpenTableStructure(tableName)
-                                    }
-                                  >
-                                    <Columns className="w-4 h-4 mr-2" />
-                                    View Structure
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </SidebarMenuItem>
-                            <CollapsibleContent>
-                              <SidebarMenuSub>
-                                {isLoading ? (
-                                  <SidebarMenuSubItem>
-                                    <SidebarMenuSubButton>
-                                      <Spinner className="w-3 h-3" />
-                                      <span className="text-muted-foreground">
-                                        Loading...
-                                      </span>
-                                    </SidebarMenuSubButton>
-                                  </SidebarMenuSubItem>
-                                ) : cols.length > 0 ? (
-                                  cols.map((col) => (
-                                    <SidebarMenuSubItem key={col.name}>
-                                      <SidebarMenuSubButton
-                                        onClick={() => {
-                                          // If there's an active query tab, insert column name
-                                          if (
-                                            activeTab &&
-                                            activeTab.type === "query"
-                                          ) {
-                                            const queryTab = activeTab as QueryTab;
-                                            handleQueryChange(
-                                              queryTab.query + col.name
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        <span className="font-mono text-xs truncate">
-                                          {col.name}
-                                        </span>
-                                        <span className="text-muted-foreground text-xs ml-auto truncate max-w-[80px]">
-                                          {col.type}
-                                        </span>
-                                        {col.primary_key && (
-                                          <Badge
-                                            variant="outline"
-                                            className="text-[10px] px-1 py-0 ml-1"
-                                          >
-                                            PK
-                                          </Badge>
-                                        )}
-                                      </SidebarMenuSubButton>
-                                    </SidebarMenuSubItem>
-                                  ))
-                                ) : (
-                                  <SidebarMenuSubItem>
-                                    <SidebarMenuSubButton>
-                                      <span className="text-muted-foreground text-xs">
-                                        No columns
-                                      </span>
-                                    </SidebarMenuSubButton>
-                                  </SidebarMenuSubItem>
-                                )}
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </Collapsible>
-                        );
-                      })}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-              ))}
-            </TabsContent>
-            <TabsContent value="queries" className="mt-2">
-              <SidebarGroup>
-                <SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  {loadingQueries ? (
-                    <div className="flex items-center justify-center py-4">
-                      <Spinner />
-                    </div>
-                  ) : savedQueries.length === 0 ? (
-                    <p className="text-xs text-muted-foreground px-2 py-4 text-center">
-                      No saved queries yet
-                    </p>
-                  ) : (
-                    <SidebarMenu>
-                      {savedQueries.map((query) => (
-                        <SidebarMenuItem key={query.id} className="group/query">
-                          <SidebarMenuButton
-                            onClick={() => handleLoadQuery(query)}
-                            className="pr-8"
-                          >
-                            <Code className="w-4 h-4" />
-                            <span className="truncate flex-1">
-                              {query.name}
-                            </span>
-                          </SidebarMenuButton>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              render={
-                                <button
-                                  type="button"
-                                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/query:opacity-100 hover:bg-sidebar-accent"
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              }
-                            >
-                              <DotsThreeVertical className="w-3 h-3" />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => handleDeleteQuery(query)}
-                                variant="destructive"
-                              >
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  )}
-                </SidebarGroupContent>
-              </SidebarGroup>
-            </TabsContent>
-          </Tabs>
-        </SidebarContent>
-      </Sidebar>
-
-      <SidebarInset className="min-w-0 overflow-hidden flex flex-col">
-        <ContentHeader connection={connection} navigate={navigate} />
-
-        <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onTabSelect={handleTabSelect}
-          onTabClose={handleCloseTab}
-          onNewQuery={connection.type === "redis" ? handleNewRedisQuery : handleNewQuery}
-        />
-
-        <div className="flex-1 p-4 min-w-0 overflow-auto">
-          {renderActiveTabContent()}
-        </div>
-      </SidebarInset>
-
-      {/* Query Delete Confirmation Dialog */}
-      <AlertDialog open={showQueryDeleteDialog} onOpenChange={setShowQueryDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Saved Query?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete the saved query <span className="font-semibold">"{queryToDelete?.name}"</span>? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteQuery}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Row Edit Sheet */}
-      {activeTab && activeTab.type === "table-data" && (
-        <RowEditSheet
-          open={rowEditSheetOpen}
-          onOpenChange={(open) => {
-            setRowEditSheetOpen(open);
-            if (!open) setEditingRow(null);
-          }}
-          tableName={(activeTab as TableDataTab).tableName}
-          row={editingRow}
-          columns={(activeTab as TableDataTab).columns}
-          onSave={handleSaveRow}
-          onDelete={handleDeleteRow}
-          saving={savingRow}
-          deleting={deletingRow}
-        />
-      )}
-    </SidebarProvider>
-  );
+	const { uuid } = useParams<{ uuid: string }>();
+	const navigate = useNavigate();
+	const [connection, setConnection] = useState<Connection | null>(null);
+	const [tables, setTables] = useState<DatabaseTable[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [refreshingTables, setRefreshingTables] = useState(false);
+	const [sidebarTab, setSidebarTab] = useState<"tables" | "queries">("tables");
+	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+	const [loadingQueries, setLoadingQueries] = useState(false);
+	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+	const [tableColumns, setTableColumns] = useState<
+		Record<string, TableColumn[]>
+	>({});
+	const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
+	const [connectionStatus, setConnectionStatus] = useState<
+		"connected" | "disconnected"
+	>("connected");
+
+	// Tab state
+	const [tabs, setTabs] = useState<Tab[]>([]);
+	const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
+	// Redis-specific state (no tabs for Redis)
+	const [redisPattern, setRedisPattern] = useState("*");
+	const [redisKeys, setRedisKeys] = useState<any[] | null>(null);
+	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
+	const [redisKeyDetails, setRedisKeyDetails] = useState<any>(null);
+	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
+	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
+	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
+	const [copiedToClipboard, setCopiedToClipboard] = useState(false);
+	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+	const [redisSearchTime, setRedisSearchTime] = useState<number | null>(null);
+
+	// Save dialog state (for query tabs)
+	const [saveQueryName, setSaveQueryName] = useState("");
+	const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+	// Query delete confirmation state
+	const [queryToDelete, setQueryToDelete] = useState<SavedQuery | null>(null);
+	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
+
+	// AI generation
+	const {
+		generateSQL,
+		generating,
+		isConfigured: aiConfigured,
+	} = useAIGeneration();
+
+	// Row edit state
+	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
+	const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(
+		null,
+	);
+	const [savingRow, setSavingRow] = useState(false);
+	const [deletingRow, setDeletingRow] = useState(false);
+
+	const activeTab = useMemo(
+		() => tabs.find((t) => t.id === activeTabId) || null,
+		[tabs, activeTabId],
+	);
+
+	useEffect(() => {
+		const fetchConnection = async () => {
+			if (!uuid) return;
+			try {
+				const data = await api.connections.getByUuid(uuid);
+				setConnection(data);
+			} catch (error) {
+				console.error("Failed to fetch connection:", error);
+				navigate("/");
+			}
+		};
+
+		if (uuid) {
+			fetchConnection();
+		}
+	}, [uuid, navigate]);
+
+	const fetchTables = useCallback(async () => {
+		if (!connection) return;
+		try {
+			const data = await api.database.listTables(connection);
+			setTables(data as DatabaseTable[]);
+			setConnectionStatus("connected");
+		} catch (error) {
+			console.error("Failed to fetch tables:", error);
+			setTables([]);
+			setConnectionStatus("disconnected");
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			toast.error("Connection failed", {
+				description: errorMessage,
+			});
+		} finally {
+			setLoading(false);
+		}
+	}, [connection]);
+
+	useEffect(() => {
+		if (connection) {
+			fetchTables();
+		}
+	}, [connection, fetchTables]);
+
+	useEffect(() => {
+		const fetchSavedQueries = async () => {
+			if (!uuid || sidebarTab !== "queries") return;
+
+			setLoadingQueries(true);
+			try {
+				const data = await api.queries.list(uuid);
+				setSavedQueries(data as SavedQuery[]);
+			} catch (error) {
+				console.error("Failed to fetch saved queries:", error);
+			} finally {
+				setLoadingQueries(false);
+			}
+		};
+
+		fetchSavedQueries();
+	}, [uuid, sidebarTab]);
+
+	const updateTab = useCallback(
+		<T extends Tab>(tabId: string, updates: Partial<T>) => {
+			setTabs((prev) =>
+				prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
+			);
+		},
+		[],
+	);
+
+	const fetchTableData = useCallback(
+		async (tab: TableDataTab) => {
+			if (!connection) return;
+
+			updateTab<TableDataTab>(tab.id, { loading: true });
+
+			try {
+				const [schema, tableName] = tab.tableName.split(".");
+				const data = await api.database.getTableData(
+					connection,
+					schema,
+					tableName,
+					tab.currentPage,
+					100,
+					tab.filter || undefined,
+				);
+
+				updateTab<TableDataTab>(tab.id, { data, loading: false });
+			} catch (error) {
+				console.error("Failed to fetch table data:", error);
+				const errorMessage =
+					error instanceof Error ? error.message : String(error);
+				toast.error("Failed to load table data", {
+					description: errorMessage,
+				});
+				updateTab<TableDataTab>(tab.id, { data: null, loading: false });
+			}
+		},
+		[connection, updateTab],
+	);
+
+	const fetchTableStructure = useCallback(
+		async (tab: TableStructureTab) => {
+			if (!connection) return;
+
+			updateTab<TableStructureTab>(tab.id, { loading: true });
+
+			try {
+				const [schema, tableName] = tab.tableName.split(".");
+				const data = await api.database.getTableStructure(
+					connection,
+					schema,
+					tableName,
+				);
+
+				updateTab<TableStructureTab>(tab.id, {
+					structure: data as TableStructureData,
+					loading: false,
+				});
+			} catch (error) {
+				console.error("Failed to fetch table structure:", error);
+				updateTab<TableStructureTab>(tab.id, {
+					structure: null,
+					loading: false,
+				});
+			}
+		},
+		[connection, updateTab],
+	);
+
+	const fetchForeignKeys = useCallback(
+		async (tab: TableDataTab) => {
+			if (!connection) return;
+
+			try {
+				const [schema, tableName] = tab.tableName.split(".");
+				const data = await api.database.getTableStructure(
+					connection,
+					schema,
+					tableName,
+				);
+				updateTab<TableDataTab>(tab.id, {
+					foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
+					columns: (data.columns as TableColumn[]) || [],
+				});
+			} catch (error) {
+				console.error("Failed to fetch foreign keys:", error);
+			}
+		},
+		[connection, updateTab],
+	);
+
+	const handleOpenTableData = useCallback(
+		(tableName: string) => {
+			// Check if tab already exists
+			const existingTab = tabs.find(
+				(t) =>
+					t.type === "table-data" &&
+					(t as TableDataTab).tableName === tableName,
+			);
+
+			if (existingTab) {
+				setActiveTabId(existingTab.id);
+				return;
+			}
+
+			const newTab = createTableDataTab(tableName);
+			setTabs((prev) => [...prev, newTab]);
+			setActiveTabId(newTab.id);
+
+			// Fetch data and foreign keys for the new tab
+			fetchTableData(newTab);
+			fetchForeignKeys(newTab);
+		},
+		[tabs, fetchTableData, fetchForeignKeys],
+	);
+
+	const handleOpenTableDataWithFilter = useCallback(
+		(tableName: string, filterColumn: string, filterValue: unknown) => {
+			const filterStr =
+				typeof filterValue === "string"
+					? `${filterColumn} = '${filterValue}'`
+					: `${filterColumn} = ${filterValue}`;
+
+			const newTab = createTableDataTab(tableName);
+			newTab.filter = filterStr;
+			newTab.filterInput = filterStr;
+
+			setTabs((prev) => [...prev, newTab]);
+			setActiveTabId(newTab.id);
+
+			// Fetch data and foreign keys for the new tab
+			fetchTableData(newTab);
+			fetchForeignKeys(newTab);
+		},
+		[fetchTableData, fetchForeignKeys],
+	);
+
+	const handleOpenTableStructure = useCallback(
+		(tableName: string) => {
+			// Check if tab already exists
+			const existingTab = tabs.find(
+				(t) =>
+					t.type === "table-structure" &&
+					(t as TableStructureTab).tableName === tableName,
+			);
+
+			if (existingTab) {
+				setActiveTabId(existingTab.id);
+				return;
+			}
+
+			const newTab = createTableStructureTab(tableName);
+			setTabs((prev) => [...prev, newTab]);
+			setActiveTabId(newTab.id);
+
+			// Fetch structure for the new tab
+			fetchTableStructure(newTab);
+		},
+		[tabs, fetchTableStructure],
+	);
+
+	const handleOpenQuery = useCallback(
+		(
+			query: string,
+			savedQueryId: number | null = null,
+			savedQueryName: string | null = null,
+		) => {
+			// Check if saved query tab already exists
+			if (savedQueryId) {
+				const existingTab = tabs.find(
+					(t) =>
+						t.type === "query" && (t as QueryTab).savedQueryId === savedQueryId,
+				);
+
+				if (existingTab) {
+					setActiveTabId(existingTab.id);
+					return;
+				}
+			}
+
+			const newTab = createQueryTab(query, savedQueryId, savedQueryName);
+			setTabs((prev) => [...prev, newTab]);
+			setActiveTabId(newTab.id);
+		},
+		[tabs],
+	);
+
+	const handleNewQuery = useCallback(() => {
+		const newTab = createQueryTab("SELECT * FROM ");
+		setTabs((prev) => [...prev, newTab]);
+		setActiveTabId(newTab.id);
+	}, []);
+
+	const handleCloseTab = useCallback(
+		(tabId: string) => {
+			setTabs((prev) => {
+				const newTabs = prev.filter((t) => t.id !== tabId);
+
+				// If closing active tab, switch to adjacent tab
+				if (activeTabId === tabId && newTabs.length > 0) {
+					const closedIndex = prev.findIndex((t) => t.id === tabId);
+					const newActiveIndex = Math.min(closedIndex, newTabs.length - 1);
+					setActiveTabId(newTabs[newActiveIndex].id);
+				} else if (newTabs.length === 0) {
+					setActiveTabId(null);
+				}
+
+				return newTabs;
+			});
+		},
+		[activeTabId],
+	);
+
+	const handleTabSelect = useCallback((tabId: string) => {
+		setActiveTabId(tabId);
+	}, []);
+
+	const handleRefreshTables = async () => {
+		if (!connection || refreshingTables) return;
+
+		setRefreshingTables(true);
+		try {
+			const data = await api.database.listTables(connection);
+			setTables(data as DatabaseTable[]);
+		} catch (error) {
+			console.error("Failed to refresh tables:", error);
+			setTables([]);
+		} finally {
+			setRefreshingTables(false);
+		}
+	};
+
+	const handleRefreshTableData = useCallback(async () => {
+		if (!activeTab || activeTab.type !== "table-data" || !uuid) return;
+		const tab = activeTab as TableDataTab;
+		updateTab<TableDataTab>(tab.id, { currentPage: 1 });
+		fetchTableData({ ...tab, currentPage: 1 });
+	}, [activeTab, uuid, updateTab, fetchTableData]);
+
+	const handlePageChange = useCallback(
+		(page: number) => {
+			if (!activeTab || activeTab.type !== "table-data") return;
+			const tab = activeTab as TableDataTab;
+			updateTab<TableDataTab>(tab.id, { currentPage: page });
+			fetchTableData({ ...tab, currentPage: page });
+		},
+		[activeTab, updateTab, fetchTableData],
+	);
+
+	const handleFilterInputChange = useCallback(
+		(value: string) => {
+			if (!activeTab || activeTab.type !== "table-data") return;
+			updateTab<TableDataTab>(activeTab.id, { filterInput: value });
+		},
+		[activeTab, updateTab],
+	);
+
+	const handleApplyFilter = useCallback(() => {
+		if (!activeTab || activeTab.type !== "table-data") return;
+		const tab = activeTab as TableDataTab;
+		updateTab<TableDataTab>(tab.id, {
+			filter: tab.filterInput,
+			currentPage: 1,
+		});
+		fetchTableData({ ...tab, filter: tab.filterInput, currentPage: 1 });
+	}, [activeTab, updateTab, fetchTableData]);
+
+	const handleClearFilter = useCallback(() => {
+		if (!activeTab || activeTab.type !== "table-data") return;
+		const tab = activeTab as TableDataTab;
+		updateTab<TableDataTab>(tab.id, {
+			filter: "",
+			filterInput: "",
+			currentPage: 1,
+		});
+		fetchTableData({ ...tab, filter: "", currentPage: 1 });
+	}, [activeTab, updateTab, fetchTableData]);
+
+	const handleRunQueryForTable = (tableName: string) => {
+		const [schema, table] = tableName.split(".");
+		const query = `SELECT * FROM ${schema}.${table} LIMIT 10;`;
+		handleOpenQuery(query);
+	};
+
+	const handleToggleTableExpand = async (tableName: string) => {
+		const newExpanded = new Set(expandedTables);
+
+		if (newExpanded.has(tableName)) {
+			newExpanded.delete(tableName);
+			setExpandedTables(newExpanded);
+			return;
+		}
+
+		newExpanded.add(tableName);
+		setExpandedTables(newExpanded);
+
+		if (!tableColumns[tableName] && connection) {
+			const [schema, table] = tableName.split(".");
+			const newLoading = new Set(loadingColumns);
+			newLoading.add(tableName);
+			setLoadingColumns(newLoading);
+
+			try {
+				const data = await api.database.getTableStructure(
+					connection,
+					schema,
+					table,
+				);
+				setTableColumns((prev) => ({
+					...prev,
+					[tableName]: (data.columns as TableColumn[]) || [],
+				}));
+			} catch (error) {
+				console.error("Failed to fetch table columns:", error);
+			} finally {
+				setLoadingColumns((prev) => {
+					const updated = new Set(prev);
+					updated.delete(tableName);
+					return updated;
+				});
+			}
+		}
+	};
+
+	const handleRunQuery = useCallback(async () => {
+		if (!activeTab || activeTab.type !== "query" || !connection) return;
+
+		const tab = activeTab as QueryTab;
+		if (!tab.query.trim()) return;
+
+		updateTab<QueryTab>(tab.id, {
+			executing: true,
+			error: null,
+			results: null,
+			success: false,
+			executionTime: null,
+		});
+
+		try {
+			const result = await api.database.executeQuery(connection, tab.query);
+
+			// Use backend timing if available, otherwise use 0
+			const executionTime = result.time_taken_ms ?? 0;
+
+			if (result.error) {
+				updateTab<QueryTab>(tab.id, {
+					error: result.error,
+					executionTime,
+					executing: false,
+				});
+				return;
+			}
+
+			updateTab<QueryTab>(tab.id, {
+				results: result.data as Record<string, unknown>[],
+				success: true,
+				executionTime,
+				executing: false,
+			});
+		} catch (error) {
+			updateTab<QueryTab>(tab.id, {
+				error:
+					error instanceof Error ? error.message : "Failed to execute query",
+				executionTime: null,
+				executing: false,
+			});
+		}
+	}, [activeTab, connection, updateTab]);
+
+	const handleQueryChange = useCallback(
+		(query: string) => {
+			if (!activeTab || activeTab.type !== "query") return;
+			updateTab<QueryTab>(activeTab.id, { query });
+		},
+		[activeTab, updateTab],
+	);
+
+	const handleLoadQuery = (savedQuery: SavedQuery) => {
+		handleOpenQuery(savedQuery.query, savedQuery.id, savedQuery.name);
+	};
+
+	const handleSaveQuery = async () => {
+		if (!activeTab || activeTab.type !== "query" || !uuid) return;
+		const tab = activeTab as QueryTab;
+		if (!tab.query.trim() || !saveQueryName.trim()) return;
+
+		try {
+			// Check if this is an existing saved query
+			if (tab.savedQueryId) {
+				// Update existing query
+				const updatedQuery = await api.queries.update(tab.savedQueryId, {
+					name: saveQueryName,
+					query: tab.query,
+				});
+
+				setSavedQueries(
+					savedQueries.map((q) =>
+						q.id === tab.savedQueryId ? (updatedQuery as SavedQuery) : q,
+					),
+				);
+				updateTab<QueryTab>(tab.id, {
+					savedQueryName: updatedQuery.name,
+					title: updatedQuery.name,
+				});
+				toast.success("Query updated successfully");
+			} else {
+				// Create new query
+				const newQuery = await api.queries.create(uuid, {
+					name: saveQueryName,
+					query: tab.query,
+				});
+
+				setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
+				updateTab<QueryTab>(tab.id, {
+					savedQueryId: newQuery.id,
+					savedQueryName: newQuery.name,
+					title: newQuery.name,
+				});
+				toast.success("Query saved successfully");
+			}
+			setShowSaveDialog(false);
+			setSaveQueryName("");
+		} catch (error) {
+			console.error("Failed to save query:", error);
+			toast.error("Failed to save query");
+		}
+	};
+
+	const handleDeleteQuery = (query: SavedQuery) => {
+		setQueryToDelete(query);
+		setShowQueryDeleteDialog(true);
+	};
+
+	const confirmDeleteQuery = async () => {
+		if (!queryToDelete) return;
+
+		try {
+			await api.queries.delete(queryToDelete.id);
+			setSavedQueries(savedQueries.filter((q) => q.id !== queryToDelete.id));
+			setShowQueryDeleteDialog(false);
+			setQueryToDelete(null);
+			toast.success("Query deleted successfully");
+		} catch (error) {
+			console.error("Failed to delete query:", error);
+			toast.error("Failed to delete query");
+		}
+	};
+
+	// Row editing handlers
+	const handleRowClick = useCallback((row: Record<string, unknown>) => {
+		setEditingRow(row);
+		setRowEditSheetOpen(true);
+	}, []);
+
+	const handleSaveRow = useCallback(
+		async (updates: Record<string, unknown>) => {
+			if (
+				!connection ||
+				!activeTab ||
+				activeTab.type !== "table-data" ||
+				!editingRow
+			)
+				return;
+
+			const tab = activeTab as TableDataTab;
+			const [schema, tableName] = tab.tableName.split(".");
+
+			// Get primary key columns and values
+			const primaryKeyColumns = tab.columns
+				.filter((col) => col.primary_key)
+				.map((col) => col.name);
+			const primaryKeyValues = primaryKeyColumns.map((col) => editingRow[col]);
+
+			if (primaryKeyColumns.length === 0) {
+				toast.error("Cannot update row without primary key");
+				return;
+			}
+
+			setSavingRow(true);
+
+			try {
+				const result = await api.database.updateTableRow(
+					connection,
+					schema,
+					tableName,
+					primaryKeyColumns,
+					primaryKeyValues,
+					updates,
+				);
+
+				if (result.error) {
+					toast.error("Failed to update row", { description: result.error });
+				} else {
+					toast.success("Row updated successfully");
+					setRowEditSheetOpen(false);
+					setEditingRow(null);
+					// Refresh table data
+					fetchTableData(tab);
+				}
+			} catch (error) {
+				console.error("Failed to update row:", error);
+				toast.error("Failed to update row", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				setSavingRow(false);
+			}
+		},
+		[connection, activeTab, editingRow, fetchTableData],
+	);
+
+	const handleDeleteRow = useCallback(async () => {
+		if (
+			!connection ||
+			!activeTab ||
+			activeTab.type !== "table-data" ||
+			!editingRow
+		)
+			return;
+
+		const tab = activeTab as TableDataTab;
+		const [schema, tableName] = tab.tableName.split(".");
+
+		// Get primary key columns and values
+		const primaryKeyColumns = tab.columns
+			.filter((col) => col.primary_key)
+			.map((col) => col.name);
+		const primaryKeyValues = primaryKeyColumns.map((col) => editingRow[col]);
+
+		if (primaryKeyColumns.length === 0) {
+			toast.error("Cannot delete row without primary key");
+			return;
+		}
+
+		setDeletingRow(true);
+
+		try {
+			const result = await api.database.deleteTableRow(
+				connection,
+				schema,
+				tableName,
+				primaryKeyColumns,
+				primaryKeyValues,
+			);
+
+			if (result.error) {
+				toast.error("Failed to delete row", { description: result.error });
+			} else {
+				toast.success("Row deleted successfully");
+				setRowEditSheetOpen(false);
+				setEditingRow(null);
+				// Refresh table data
+				fetchTableData(tab);
+			}
+		} catch (error) {
+			console.error("Failed to delete row:", error);
+			toast.error("Failed to delete row", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			setDeletingRow(false);
+		}
+	}, [connection, activeTab, editingRow, fetchTableData]);
+
+	// Memoized columns for table data
+	const tableDataColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+		if (!activeTab || activeTab.type !== "table-data") return [];
+		const tab = activeTab as TableDataTab;
+		if (!tab.data || tab.data.data.length === 0) return [];
+
+		const schema = tab.tableName.split(".")[0];
+		const firstRow = tab.data.data[0];
+		return Object.keys(firstRow).map((key) => {
+			const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
+
+			return {
+				accessorKey: key,
+				header: () => (
+					<span className="flex items-center gap-1">
+						{key}
+						{fkInfo && (
+							<span className="text-[10px] text-muted-foreground">(FK)</span>
+						)}
+					</span>
+				),
+				cell: ({ getValue }) => {
+					const value = getValue();
+					if (value === null)
+						return <span className="text-muted-foreground italic">null</span>;
+
+					const displayValue =
+						typeof value === "object" ? JSON.stringify(value) : String(value);
+
+					if (fkInfo && value !== null) {
+						const refTable = `${schema}.${fkInfo.references_table}`;
+						return (
+							<span className="group/fk flex items-center gap-1">
+								<span>{displayValue}</span>
+								<button
+									type="button"
+									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+									onClick={(e) => {
+										e.stopPropagation();
+										handleOpenTableDataWithFilter(
+											refTable,
+											fkInfo.references_column,
+											value,
+										);
+									}}
+									title={`View ${fkInfo.references_table} where ${fkInfo.references_column} = ${value}`}
+								>
+									<ArrowRight className="w-3.5 h-3.5 text-primary" />
+								</button>
+							</span>
+						);
+					}
+
+					return displayValue;
+				},
+			};
+		});
+	}, [activeTab, handleOpenTableDataWithFilter]);
+
+	const tableDataPageCount = useMemo(() => {
+		if (!activeTab || activeTab.type !== "table-data") return 0;
+		const tab = activeTab as TableDataTab;
+		if (!tab.data) return 0;
+		return Math.ceil(tab.data.total / tab.data.limit);
+	}, [activeTab]);
+
+	// Memoized columns for query results
+	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+		if (!activeTab || activeTab.type !== "query") return [];
+		const tab = activeTab as QueryTab;
+		if (!tab.results || tab.results.length === 0) return [];
+
+		const firstRow = tab.results[0];
+		return Object.keys(firstRow).map((key) => ({
+			accessorKey: key,
+			header: key,
+			cell: ({ getValue }) => {
+				const value = getValue();
+				if (value === null)
+					return <span className="text-muted-foreground italic">null</span>;
+				if (typeof value === "object") return JSON.stringify(value);
+				return String(value);
+			},
+		}));
+	}, [activeTab]);
+
+	const [loadingIndex, setLoadingIndex] = useState(0);
+	const loadingMessages = [
+		"Establishing connection",
+		"Warming up the SQL engine",
+		"Counting your tables",
+		"Preparing the data highway",
+		"Waking up the database",
+		"Fetching some bits and bytes",
+		"Greasing the query wheels",
+		"Polishing the indexes",
+		"Almost there",
+		"Just a moment",
+	];
+
+	const databaseIcons = [
+		<PostgresqlIcon key="pg" className="h-16 w-16" />,
+		<SqliteIcon key="sqlite" className="h-16 w-16" />,
+		<RedisIcon key="redis" className="h-16 w-16" />,
+		<ClickhouseIcon key="ch" className="h-16 w-16" />,
+	];
+
+	useEffect(() => {
+		if (loading || !connection) {
+			const interval = setInterval(() => {
+				setLoadingIndex((prev) => (prev + 1) % loadingMessages.length);
+			}, 1500);
+			return () => clearInterval(interval);
+		}
+	}, [loading, connection, loadingMessages.length]);
+
+	if (loading || !connection) {
+		return (
+			<div className="flex h-screen items-center justify-center bg-background">
+				<div className="flex flex-col items-center gap-6">
+					<div className="animate-pulse">
+						{databaseIcons[loadingIndex % databaseIcons.length]}
+					</div>
+					<div className="flex items-center gap-2">
+						<Spinner className="h-4 w-4" />
+						<p className="text-muted-foreground text-sm">
+							{loadingMessages[loadingIndex]}
+						</p>
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	const tablesBySchema = tables.reduce(
+		(acc, table) => {
+			if (!acc[table.schema]) {
+				acc[table.schema] = [];
+			}
+			acc[table.schema].push(table);
+			return acc;
+		},
+		{} as Record<string, DatabaseTable[]>,
+	);
+
+	const renderTableDataContent = (tab: TableDataTab) => (
+		<Card>
+			<CardHeader>
+				<div className="flex items-center justify-between">
+					<div>
+						<CardTitle>{tab.tableName}</CardTitle>
+						<CardDescription>
+							{tab.data &&
+								(() => {
+									const start = (tab.currentPage - 1) * 100 + 1;
+									const end = Math.min(tab.currentPage * 100, tab.data.total);
+									return `Showing ${start}-${end} of ${tab.data.total} records`;
+								})()}
+						</CardDescription>
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={handleRefreshTableData}
+						disabled={tab.loading}
+						className="ml-4"
+					>
+						{tab.loading ? (
+							<Spinner className="mr-2" />
+						) : (
+							<ArrowsClockwise className="w-4 h-4 mr-2" />
+						)}
+						Refresh Data
+					</Button>
+				</div>
+			</CardHeader>
+			<div className="px-6 pb-4">
+				<div className="flex items-center gap-2">
+					<Input
+						placeholder="Filter: e.g. id = 1 AND status = 'active'"
+						value={tab.filterInput}
+						onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+							handleFilterInputChange(e.target.value)
+						}
+						onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+							if (e.key === "Enter") {
+								handleApplyFilter();
+							}
+						}}
+						className="flex-1 font-mono text-xs"
+					/>
+					<Button
+						size="sm"
+						onClick={handleApplyFilter}
+						disabled={tab.loading || !tab.filterInput.trim()}
+					>
+						Apply
+					</Button>
+					{tab.filter && (
+						<Button
+							size="sm"
+							variant="outline"
+							onClick={handleClearFilter}
+							disabled={tab.loading}
+						>
+							Clear
+						</Button>
+					)}
+				</div>
+				{tab.filter && (
+					<div className="mt-2 text-xs text-muted-foreground">
+						Active filter:{" "}
+						<code className="bg-muted px-1 py-0.5 rounded">{tab.filter}</code>
+					</div>
+				)}
+			</div>
+			<CardContent className="max-h-96 overflow-hidden">
+				{tab.loading ? (
+					<div className="space-y-3">
+						<div className="flex items-center gap-2">
+							{[...Array(5)].map((_, i) => (
+								<Skeleton key={i} className="h-8 flex-1 rounded" />
+							))}
+						</div>
+						{[...Array(6)].map((_, rowIndex) => (
+							<div key={rowIndex} className="flex items-center gap-2">
+								{[...Array(5)].map((_, colIndex) => (
+									<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+								))}
+							</div>
+						))}
+					</div>
+				) : tab.data && tab.data.data.length > 0 ? (
+					<DataTable
+						data={tab.data.data}
+						columns={tableDataColumns}
+						pageCount={tableDataPageCount}
+						currentPage={tab.currentPage}
+						onPageChange={handlePageChange}
+						onRowClick={handleRowClick}
+					/>
+				) : (
+					<p className="text-muted-foreground text-center py-8">
+						No data found in this table.
+					</p>
+				)}
+			</CardContent>
+		</Card>
+	);
+
+	const renderTableStructureContent = (tab: TableStructureTab) => (
+		<Card>
+			<CardHeader>
+				<div className="flex items-center justify-between">
+					<div>
+						<CardTitle>Table Structure: {tab.tableName}</CardTitle>
+						<CardDescription>
+							Column information, indexes, and foreign keys
+						</CardDescription>
+					</div>
+				</div>
+			</CardHeader>
+			<CardContent className="space-y-6">
+				{tab.loading ? (
+					<div className="space-y-6">
+						<div>
+							<div className="flex items-center gap-2 mb-3">
+								<Skeleton className="h-5 w-5 rounded" />
+								<Skeleton className="h-6 w-32 rounded" />
+							</div>
+							<div className="space-y-2">
+								<div className="flex items-center gap-2">
+									{[...Array(5)].map((_, i) => (
+										<Skeleton key={i} className="h-8 flex-1 rounded" />
+									))}
+								</div>
+								{[...Array(5)].map((_, rowIndex) => (
+									<div key={rowIndex} className="flex items-center gap-2">
+										{[...Array(5)].map((_, colIndex) => (
+											<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+										))}
+									</div>
+								))}
+							</div>
+						</div>
+					</div>
+				) : tab.structure ? (
+					<>
+						<div>
+							<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+								<Database className="w-5 h-5" />
+								Columns ({tab.structure.columns?.length || 0})
+							</h3>
+							<div className="overflow-x-auto">
+								<table className="w-full border-collapse border border-border">
+									<thead>
+										<tr className="bg-muted/50">
+											<th className="border border-border px-3 py-2 text-left font-medium">
+												Name
+											</th>
+											<th className="border border-border px-3 py-2 text-left font-medium">
+												Type
+											</th>
+											<th className="border border-border px-3 py-2 text-left font-medium">
+												Nullable
+											</th>
+											<th className="border border-border px-3 py-2 text-left font-medium">
+												Default
+											</th>
+											<th className="border border-border px-3 py-2 text-left font-medium">
+												Primary Key
+											</th>
+										</tr>
+									</thead>
+									<tbody>
+										{tab.structure.columns?.map((column, index) => (
+											<tr key={index} className="hover:bg-muted/30">
+												<td className="border border-border px-3 py-2 font-mono text-xs">
+													{column.name}
+												</td>
+												<td className="border border-border px-3 py-2 text-xs">
+													{column.type}
+												</td>
+												<td className="border border-border px-3 py-2 text-sm">
+													{column.nullable ? (
+														<span className="text-green-600">✓</span>
+													) : (
+														<span className="text-red-600">✗</span>
+													)}
+												</td>
+												<td className="border border-border px-3 py-2 text-xs font-mono">
+													{column.default || "-"}
+												</td>
+												<td className="border border-border px-3 py-2 text-sm">
+													{column.primary_key ? (
+														<span className="text-blue-600 font-semibold">
+															✓
+														</span>
+													) : (
+														<span className="text-gray-400">-</span>
+													)}
+												</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							</div>
+						</div>
+
+						{tab.structure.indexes && tab.structure.indexes.length > 0 && (
+							<div>
+								<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+									<Table className="w-5 h-5" />
+									Indexes ({tab.structure.indexes.length})
+								</h3>
+								<div className="overflow-x-auto">
+									<table className="w-full border-collapse border border-border">
+										<thead>
+											<tr className="bg-muted/50">
+												<th className="border border-border px-3 py-2 text-left font-medium">
+													Name
+												</th>
+												<th className="border border-border px-3 py-2 text-left font-medium">
+													Columns
+												</th>
+												<th className="border border-border px-3 py-2 text-left font-medium">
+													Unique
+												</th>
+												<th className="border border-border px-3 py-2 text-left font-medium">
+													Primary
+												</th>
+											</tr>
+										</thead>
+										<tbody>
+											{tab.structure.indexes.map((index, idx) => (
+												<tr key={idx} className="hover:bg-muted/30">
+													<td className="border border-border px-3 py-2 font-mono text-xs">
+														{index.name}
+													</td>
+													<td className="border border-border px-3 py-2 text-sm">
+														{Array.isArray(index.columns)
+															? index.columns.join(", ")
+															: index.columns}
+													</td>
+													<td className="border border-border px-3 py-2 text-sm">
+														{index.unique ? (
+															<span className="text-orange-600">✓</span>
+														) : (
+															<span className="text-gray-400">-</span>
+														)}
+													</td>
+													<td className="border border-border px-3 py-2 text-sm">
+														{index.primary ? (
+															<span className="text-blue-600 font-semibold">
+																✓
+															</span>
+														) : (
+															<span className="text-gray-400">-</span>
+														)}
+													</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								</div>
+							</div>
+						)}
+
+						{tab.structure.foreign_keys &&
+							tab.structure.foreign_keys.length > 0 && (
+								<div>
+									<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+										<ArrowLeft className="w-5 h-5" />
+										Foreign Keys ({tab.structure.foreign_keys.length})
+									</h3>
+									<div className="overflow-x-auto">
+										<table className="w-full border-collapse border border-border">
+											<thead>
+												<tr className="bg-muted/50">
+													<th className="border border-border px-3 py-2 text-left font-medium">
+														Name
+													</th>
+													<th className="border border-border px-3 py-2 text-left font-medium">
+														Column
+													</th>
+													<th className="border border-border px-3 py-2 text-left font-medium">
+														References
+													</th>
+												</tr>
+											</thead>
+											<tbody>
+												{tab.structure.foreign_keys.map((fk, idx) => (
+													<tr key={idx} className="hover:bg-muted/30">
+														<td className="border border-border px-3 py-2 font-mono text-xs">
+															{fk.name}
+														</td>
+														<td className="border border-border px-3 py-2 font-mono text-xs">
+															{fk.column}
+														</td>
+														<td className="border border-border px-3 py-2 text-sm">
+															{fk.references_table}.{fk.references_column}
+														</td>
+													</tr>
+												))}
+											</tbody>
+										</table>
+									</div>
+								</div>
+							)}
+					</>
+				) : (
+					<p className="text-muted-foreground text-center py-8">
+						Failed to load table structure.
+					</p>
+				)}
+			</CardContent>
+		</Card>
+	);
+
+	const renderQueryContent = (tab: QueryTab) => (
+		<div className="space-y-4">
+			<Card>
+				<CardHeader>
+					<div className="flex items-center justify-between">
+						<div>
+							<CardTitle>SQL Editor</CardTitle>
+							<CardDescription>Write and execute SQL queries</CardDescription>
+						</div>
+						<div className="flex items-center gap-2">
+							{showSaveDialog ? (
+								<div className="flex items-center gap-2">
+									<Input
+										placeholder="Query name"
+										value={saveQueryName}
+										onChange={(e) => setSaveQueryName(e.target.value)}
+										className="w-40"
+										onKeyDown={(e) => {
+											if (e.key === "Enter") {
+												handleSaveQuery();
+											} else if (e.key === "Escape") {
+												setShowSaveDialog(false);
+												setSaveQueryName("");
+											}
+										}}
+										autoFocus
+									/>
+									<Button
+										size="sm"
+										onClick={handleSaveQuery}
+										disabled={!saveQueryName.trim()}
+									>
+										Save
+									</Button>
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={() => {
+											setShowSaveDialog(false);
+											setSaveQueryName("");
+										}}
+									>
+										Cancel
+									</Button>
+								</div>
+							) : (
+								<>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => {
+											// Pre-populate name if this is an existing saved query
+											if (tab.savedQueryName) {
+												setSaveQueryName(tab.savedQueryName);
+											}
+											setShowSaveDialog(true);
+										}}
+										disabled={!tab.query.trim()}
+									>
+										<FloppyDisk className="w-4 h-4 mr-2" />
+										Save Query
+									</Button>
+									<Button
+										size="sm"
+										onClick={handleRunQuery}
+										disabled={tab.executing || !tab.query.trim()}
+									>
+										{tab.executing ? (
+											<>
+												<Spinner className="mr-2" />
+												Running...
+											</>
+										) : (
+											<>
+												Run SQL{" "}
+												<span className="text-xs opacity-60">
+													({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+													+↵)
+												</span>
+											</>
+										)}
+									</Button>
+								</>
+							)}
+						</div>
+					</div>
+				</CardHeader>
+				<CardContent>
+					<SqlEditor
+						value={tab.query}
+						onChange={handleQueryChange}
+						onRunQuery={handleRunQuery}
+						height="300px"
+						tables={tables.map((t) => ({
+							schema: t.schema,
+							name: t.name,
+							columns: tableColumns[`${t.schema}.${t.name}`],
+						}))}
+						onGenerateSQL={async (instruction, existingSQL) => {
+							try {
+								// Fetch schemas for all tables that don't have columns yet
+								const tablesToFetch = tables.filter(
+									(t) => !tableColumns[`${t.schema}.${t.name}`],
+								);
+
+								if (tablesToFetch.length > 0 && connection) {
+									const schemaPromises = tablesToFetch.map(async (table) => {
+										try {
+											const data = await api.database.getTableStructure(
+												connection,
+												table.schema,
+												table.name,
+											);
+											return {
+												key: `${table.schema}.${table.name}`,
+												columns: (data.columns as TableColumn[]) || [],
+											};
+										} catch (error) {
+											console.error(
+												`Failed to fetch schema for ${table.schema}.${table.name}:`,
+												error,
+											);
+											return null;
+										}
+									});
+
+									const results = await Promise.all(schemaPromises);
+									const newColumns = { ...tableColumns };
+									results.forEach((result) => {
+										if (result) {
+											newColumns[result.key] = result.columns;
+										}
+									});
+									setTableColumns(newColumns);
+
+									// Use the updated columns for generation
+									let accumulatedSQL = "";
+									await generateSQL(
+										connection.db_type || "postgres",
+										instruction,
+										existingSQL,
+										tables.map((t) => ({
+											schema: t.schema,
+											name: t.name,
+											columns: newColumns[`${t.schema}.${t.name}`],
+										})),
+										(chunk) => {
+											accumulatedSQL += chunk;
+											handleQueryChange(accumulatedSQL);
+										},
+									);
+								} else {
+									// All schemas already cached
+									let accumulatedSQL = "";
+									await generateSQL(
+										connection.db_type || "postgres",
+										instruction,
+										existingSQL,
+										tables.map((t) => ({
+											schema: t.schema,
+											name: t.name,
+											columns: tableColumns[`${t.schema}.${t.name}`],
+										})),
+										(chunk) => {
+											accumulatedSQL += chunk;
+											handleQueryChange(accumulatedSQL);
+										},
+									);
+								}
+							} catch (error) {
+								console.error("AI generation error:", error);
+							}
+						}}
+						generating={generating}
+						aiConfigured={aiConfigured}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<div className="flex items-center justify-between">
+						<div>
+							<CardTitle>Query Results</CardTitle>
+							<CardDescription>
+								{tab.results !== null &&
+									tab.results.length > 0 &&
+									`Returned ${tab.results.length} row${
+										tab.results.length !== 1 ? "s" : ""
+									}`}
+								{tab.results !== null &&
+									tab.results.length === 0 &&
+									tab.success &&
+									"Query executed successfully - no rows returned"}
+								{tab.error && (
+									<span className="text-destructive">Error: {tab.error}</span>
+								)}
+								{tab.executionTime !== null && (
+									<span className="ml-2 text-muted-foreground">
+										• Executed in {tab.executionTime}ms
+									</span>
+								)}
+							</CardDescription>
+						</div>
+						{tab.results && tab.results.length > 0 && (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={async () => {
+									if (!tab.results || tab.results.length === 0) return;
+
+									const { save } = await import("@tauri-apps/plugin-dialog");
+									const { writeTextFile } = await import(
+										"@tauri-apps/plugin-fs"
+									);
+									const { revealItemInDir } = await import(
+										"@tauri-apps/plugin-opener"
+									);
+
+									const defaultName = `query_results_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.csv`;
+
+									const filePath = await save({
+										defaultPath: defaultName,
+										filters: [{ name: "CSV", extensions: ["csv"] }],
+									});
+
+									if (!filePath) return;
+
+									const headers = Object.keys(tab.results[0]);
+									const csvContent = [
+										headers.join(","),
+										...tab.results.map((row) =>
+											headers
+												.map((header) => {
+													const value = row[header];
+													if (value === null || value === undefined) return "";
+													const stringValue =
+														typeof value === "object"
+															? JSON.stringify(value)
+															: String(value);
+													if (
+														stringValue.includes(",") ||
+														stringValue.includes('"') ||
+														stringValue.includes("\n")
+													) {
+														return `"${stringValue.replace(/"/g, '""')}"`;
+													}
+													return stringValue;
+												})
+												.join(","),
+										),
+									].join("\n");
+
+									try {
+										await writeTextFile(filePath, csvContent);
+										toast.success("CSV saved successfully", {
+											action: {
+												label: "Show in Finder",
+												onClick: () => revealItemInDir(filePath),
+											},
+										});
+									} catch (error) {
+										toast.error("Failed to save CSV", {
+											description:
+												error instanceof Error ? error.message : String(error),
+										});
+									}
+								}}
+							>
+								<DownloadSimple className="w-4 h-4 mr-2" />
+								Download CSV
+							</Button>
+						)}
+					</div>
+				</CardHeader>
+				<CardContent>
+					{tab.executing ? (
+						<div className="space-y-3">
+							<div className="flex items-center gap-2">
+								{[...Array(4)].map((_, i) => (
+									<Skeleton key={i} className="h-8 flex-1 rounded" />
+								))}
+							</div>
+							{[...Array(5)].map((_, rowIndex) => (
+								<div key={rowIndex} className="flex items-center gap-2">
+									{[...Array(4)].map((_, colIndex) => (
+										<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+									))}
+								</div>
+							))}
+						</div>
+					) : tab.error ? (
+						<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
+							<p className="text-sm text-destructive font-medium">
+								Query Error
+							</p>
+							<p className="text-sm text-destructive/80 mt-1">{tab.error}</p>
+						</div>
+					) : tab.results && tab.results.length > 0 ? (
+						<div className="max-h-96 overflow-x-auto">
+							<DataTable
+								data={tab.results}
+								columns={queryColumns}
+								pageCount={1}
+								currentPage={1}
+								onPageChange={() => {}}
+							/>
+						</div>
+					) : tab.success && tab.results && tab.results.length === 0 ? (
+						<div className="text-center py-8">
+							<div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
+								<p className="text-sm text-green-800 dark:text-green-200 font-medium">
+									✓ Query executed successfully
+								</p>
+								<p className="text-sm text-green-600 dark:text-green-300 mt-1">
+									No rows returned
+								</p>
+							</div>
+						</div>
+					) : (
+						<div className="text-center py-8 text-muted-foreground">
+							<p>
+								No results yet. Write a SQL query and click &quot;Run SQL&quot;
+								to execute it.
+							</p>
+						</div>
+					)}
+				</CardContent>
+			</Card>
+		</div>
+	);
+
+	const renderEmptyState = () => (
+		<Card>
+			<CardHeader>
+				<CardTitle>Welcome</CardTitle>
+				<CardDescription>
+					Select a table from the sidebar or create a new query to get started
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<div className="space-y-2">
+					<p className="text-sm text-muted-foreground">
+						Click on a table to view its data, or use the &quot;+&quot; button
+						to create a new SQL query.
+					</p>
+					<p className="text-sm text-muted-foreground">
+						Found {tables.length} tables across{" "}
+						{Object.keys(tablesBySchema).length} schemas.
+					</p>
+				</div>
+			</CardContent>
+		</Card>
+	);
+
+	// ============================================================================
+	// Redis-specific handlers (simple view without tabs)
+	// ============================================================================
+
+	const handleRedisSearch = async () => {
+		if (!connection) return;
+		setLoadingRedisKeys(true);
+		setRedisSelectedKey(null);
+		setRedisKeyDetails(null);
+		setRedisSearchTime(null);
+
+		try {
+			const result = await api.redis.searchKeys(connection, redisPattern, 100);
+			setRedisKeys(result.keys);
+			setRedisSearchTime(result.time_taken_ms ?? null);
+		} catch (error) {
+			console.error("Failed to search Redis keys:", error);
+			toast.error("Failed to search keys");
+		} finally {
+			setLoadingRedisKeys(false);
+		}
+	};
+
+	const handleRedisKeySelect = async (key: string) => {
+		if (!connection) return;
+
+		setRedisSelectedKey(key);
+		setLoadingRedisDetails(true);
+		setRedisSheetOpen(true);
+
+		try {
+			const details = await api.redis.getKeyDetails(connection, key);
+			setRedisKeyDetails(details);
+		} catch (error) {
+			console.error("Failed to get Redis key details:", error);
+			toast.error("Failed to load key details");
+			setRedisSheetOpen(false);
+		} finally {
+			setLoadingRedisDetails(false);
+		}
+	};
+
+	const handleRedisDeleteKey = async () => {
+		setShowDeleteDialog(false);
+		if (!connection || !redisSelectedKey) return;
+
+		try {
+			await api.redis.deleteKey(connection, redisSelectedKey);
+			toast.success("Key deleted successfully");
+			// Close sheet, refresh keys list, and clear selection
+			setRedisSheetOpen(false);
+			handleRedisSearch();
+			setRedisSelectedKey(null);
+			setRedisKeyDetails(null);
+		} catch (error) {
+			console.error("Failed to delete Redis key:", error);
+			toast.error("Failed to delete key");
+		}
+	};
+
+	const handleCopyValue = () => {
+		if (!redisKeyDetails) return;
+		const valueString = JSON.stringify(redisKeyDetails.value, null, 2);
+		navigator.clipboard.writeText(valueString);
+		setCopiedToClipboard(true);
+		toast.success("Copied to clipboard");
+		setTimeout(() => setCopiedToClipboard(false), 2000);
+	};
+
+	const renderRedisView = () => (
+		<div className="flex flex-col h-full gap-4">
+			{/* Pattern Search */}
+			<Card>
+				<CardContent className="pt-6">
+					<div className="flex items-center gap-2">
+						<Input
+							placeholder="Enter pattern (e.g., *, user:*, cache:*)"
+							value={redisPattern}
+							onChange={(e) => setRedisPattern(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter") {
+									handleRedisSearch();
+								}
+							}}
+							className="flex-1 font-mono"
+							autoFocus
+						/>
+						<Button onClick={handleRedisSearch} disabled={loadingRedisKeys}>
+							{loadingRedisKeys ? <Spinner className="mr-2" /> : null}
+							Search Keys
+						</Button>
+					</div>
+					{redisKeys !== null && (
+						<div className="mt-2 text-sm text-muted-foreground">
+							Found {redisKeys.length} key{redisKeys.length !== 1 ? "s" : ""}
+							{redisSearchTime !== null && (
+								<span className="ml-2">• {redisSearchTime}ms</span>
+							)}
+						</div>
+					)}
+				</CardContent>
+			</Card>
+
+			{/* Results */}
+			<Card className="flex-1 overflow-hidden flex flex-col">
+				<CardHeader className="pb-3">
+					<CardTitle className="text-base">Keys</CardTitle>
+				</CardHeader>
+				<CardContent className="flex-1 overflow-y-auto p-0">
+					{loadingRedisKeys ? (
+						<div className="flex items-center justify-center py-8">
+							<Spinner />
+						</div>
+					) : redisKeys && redisKeys.length > 0 ? (
+						<div className="divide-y">
+							{redisKeys.map((keyInfo, index) => (
+								<button
+									key={index}
+									type="button"
+									onClick={() => handleRedisKeySelect(keyInfo.key)}
+									className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors"
+								>
+									<div className="flex items-center gap-3">
+										<span className="font-mono text-sm truncate flex-1">
+											{keyInfo.key}
+										</span>
+									</div>
+								</button>
+							))}
+						</div>
+					) : redisKeys && redisKeys.length === 0 ? (
+						<div className="text-center py-12 text-muted-foreground">
+							No keys found matching pattern "{redisPattern}"
+						</div>
+					) : (
+						<div className="text-center py-12 text-muted-foreground">
+							Enter a pattern and click Search to find keys
+						</div>
+					)}
+				</CardContent>
+			</Card>
+
+			{/* Key Details Sheet */}
+			<Sheet open={redisSheetOpen} onOpenChange={setRedisSheetOpen}>
+				<SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+					<div className="px-6">
+						{loadingRedisDetails ? (
+							<>
+								<SheetHeader>
+									<SheetTitle>Key Details</SheetTitle>
+									<SheetDescription>Loading key details...</SheetDescription>
+								</SheetHeader>
+								<div className="mt-6 space-y-6">
+									{/* Metadata skeleton */}
+									<div>
+										<h3 className="text-sm font-medium mb-3">Metadata</h3>
+										<div className="space-y-3 text-sm">
+											<div>
+												<span className="text-muted-foreground">Key:</span>
+												<Skeleton className="mt-1 h-8 w-full rounded" />
+											</div>
+											<div className="grid grid-cols-2 gap-4">
+												<div className="space-y-1">
+													<span className="text-muted-foreground">Type:</span>
+													<Skeleton className="h-4 w-16 rounded" />
+												</div>
+												<div className="space-y-1">
+													<span className="text-muted-foreground">TTL:</span>
+													<Skeleton className="h-4 w-24 rounded" />
+												</div>
+												<div className="space-y-1">
+													<span className="text-muted-foreground">
+														Encoding:
+													</span>
+													<Skeleton className="h-4 w-20 rounded" />
+												</div>
+												<div className="space-y-1">
+													<span className="text-muted-foreground">Memory:</span>
+													<Skeleton className="h-4 w-20 rounded" />
+												</div>
+											</div>
+										</div>
+									</div>
+									{/* Value skeleton */}
+									<div>
+										<h3 className="text-sm font-medium mb-3">Value</h3>
+										<Skeleton className="h-32 w-full rounded-md" />
+									</div>
+									{/* Actions skeleton */}
+									<div className="flex gap-2 pt-4 border-t">
+										<Skeleton className="h-9 w-24 rounded" />
+										<Skeleton className="h-9 w-16 rounded" />
+									</div>
+								</div>
+							</>
+						) : redisKeyDetails ? (
+							<>
+								<SheetHeader>
+									<SheetTitle>Key Details</SheetTitle>
+									<SheetDescription>
+										Viewing details for Redis key
+									</SheetDescription>
+								</SheetHeader>
+								<div className="mt-6 space-y-6">
+									{/* Key metadata */}
+									<div>
+										<h3 className="text-sm font-medium mb-3">Metadata</h3>
+										<div className="space-y-3 text-sm">
+											{/* Key - full width */}
+											<div>
+												<span className="text-muted-foreground">Key:</span>
+												<div className="mt-1 font-mono bg-muted px-3 py-2 rounded text-xs break-all">
+													{redisKeyDetails.key}
+												</div>
+											</div>
+											{/* Other metadata in grid */}
+											<div className="grid grid-cols-2 gap-4">
+												<div>
+													<span className="text-muted-foreground">Type:</span>
+													<span className="ml-2">
+														{redisKeyDetails.key_type}
+													</span>
+												</div>
+												<div>
+													<span className="text-muted-foreground">TTL:</span>
+													<span className="ml-2">
+														{redisKeyDetails.ttl === -1
+															? "No expiration"
+															: `${redisKeyDetails.ttl}s`}
+													</span>
+												</div>
+												{redisKeyDetails.encoding && (
+													<div>
+														<span className="text-muted-foreground">
+															Encoding:
+														</span>
+														<span className="ml-2">
+															{redisKeyDetails.encoding}
+														</span>
+													</div>
+												)}
+												{redisKeyDetails.size !== undefined && (
+													<div>
+														<span className="text-muted-foreground">
+															Memory:
+														</span>
+														<span className="ml-2">
+															{redisKeyDetails.size} bytes
+														</span>
+													</div>
+												)}
+												{redisKeyDetails.length !== undefined && (
+													<div>
+														<span className="text-muted-foreground">
+															Length:
+														</span>
+														<span className="ml-2">
+															{redisKeyDetails.length}
+														</span>
+													</div>
+												)}
+											</div>
+										</div>
+									</div>
+
+									{/* Value */}
+									<div>
+										<div className="flex items-center justify-between mb-3">
+											<h3 className="text-sm font-medium">Value</h3>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={handleCopyValue}
+												className="h-7 px-2"
+											>
+												{copiedToClipboard ? (
+													<>
+														<Check className="w-4 h-4 mr-1" />
+														Copied!
+													</>
+												) : (
+													<>
+														<Copy className="w-4 h-4 mr-1" />
+														Copy
+													</>
+												)}
+											</Button>
+										</div>
+										<div className="bg-muted rounded-md p-4">
+											<pre className="text-sm overflow-x-auto whitespace-pre-wrap break-all">
+												{JSON.stringify(redisKeyDetails.value, null, 2)}
+											</pre>
+										</div>
+									</div>
+
+									{/* Actions */}
+									<div className="flex gap-2 pt-4 border-t">
+										<Button
+											variant="destructive"
+											onClick={() => setShowDeleteDialog(true)}
+										>
+											Delete Key
+										</Button>
+										<Button
+											variant="outline"
+											onClick={() => setRedisSheetOpen(false)}
+										>
+											Close
+										</Button>
+									</div>
+								</div>
+							</>
+						) : (
+							<div className="flex items-center justify-center py-12 text-muted-foreground">
+								Failed to load key details
+							</div>
+						)}
+					</div>
+				</SheetContent>
+			</Sheet>
+
+			{/* Delete Confirmation Dialog */}
+			<AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete Redis Key?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete the key{" "}
+							<span className="font-mono bg-muted px-2 py-0.5 rounded">
+								{redisSelectedKey}
+							</span>
+							? This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={handleRedisDeleteKey}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+		</div>
+	);
+
+	const renderActiveTabContent = () => {
+		if (!activeTab) return renderEmptyState();
+
+		switch (activeTab.type) {
+			case "table-data":
+				return renderTableDataContent(activeTab as TableDataTab);
+			case "table-structure":
+				return renderTableStructureContent(activeTab as TableStructureTab);
+			case "query":
+				return renderQueryContent(activeTab as QueryTab);
+			default:
+				return renderEmptyState();
+		}
+	};
+
+	// Redis-specific layout without sidebar or tabs
+	if (connection.type === "redis") {
+		return (
+			<div className="flex flex-col h-screen">
+				<RedisContentHeader
+					connection={connection}
+					navigate={navigate}
+					connectionStatus={connectionStatus}
+					onReconnect={fetchTables}
+				/>
+
+				<div className="flex-1 p-4 min-w-0 overflow-auto">
+					{renderRedisView()}
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<SidebarProvider>
+			<Sidebar>
+				<SidebarHeader
+					className="border-b p-4 pt-10"
+					onMouseDown={handleDragStart}
+				>
+					<div className="flex items-center justify-between">
+						<div className="flex items-center gap-2">
+							<Table className="w-5 h-5" />
+							<span className="font-semibold">{connection.name}</span>
+						</div>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onClick={handleRefreshTables}
+							disabled={refreshingTables}
+							title="Refresh tables list"
+						>
+							{refreshingTables ? (
+								<Spinner />
+							) : (
+								<ArrowsClockwise className="w-4 h-4" />
+							)}
+						</Button>
+					</div>
+					<div className="text-xs text-muted-foreground mt-1">
+						{connection.database}
+					</div>
+				</SidebarHeader>
+				<SidebarContent className="p-2">
+					<Tabs
+						value={sidebarTab}
+						onValueChange={(v) => setSidebarTab(v as "tables" | "queries")}
+					>
+						<TabsList className="w-full grid grid-cols-2">
+							<TabsTrigger value="tables" className="flex items-center gap-2">
+								<Table className="w-4 h-4" />
+								Tables
+							</TabsTrigger>
+							<TabsTrigger value="queries" className="flex items-center gap-2">
+								<Code className="w-4 h-4" />
+								Queries
+							</TabsTrigger>
+						</TabsList>
+						<TabsContent value="tables" className="mt-2">
+							{Object.entries(tablesBySchema).map(([schema, schemaTables]) => (
+								<SidebarGroup key={schema}>
+									<SidebarGroupLabel>{schema}</SidebarGroupLabel>
+									<SidebarGroupContent>
+										<SidebarMenu>
+											{(schemaTables as DatabaseTable[]).map((table) => {
+												const tableName = `${table.schema}.${table.name}`;
+												const isExpanded = expandedTables.has(tableName);
+												const isLoading = loadingColumns.has(tableName);
+												const cols = tableColumns[tableName] || [];
+
+												return (
+													<Collapsible
+														key={tableName}
+														open={isExpanded}
+														onOpenChange={() =>
+															handleToggleTableExpand(tableName)
+														}
+													>
+														<SidebarMenuItem>
+															<CollapsibleTrigger
+																render={
+																	<SidebarMenuButton className="w-full" />
+																}
+															>
+																<CaretRight
+																	className={`w-3 h-3 transition-transform ${
+																		isExpanded ? "rotate-90" : ""
+																	}`}
+																/>
+																<Table className="w-3 h-3" />
+																<span className="truncate text-xs">
+																	{table.name}
+																</span>
+																{table.type === "view" && (
+																	<Badge
+																		variant="secondary"
+																		className="ml-auto text-xs"
+																	>
+																		View
+																	</Badge>
+																)}
+															</CollapsibleTrigger>
+															<DropdownMenu>
+																<DropdownMenuTrigger
+																	render={
+																		<button
+																			type="button"
+																			className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
+																			onClick={(e) => e.stopPropagation()}
+																		/>
+																	}
+																>
+																	<DotsThreeVertical className="w-3 h-3" />
+																</DropdownMenuTrigger>
+																<DropdownMenuContent align="end">
+																	<DropdownMenuItem
+																		onClick={() => {
+																			handleOpenTableData(tableName);
+																		}}
+																	>
+																		<Table className="w-4 h-4 mr-2" />
+																		View Data
+																	</DropdownMenuItem>
+																	<DropdownMenuItem
+																		onClick={() =>
+																			handleRunQueryForTable(tableName)
+																		}
+																	>
+																		<Code className="w-4 h-4 mr-2" />
+																		Run Query
+																	</DropdownMenuItem>
+																	<DropdownMenuItem
+																		onClick={() =>
+																			handleOpenTableStructure(tableName)
+																		}
+																	>
+																		<Columns className="w-4 h-4 mr-2" />
+																		View Structure
+																	</DropdownMenuItem>
+																</DropdownMenuContent>
+															</DropdownMenu>
+														</SidebarMenuItem>
+														<CollapsibleContent>
+															<SidebarMenuSub>
+																{isLoading ? (
+																	<SidebarMenuSubItem>
+																		<SidebarMenuSubButton>
+																			<Spinner className="w-3 h-3" />
+																			<span className="text-muted-foreground">
+																				Loading...
+																			</span>
+																		</SidebarMenuSubButton>
+																	</SidebarMenuSubItem>
+																) : cols.length > 0 ? (
+																	cols.map((col) => (
+																		<SidebarMenuSubItem key={col.name}>
+																			<SidebarMenuSubButton
+																				onClick={() => {
+																					// If there's an active query tab, insert column name
+																					if (
+																						activeTab &&
+																						activeTab.type === "query"
+																					) {
+																						const queryTab =
+																							activeTab as QueryTab;
+																						handleQueryChange(
+																							queryTab.query + col.name,
+																						);
+																					}
+																				}}
+																			>
+																				<span className="font-mono text-xs truncate">
+																					{col.name}
+																				</span>
+																				<span className="text-muted-foreground text-xs ml-auto truncate max-w-[80px]">
+																					{col.type}
+																				</span>
+																				{col.primary_key && (
+																					<Badge
+																						variant="outline"
+																						className="text-[10px] px-1 py-0 ml-1"
+																					>
+																						PK
+																					</Badge>
+																				)}
+																			</SidebarMenuSubButton>
+																		</SidebarMenuSubItem>
+																	))
+																) : (
+																	<SidebarMenuSubItem>
+																		<SidebarMenuSubButton>
+																			<span className="text-muted-foreground text-xs">
+																				No columns
+																			</span>
+																		</SidebarMenuSubButton>
+																	</SidebarMenuSubItem>
+																)}
+															</SidebarMenuSub>
+														</CollapsibleContent>
+													</Collapsible>
+												);
+											})}
+										</SidebarMenu>
+									</SidebarGroupContent>
+								</SidebarGroup>
+							))}
+						</TabsContent>
+						<TabsContent value="queries" className="mt-2">
+							<SidebarGroup>
+								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
+								<SidebarGroupContent>
+									{loadingQueries ? (
+										<div className="flex items-center justify-center py-4">
+											<Spinner />
+										</div>
+									) : savedQueries.length === 0 ? (
+										<p className="text-xs text-muted-foreground px-2 py-4 text-center">
+											No saved queries yet
+										</p>
+									) : (
+										<SidebarMenu>
+											{savedQueries.map((query) => (
+												<SidebarMenuItem key={query.id} className="group/query">
+													<SidebarMenuButton
+														onClick={() => handleLoadQuery(query)}
+														className="pr-8"
+													>
+														<Code className="w-4 h-4" />
+														<span className="truncate flex-1">
+															{query.name}
+														</span>
+													</SidebarMenuButton>
+													<DropdownMenu>
+														<DropdownMenuTrigger
+															render={
+																<button
+																	type="button"
+																	className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/query:opacity-100 hover:bg-sidebar-accent"
+																	onClick={(e) => e.stopPropagation()}
+																/>
+															}
+														>
+															<DotsThreeVertical className="w-3 h-3" />
+														</DropdownMenuTrigger>
+														<DropdownMenuContent align="end">
+															<DropdownMenuItem
+																onClick={() => handleDeleteQuery(query)}
+																variant="destructive"
+															>
+																Delete
+															</DropdownMenuItem>
+														</DropdownMenuContent>
+													</DropdownMenu>
+												</SidebarMenuItem>
+											))}
+										</SidebarMenu>
+									)}
+								</SidebarGroupContent>
+							</SidebarGroup>
+						</TabsContent>
+					</Tabs>
+				</SidebarContent>
+			</Sidebar>
+
+			<SidebarInset className="min-w-0 overflow-hidden flex flex-col">
+				<ContentHeader
+					connection={connection}
+					navigate={navigate}
+					connectionStatus={connectionStatus}
+					onReconnect={fetchTables}
+				/>
+
+				<TabBar
+					tabs={tabs}
+					activeTabId={activeTabId}
+					onTabSelect={handleTabSelect}
+					onTabClose={handleCloseTab}
+					onNewQuery={
+						connection.type === "redis" ? handleNewRedisQuery : handleNewQuery
+					}
+				/>
+
+				<div className="flex-1 p-4 min-w-0 overflow-auto">
+					{renderActiveTabContent()}
+				</div>
+			</SidebarInset>
+
+			{/* Query Delete Confirmation Dialog */}
+			<AlertDialog
+				open={showQueryDeleteDialog}
+				onOpenChange={setShowQueryDeleteDialog}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete Saved Query?</AlertDialogTitle>
+						<AlertDialogDescription>
+							Are you sure you want to delete the saved query{" "}
+							<span className="font-semibold">"{queryToDelete?.name}"</span>?
+							This action cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction onClick={confirmDeleteQuery}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
+
+			{/* Row Edit Sheet */}
+			{activeTab && activeTab.type === "table-data" && (
+				<RowEditSheet
+					open={rowEditSheetOpen}
+					onOpenChange={(open) => {
+						setRowEditSheetOpen(open);
+						if (!open) setEditingRow(null);
+					}}
+					tableName={(activeTab as TableDataTab).tableName}
+					row={editingRow}
+					columns={(activeTab as TableDataTab).columns}
+					onSave={handleSaveRow}
+					onDelete={handleDeleteRow}
+					saving={savingRow}
+					deleting={deletingRow}
+				/>
+			)}
+		</SidebarProvider>
+	);
 }
