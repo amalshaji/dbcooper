@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use redis::AsyncCommands;
 use serde_json::{json, Value};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
@@ -39,11 +41,15 @@ pub struct RedisKeyListResponse {
 
 pub struct RedisDriver {
     config: RedisConfig,
+    connection: Arc<RwLock<Option<redis::aio::MultiplexedConnection>>>,
 }
 
 impl RedisDriver {
     pub fn new(config: RedisConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            connection: Arc::new(RwLock::new(None)),
+        }
     }
 
     /// Build Redis connection string
@@ -64,8 +70,8 @@ impl RedisDriver {
         )
     }
 
-    /// Create a Redis client connection with timeout
-    async fn get_connection(&self) -> Result<redis::aio::MultiplexedConnection, String> {
+    /// Create a new Redis connection
+    async fn create_connection(&self) -> Result<redis::aio::MultiplexedConnection, String> {
         let client = redis::Client::open(self.build_connection_string())
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
@@ -80,6 +86,64 @@ impl RedisDriver {
             Ok(Err(e)) => Err(format!("Failed to connect to Redis: {}", e)),
             Err(_) => Err("Connection timed out after 10 seconds".to_string()),
         }
+    }
+
+    /// Get or create a cached connection
+    async fn get_connection(&self) -> Result<redis::aio::MultiplexedConnection, String> {
+        {
+            let conn_guard = self.connection.read().await;
+            if let Some(ref conn) = *conn_guard {
+                // Clone the connection handle (MultiplexedConnection is cloneable)
+                return Ok(conn.clone());
+            }
+        }
+
+        let mut conn_guard = self.connection.write().await;
+        if let Some(ref conn) = *conn_guard {
+            return Ok(conn.clone());
+        }
+
+        let new_conn = self.create_connection().await?;
+        let conn_clone = new_conn.clone();
+        *conn_guard = Some(new_conn);
+        Ok(conn_clone)
+    }
+
+    /// Reset the connection pool
+    async fn reset_connection(&self) -> Result<(), String> {
+        let mut conn_guard = self.connection.write().await;
+        *conn_guard = None;
+        Ok(())
+    }
+
+    /// Get connection with retry on failure
+    async fn get_connection_with_retry(&self) -> Result<redis::aio::MultiplexedConnection, String> {
+        match self.get_connection().await {
+            Ok(conn) => Ok(conn),
+            Err(e) => {
+                println!("[Redis] Connection failed: {}, resetting...", e);
+                self.reset_connection().await?;
+                self.get_connection().await
+            }
+        }
+    }
+
+    /// Check if error is a connection error and handle reset if needed
+    fn handle_connection_error(&self, error: &redis::RedisError, operation: &str) -> String {
+        let error_str = error.to_string();
+        let should_reset = error_str.contains("Connection reset by peer")
+            || error_str.contains("broken pipe")
+            || error_str.contains("connection closed")
+            || error_str.contains("Connection refused");
+
+        if should_reset {
+            println!(
+                "[Redis] Connection error in {}, resetting connection: {}",
+                operation, error_str
+            );
+            // Reset will happen on next connection attempt via get_connection_with_retry
+        }
+        format!("Failed to {}: {}", operation, error_str)
     }
 
     /// Get connection string for SSH tunnel
@@ -170,12 +234,16 @@ impl RedisDriver {
 #[async_trait]
 impl DatabaseDriver for RedisDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
-        let _conn = self.get_connection().await?;
-
-        Ok(TestConnectionResult {
-            success: true,
-            message: "Connection successful!".to_string(),
-        })
+        match self.get_connection_with_retry().await {
+            Ok(_conn) => Ok(TestConnectionResult {
+                success: true,
+                message: "Connection successful!".to_string(),
+            }),
+            Err(e) => Ok(TestConnectionResult {
+                success: false,
+                message: format!("Connection failed: {}", e),
+            }),
+        }
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
@@ -220,24 +288,35 @@ impl DatabaseDriver for RedisDriver {
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {
         // For Redis, this is primarily for INFO and other commands
         let start_time = std::time::Instant::now();
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection_with_retry().await?;
 
         let trimmed_query = query.trim();
 
         // Handle INFO command
         if trimmed_query.to_uppercase().starts_with("INFO") {
-            let info: String = redis::cmd("INFO")
+            match redis::cmd("INFO")
                 .arg(trimmed_query.strip_prefix("INFO").unwrap_or(""))
-                .query_async(&mut conn)
+                .query_async::<String>(&mut conn)
                 .await
-                .map_err(|e| format!("Redis INFO command failed: {}", e))?;
-
-            return Ok(QueryResult {
-                data: vec![json!({"info": info})],
-                row_count: 1,
-                error: None,
-                time_taken_ms: Some(start_time.elapsed().as_millis()),
-            });
+            {
+                Ok(info) => {
+                    return Ok(QueryResult {
+                        data: vec![json!({"info": info})],
+                        row_count: 1,
+                        error: None,
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    });
+                }
+                Err(e) => {
+                    let error_msg = self.handle_connection_error(&e, "execute_query (INFO)");
+                    return Ok(QueryResult {
+                        data: vec![],
+                        row_count: 0,
+                        error: Some(error_msg),
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    });
+                }
+            }
         }
 
         // Try to execute as raw Redis command
@@ -266,12 +345,15 @@ impl DatabaseDriver for RedisDriver {
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 })
             }
-            Err(e) => Ok(QueryResult {
-                data: vec![],
-                row_count: 0,
-                error: Some(format!("Redis command failed: {}", e)),
-                time_taken_ms: Some(start_time.elapsed().as_millis()),
-            }),
+            Err(e) => {
+                let error_msg = self.handle_connection_error(&e, "execute_query");
+                Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    error: Some(error_msg),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
         }
     }
 }
@@ -285,7 +367,7 @@ impl RedisDriver {
         limit: i64,
     ) -> Result<RedisKeyListResponse, String> {
         let start_time = std::time::Instant::now();
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection_with_retry().await?;
 
         // Use SCAN instead of KEYS for better performance on large keyspaces
         // SCAN is non-blocking and iterates incrementally
@@ -294,22 +376,27 @@ impl RedisDriver {
         let count_per_scan = 100; // Number of keys to scan per iteration
 
         loop {
-            let (new_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+            match redis::cmd("SCAN")
                 .arg(cursor)
                 .arg("MATCH")
                 .arg(pattern)
                 .arg("COUNT")
                 .arg(count_per_scan)
-                .query_async(&mut conn)
+                .query_async::<(u64, Vec<String>)>(&mut conn)
                 .await
-                .map_err(|e| format!("Failed to scan keys: {}", e))?;
+            {
+                Ok((new_cursor, batch)) => {
+                    keys.extend(batch);
+                    cursor = new_cursor;
 
-            keys.extend(batch);
-            cursor = new_cursor;
-
-            // Stop if we've reached the limit or completed the scan
-            if cursor == 0 || keys.len() >= limit as usize {
-                break;
+                    // Stop if we've reached the limit or completed the scan
+                    if cursor == 0 || keys.len() >= limit as usize {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    return Err(self.handle_connection_error(&e, "search_keys"));
+                }
             }
         }
 
@@ -335,16 +422,27 @@ impl RedisDriver {
 
     /// Get detailed information about a specific key
     pub async fn get_key_details(&self, key: &str) -> Result<RedisKeyDetails, String> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection_with_retry().await?;
 
         // Check if key exists
-        let exists: bool = conn.exists(key).await.unwrap_or(false);
+        let exists: bool = match conn.exists(key).await {
+            Ok(exists) => exists,
+            Err(e) => {
+                return Err(self.handle_connection_error(&e, "get_key_details (exists)"));
+            }
+        };
+
         if !exists {
             return Err(format!("Key '{}' does not exist", key));
         }
 
         // Get key type
-        let key_type: String = conn.key_type(key).await.map_err(|e| e.to_string())?;
+        let key_type: String = match conn.key_type(key).await {
+            Ok(kt) => kt,
+            Err(e) => {
+                return Err(self.handle_connection_error(&e, "get_key_details (key_type)"));
+            }
+        };
 
         // Get TTL
         let ttl: i64 = conn.ttl(key).await.unwrap_or(-1);
@@ -423,27 +521,30 @@ impl RedisDriver {
 
     /// Delete a key
     pub async fn delete_key(&self, key: &str) -> Result<bool, String> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection_with_retry().await?;
 
-        let deleted: i64 = conn.del(key).await.map_err(|e| e.to_string())?;
+        let deleted: i64 = conn
+            .del(key)
+            .await
+            .map_err(|e| self.handle_connection_error(&e, "delete_key"))?;
 
         Ok(deleted > 0)
     }
 
     /// Set a key value (for string types)
     pub async fn set_key(&self, key: &str, value: &str, ttl: Option<i64>) -> Result<(), String> {
-        let mut conn = self.get_connection().await?;
+        let mut conn = self.get_connection_with_retry().await?;
 
-        if let Some(expiry) = ttl {
-            let _: String = conn
-                .set_ex(key, value, expiry as u64)
-                .await
-                .map_err(|e| e.to_string())?;
+        let result: Result<String, redis::RedisError> = if let Some(expiry) = ttl {
+            conn.set_ex(key, value, expiry as u64).await
         } else {
-            let _: String = conn.set(key, value).await.map_err(|e| e.to_string())?;
-        }
+            conn.set(key, value).await
+        };
 
-        Ok(())
+        match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(self.handle_connection_error(&e, "set_key")),
+        }
     }
 }
 
