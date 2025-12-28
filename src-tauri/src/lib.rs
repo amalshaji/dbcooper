@@ -3,7 +3,7 @@ mod database;
 mod db;
 mod ssh_tunnel;
 
-use commands::ai::generate_sql;
+use commands::ai::{generate_sql, select_tables_for_query};
 use commands::connections::{
     create_connection, delete_connection, get_connection_by_uuid, get_connections,
     update_connection,
@@ -13,7 +13,10 @@ use commands::database::{
     unified_execute_query, unified_get_table_data, unified_get_table_structure,
     unified_list_tables, unified_test_connection, update_table_row,
 };
-use commands::pool::{pool_connect, pool_disconnect, pool_get_status, pool_health_check};
+use commands::pool::{
+    pool_connect, pool_disconnect, pool_execute_query, pool_get_status, pool_get_table_data,
+    pool_get_table_structure, pool_health_check, pool_list_tables,
+};
 use commands::postgres::{
     execute_query, get_table_data, get_table_structure, list_tables, test_connection,
 };
@@ -81,6 +84,11 @@ pub fn run() {
             pool_disconnect,
             pool_get_status,
             pool_health_check,
+            pool_list_tables,
+            pool_get_table_data,
+            pool_get_table_structure,
+            pool_execute_query,
+            select_tables_for_query,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

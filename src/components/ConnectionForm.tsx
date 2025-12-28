@@ -35,11 +35,36 @@ interface ConnectionFormProps {
   initialData?: Connection | null;
 }
 
-const databaseTypes: { value: ConnectionType; label: string; disabled: boolean; icon: React.ReactNode }[] = [
-  { value: "postgres", label: "PostgreSQL", disabled: false, icon: <PostgresqlIcon className="w-4 h-4" /> },
-  { value: "sqlite", label: "SQLite", disabled: false, icon: <SqliteIcon className="w-4 h-4" /> },
-  { value: "redis", label: "Redis", disabled: false, icon: <RedisIcon className="w-4 h-4" /> },
-  { value: "clickhouse", label: "ClickHouse", disabled: false, icon: <ClickhouseIcon className="w-4 h-4" /> },
+const databaseTypes: {
+  value: ConnectionType;
+  label: string;
+  disabled: boolean;
+  icon: React.ReactNode;
+}[] = [
+  {
+    value: "postgres",
+    label: "PostgreSQL",
+    disabled: false,
+    icon: <PostgresqlIcon className="w-4 h-4" />,
+  },
+  {
+    value: "sqlite",
+    label: "SQLite",
+    disabled: false,
+    icon: <SqliteIcon className="w-4 h-4" />,
+  },
+  {
+    value: "redis",
+    label: "Redis",
+    disabled: false,
+    icon: <RedisIcon className="w-4 h-4" />,
+  },
+  {
+    value: "clickhouse",
+    label: "ClickHouse",
+    disabled: false,
+    icon: <ClickhouseIcon className="w-4 h-4" />,
+  },
 ];
 
 const defaultPorts: Record<ConnectionType, number> = {
@@ -69,7 +94,12 @@ const defaultFormData: ConnectionFormData = {
   ssh_use_key: false,
 };
 
-export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: ConnectionFormProps) {
+export function ConnectionForm({
+  onSubmit,
+  onCancel,
+  isOpen,
+  initialData,
+}: ConnectionFormProps) {
   const [formData, setFormData] = useState<ConnectionFormData>(defaultFormData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -117,45 +147,48 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
     setIsTesting(true);
     try {
       // Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
-      const result = formData.type === "redis" || formData.type === "sqlite" || formData.type === "clickhouse"
-        ? await api.database.testConnection({
-          id: 0,
-          uuid: "",
-          type: formData.type,
-          name: formData.name,
-          host: formData.host,
-          port: formData.port,
-          database: formData.database,
-          username: formData.username,
-          password: formData.password,
-          ssl: formData.ssl ? 1 : 0,
-          db_type: formData.db_type,
-          file_path: formData.file_path || null,
-          ssh_enabled: formData.ssh_enabled ? 1 : 0,
-          ssh_host: formData.ssh_host || "",
-          ssh_port: formData.ssh_port || 22,
-          ssh_user: formData.ssh_user || "",
-          ssh_password: formData.ssh_password || "",
-          ssh_key_path: formData.ssh_key_path || "",
-          ssh_use_key: formData.ssh_use_key ? 1 : 0,
-          created_at: "",
-          updated_at: "",
-        })
-        : await api.postgres.testConnection({
-          host: formData.host,
-          port: formData.port,
-          database: formData.database,
-          username: formData.username,
-          password: formData.password,
-          ssl: formData.ssl,
-          ssh_enabled: formData.ssh_enabled,
-          ssh_host: formData.ssh_host,
-          ssh_port: formData.ssh_port,
-          ssh_user: formData.ssh_user,
-          ssh_password: formData.ssh_password,
-          ssh_key_path: formData.ssh_key_path,
-          ssh_use_key: formData.ssh_use_key,
-        });
+      const result =
+        formData.type === "redis" ||
+        formData.type === "sqlite" ||
+        formData.type === "clickhouse"
+          ? await api.database.testConnection({
+              id: 0,
+              uuid: "",
+              type: formData.type,
+              name: formData.name,
+              host: formData.host,
+              port: formData.port,
+              database: formData.database,
+              username: formData.username,
+              password: formData.password,
+              ssl: formData.ssl ? 1 : 0,
+              db_type: formData.db_type,
+              file_path: formData.file_path || null,
+              ssh_enabled: formData.ssh_enabled ? 1 : 0,
+              ssh_host: formData.ssh_host || "",
+              ssh_port: formData.ssh_port || 22,
+              ssh_user: formData.ssh_user || "",
+              ssh_password: formData.ssh_password || "",
+              ssh_key_path: formData.ssh_key_path || "",
+              ssh_use_key: formData.ssh_use_key ? 1 : 0,
+              created_at: "",
+              updated_at: "",
+            })
+          : await api.postgres.testConnection({
+              host: formData.host,
+              port: formData.port,
+              database: formData.database,
+              username: formData.username,
+              password: formData.password,
+              ssl: formData.ssl,
+              ssh_enabled: formData.ssh_enabled,
+              ssh_host: formData.ssh_host,
+              ssh_port: formData.ssh_port,
+              ssh_user: formData.ssh_user,
+              ssh_password: formData.ssh_password,
+              ssh_key_path: formData.ssh_key_path,
+              ssh_use_key: formData.ssh_use_key,
+            });
 
       if (result.success) {
         toast.success(result.message || "Connection successful!");
@@ -186,9 +219,13 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
     <AlertDialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
       <AlertDialogContent className="max-h-[85vh] overflow-y-auto">
         <AlertDialogHeader>
-          <AlertDialogTitle>{isEditMode ? "Edit Connection" : "New Connection"}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isEditMode ? "Edit Connection" : "New Connection"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {isEditMode ? "Update your database connection settings" : "Create a new database connection"}
+            {isEditMode
+              ? "Update your database connection settings"
+              : "Create a new database connection"}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -199,18 +236,32 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
               <Select
                 items={databaseTypes}
                 value={formData.type}
-                onValueChange={(value) => handleTypeChange(value as ConnectionType)}
+                onValueChange={(value) =>
+                  handleTypeChange(value as ConnectionType)
+                }
               >
                 <SelectTrigger id="connection-type">
                   <div className="flex items-center gap-2">
-                    {databaseTypes.find(db => db.value === formData.type)?.icon}
-                    <span>{databaseTypes.find(db => db.value === formData.type)?.label}</span>
+                    {
+                      databaseTypes.find((db) => db.value === formData.type)
+                        ?.icon
+                    }
+                    <span>
+                      {
+                        databaseTypes.find((db) => db.value === formData.type)
+                          ?.label
+                      }
+                    </span>
                   </div>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
                     {databaseTypes.map((item) => (
-                      <SelectItem key={item.value} value={item.value} disabled={item.disabled}>
+                      <SelectItem
+                        key={item.value}
+                        value={item.value}
+                        disabled={item.disabled}
+                      >
                         <div className="flex items-center gap-2">
                           {item.icon}
                           <span>{item.label}</span>
@@ -229,7 +280,9 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                 type="text"
                 required
                 value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
                 placeholder="Production DB"
               />
             </Field>
@@ -237,14 +290,18 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
             {/* SQLite-specific fields */}
             {formData.type === "sqlite" && (
               <Field>
-                <FieldLabel htmlFor="connection-file-path">Database File</FieldLabel>
+                <FieldLabel htmlFor="connection-file-path">
+                  Database File
+                </FieldLabel>
                 <div className="flex gap-2">
                   <Input
                     id="connection-file-path"
                     type="text"
                     required
                     value={formData.file_path || ""}
-                    onChange={(e) => setFormData({ ...formData, file_path: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, file_path: e.target.value })
+                    }
                     placeholder="/path/to/database.db"
                     className="flex-1"
                   />
@@ -254,10 +311,18 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                     onClick={async () => {
                       const selected = await open({
                         multiple: false,
-                        filters: [{ name: "SQLite Database", extensions: ["db", "sqlite", "sqlite3"] }],
+                        filters: [
+                          {
+                            name: "SQLite Database",
+                            extensions: ["db", "sqlite", "sqlite3"],
+                          },
+                        ],
                       });
                       if (selected) {
-                        setFormData({ ...formData, file_path: selected as string });
+                        setFormData({
+                          ...formData,
+                          file_path: selected as string,
+                        });
                       }
                     }}
                   >
@@ -278,7 +343,9 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                       type="text"
                       required
                       value={formData.host}
-                      onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, host: e.target.value })
+                      }
                     />
                   </Field>
 
@@ -289,7 +356,12 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                       type="number"
                       required
                       value={formData.port}
-                      onChange={(e) => setFormData({ ...formData, port: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          port: Number(e.target.value),
+                        })
+                      }
                     />
                   </Field>
                 </div>
@@ -297,26 +369,34 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                 {/* Redis uses database index, not database name */}
                 {formData.type === "redis" ? (
                   <Field>
-                    <FieldLabel htmlFor="connection-database">Database Index (0-15)</FieldLabel>
+                    <FieldLabel htmlFor="connection-database">
+                      Database Index (0-15)
+                    </FieldLabel>
                     <Input
                       id="connection-database"
                       type="number"
                       min="0"
                       max="15"
                       value={formData.database}
-                      onChange={(e) => setFormData({ ...formData, database: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, database: e.target.value })
+                      }
                       placeholder="0"
                     />
                   </Field>
                 ) : (
                   <Field>
-                    <FieldLabel htmlFor="connection-database">Database</FieldLabel>
+                    <FieldLabel htmlFor="connection-database">
+                      Database
+                    </FieldLabel>
                     <Input
                       id="connection-database"
                       type="text"
                       required={formData.type !== "redis"}
                       value={formData.database}
-                      onChange={(e) => setFormData({ ...formData, database: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, database: e.target.value })
+                      }
                       placeholder="my_database"
                     />
                   </Field>
@@ -325,13 +405,17 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                 {/* Redis doesn't use username */}
                 {formData.type !== "redis" && (
                   <Field>
-                    <FieldLabel htmlFor="connection-username">Username</FieldLabel>
+                    <FieldLabel htmlFor="connection-username">
+                      Username
+                    </FieldLabel>
                     <Input
                       id="connection-username"
                       type="text"
                       required
                       value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, username: e.target.value })
+                      }
                       placeholder="postgres"
                     />
                   </Field>
@@ -339,14 +423,18 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
 
                 <Field>
                   <FieldLabel htmlFor="connection-password">
-                    {formData.type === "redis" ? "Password (Optional)" : "Password"}
+                    {formData.type === "redis"
+                      ? "Password (Optional)"
+                      : "Password"}
                   </FieldLabel>
                   <div className="relative">
                     <Input
                       id="connection-password"
                       type={showPassword ? "text" : "password"}
                       value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, password: e.target.value })
+                      }
                       className="pr-10"
                     />
                     <button
@@ -354,7 +442,11 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      {showPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      {showPassword ? (
+                        <EyeSlash className="w-3 h-3" />
+                      ) : (
+                        <Eye className="w-3 h-3" />
+                      )}
                     </button>
                   </div>
                 </Field>
@@ -365,7 +457,9 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                     type="checkbox"
                     id="connection-ssl"
                     checked={formData.ssl}
-                    onChange={(e) => setFormData({ ...formData, ssl: e.target.checked })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ssl: e.target.checked })
+                    }
                     className="rounded border-input"
                   />
                   <FieldLabel htmlFor="connection-ssl">
@@ -380,10 +474,17 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                       type="checkbox"
                       id="connection-ssh-enabled"
                       checked={formData.ssh_enabled}
-                      onChange={(e) => setFormData({ ...formData, ssh_enabled: e.target.checked })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          ssh_enabled: e.target.checked,
+                        })
+                      }
                       className="rounded border-input"
                     />
-                    <FieldLabel htmlFor="connection-ssh-enabled">Connect over SSH</FieldLabel>
+                    <FieldLabel htmlFor="connection-ssh-enabled">
+                      Connect over SSH
+                    </FieldLabel>
                   </Field>
 
                   {formData.ssh_enabled && (
@@ -395,7 +496,12 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                             id="ssh-host"
                             type="text"
                             value={formData.ssh_host}
-                            onChange={(e) => setFormData({ ...formData, ssh_host: e.target.value })}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                ssh_host: e.target.value,
+                              })
+                            }
                             placeholder="jump-server.example.com"
                           />
                         </Field>
@@ -406,7 +512,12 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                             id="ssh-port"
                             type="number"
                             value={formData.ssh_port}
-                            onChange={(e) => setFormData({ ...formData, ssh_port: Number(e.target.value) })}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                ssh_port: Number(e.target.value),
+                              })
+                            }
                           />
                         </Field>
                       </div>
@@ -417,7 +528,12 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                           id="ssh-user"
                           type="text"
                           value={formData.ssh_user}
-                          onChange={(e) => setFormData({ ...formData, ssh_user: e.target.value })}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              ssh_user: e.target.value,
+                            })
+                          }
                           placeholder="ubuntu"
                         />
                       </Field>
@@ -427,21 +543,35 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                           type="checkbox"
                           id="ssh-use-key"
                           checked={formData.ssh_use_key}
-                          onChange={(e) => setFormData({ ...formData, ssh_use_key: e.target.checked })}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              ssh_use_key: e.target.checked,
+                            })
+                          }
                           className="rounded border-input"
                         />
-                        <FieldLabel htmlFor="ssh-use-key">Use SSH Key</FieldLabel>
+                        <FieldLabel htmlFor="ssh-use-key">
+                          Use SSH Key
+                        </FieldLabel>
                       </Field>
 
                       {formData.ssh_use_key ? (
                         <Field>
-                          <FieldLabel htmlFor="ssh-key-path">SSH Key Path</FieldLabel>
+                          <FieldLabel htmlFor="ssh-key-path">
+                            SSH Key Path
+                          </FieldLabel>
                           <div className="flex gap-2">
                             <Input
                               id="ssh-key-path"
                               type="text"
                               value={formData.ssh_key_path}
-                              onChange={(e) => setFormData({ ...formData, ssh_key_path: e.target.value })}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  ssh_key_path: e.target.value,
+                                })
+                              }
                               placeholder="~/.ssh/id_rsa"
                               className="flex-1"
                             />
@@ -456,7 +586,10 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                                   title: "Select SSH Key",
                                 });
                                 if (selected) {
-                                  setFormData({ ...formData, ssh_key_path: selected as string });
+                                  setFormData({
+                                    ...formData,
+                                    ssh_key_path: selected as string,
+                                  });
                                 }
                               }}
                             >
@@ -466,21 +599,34 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                         </Field>
                       ) : (
                         <Field>
-                          <FieldLabel htmlFor="ssh-password">SSH Password</FieldLabel>
+                          <FieldLabel htmlFor="ssh-password">
+                            SSH Password
+                          </FieldLabel>
                           <div className="relative">
                             <Input
                               id="ssh-password"
                               type={showSshPassword ? "text" : "password"}
                               value={formData.ssh_password}
-                              onChange={(e) => setFormData({ ...formData, ssh_password: e.target.value })}
+                              onChange={(e) =>
+                                setFormData({
+                                  ...formData,
+                                  ssh_password: e.target.value,
+                                })
+                              }
                               className="pr-10"
                             />
                             <button
                               type="button"
-                              onClick={() => setShowSshPassword(!showSshPassword)}
+                              onClick={() =>
+                                setShowSshPassword(!showSshPassword)
+                              }
                               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                             >
-                              {showSshPassword ? <EyeSlash className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                              {showSshPassword ? (
+                                <EyeSlash className="w-3 h-3" />
+                              ) : (
+                                <Eye className="w-3 h-3" />
+                              )}
                             </button>
                           </div>
                         </Field>
@@ -503,12 +649,12 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
                 onClick={handleTestConnection}
                 disabled={isTesting}
               >
-                {isTesting && <Spinner className="mr-2" />}
+                {isTesting && <Spinner />}
                 Test Connection
               </Button>
             )}
             <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting && <Spinner className="mr-2" />}
+              {isSubmitting && <Spinner />}
               {isEditMode ? "Save" : "Create"}
             </Button>
           </AlertDialogFooter>
@@ -517,4 +663,3 @@ export function ConnectionForm({ onSubmit, onCancel, isOpen, initialData }: Conn
     </AlertDialog>
   );
 }
-

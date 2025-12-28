@@ -13,8 +13,114 @@ use crate::database::{
 use crate::db::models::{
     QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
 };
+use crate::ssh_tunnel::SshTunnel;
 
-/// Creates the appropriate database driver based on the db_type
+/// Creates the appropriate database driver based on the db_type, with optional SSH tunnel
+async fn create_driver_with_ssh(
+    db_type: &str,
+    host: Option<String>,
+    port: Option<i64>,
+    database: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    ssl: Option<bool>,
+    file_path: Option<String>,
+    ssh_enabled: Option<bool>,
+    ssh_host: Option<String>,
+    ssh_port: Option<i64>,
+    ssh_user: Option<String>,
+    ssh_password: Option<String>,
+    ssh_key_path: Option<String>,
+    ssh_use_key: Option<bool>,
+) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
+    let (effective_host, effective_port, tunnel) = if ssh_enabled.unwrap_or(false) {
+        let ssh_host_val = ssh_host.unwrap_or_default();
+        let ssh_port_val = ssh_port.unwrap_or(22) as u16;
+        let ssh_user_val = ssh_user.unwrap_or_default();
+        let ssh_password_val = ssh_password.unwrap_or_default();
+        let ssh_key_path_val = ssh_key_path.unwrap_or_default();
+        let use_key = ssh_use_key.unwrap_or(false);
+
+        let key_path = if use_key && !ssh_key_path_val.is_empty() {
+            Some(ssh_key_path_val.as_str())
+        } else {
+            None
+        };
+        let password_opt = if !ssh_password_val.is_empty() {
+            Some(ssh_password_val.as_str())
+        } else {
+            None
+        };
+
+        let remote_host = host.clone().unwrap_or_default();
+        let remote_port = port.unwrap_or(5432) as u16;
+
+        let tunnel = SshTunnel::new(
+            &ssh_host_val,
+            ssh_port_val,
+            &ssh_user_val,
+            password_opt,
+            key_path,
+            &remote_host,
+            remote_port,
+        )
+        .await?;
+
+        (
+            "127.0.0.1".to_string(),
+            tunnel.local_port as i64,
+            Some(tunnel),
+        )
+    } else {
+        (host.clone().unwrap_or_default(), port.unwrap_or(5432), None)
+    };
+
+    let driver: Box<dyn DatabaseDriver> = match db_type {
+        "postgres" | "postgresql" => {
+            let config = PostgresConfig {
+                host: effective_host,
+                port: effective_port,
+                database: database.unwrap_or_default(),
+                username: username.unwrap_or_default(),
+                password: password.unwrap_or_default(),
+                ssl: ssl.unwrap_or(false),
+            };
+            Box::new(PostgresDriver::new(config))
+        }
+        "sqlite" | "sqlite3" => {
+            let path = file_path.ok_or("File path is required for SQLite connections")?;
+            let config = SqliteConfig { file_path: path };
+            Box::new(SqliteDriver::new(config))
+        }
+        "redis" => {
+            let config = RedisConfig {
+                host: effective_host,
+                port: effective_port,
+                password,
+                db: database.and_then(|d| d.parse().ok()),
+                tls: ssl.unwrap_or(false),
+            };
+            Box::new(RedisDriver::new(config))
+        }
+        "clickhouse" => {
+            let config = ClickhouseConfig {
+                host: effective_host,
+                port: effective_port,
+                database: database.unwrap_or_else(|| "default".to_string()),
+                username: username.unwrap_or_else(|| "default".to_string()),
+                password: password.unwrap_or_default(),
+                protocol: ClickhouseProtocol::Http,
+                ssl: ssl.unwrap_or(false),
+            };
+            Box::new(ClickhouseDriver::new(config))
+        }
+        _ => return Err(format!("Unsupported database type: {}", db_type)),
+    };
+
+    Ok((driver, tunnel))
+}
+
+/// Simple driver creation without SSH support (for backwards compatibility)
 fn create_driver(
     db_type: &str,
     host: Option<String>,
@@ -55,7 +161,7 @@ fn create_driver(
         "clickhouse" => {
             let config = ClickhouseConfig {
                 host: host.unwrap_or_else(|| "localhost".to_string()),
-                port: port.unwrap_or(8123), // Default to HTTP port
+                port: port.unwrap_or(8123),
                 database: database.unwrap_or_else(|| "default".to_string()),
                 username: username.unwrap_or_else(|| "default".to_string()),
                 password: password.unwrap_or_default(),
@@ -85,7 +191,7 @@ pub async fn unified_test_connection(
     driver.test_connection().await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn unified_list_tables(
     db_type: String,
     host: Option<String>,
@@ -95,10 +201,32 @@ pub async fn unified_list_tables(
     password: Option<String>,
     ssl: Option<bool>,
     file_path: Option<String>,
+    ssh_enabled: Option<bool>,
+    ssh_host: Option<String>,
+    ssh_port: Option<i64>,
+    ssh_user: Option<String>,
+    ssh_password: Option<String>,
+    ssh_key_path: Option<String>,
+    ssh_use_key: Option<bool>,
 ) -> Result<Vec<TableInfo>, String> {
-    let driver = create_driver(
-        &db_type, host, port, database, username, password, ssl, file_path,
-    )?;
+    let (driver, _tunnel) = create_driver_with_ssh(
+        &db_type,
+        host,
+        port,
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+        ssh_enabled,
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        ssh_password,
+        ssh_key_path,
+        ssh_use_key,
+    )
+    .await?;
     driver.list_tables().await
 }
 

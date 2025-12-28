@@ -24,12 +24,7 @@ export function DataTable<TData>({
   onPageChange,
   onRowClick,
 }: DataTableProps<TData>) {
-  const [containerHeight, setContainerHeight] = useState<number>(400);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setContainerHeight(300);
-  }, []);
 
   const table = useReactTable({
     data,
@@ -40,11 +35,10 @@ export function DataTable<TData>({
   });
 
   return (
-    <div className="space-y-4 w-full min-w-0">
+    <div className="flex flex-col h-full w-full min-w-0">
       <div
         ref={containerRef}
-        className="rounded-md border overflow-auto w-full"
-        style={{ maxHeight: `${containerHeight}px` }}
+        className="rounded-md border overflow-auto w-full flex-1 min-h-0"
       >
         <table className="w-full caption-bottom text-xs">
           <thead className="sticky top-0 bg-background z-10 shadow-sm">

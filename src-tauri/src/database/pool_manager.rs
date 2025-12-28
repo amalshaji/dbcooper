@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use super::clickhouse::ClickhouseDriver;
 use super::postgres::PostgresDriver;
@@ -16,7 +16,9 @@ use super::sqlite::SqliteDriver;
 use super::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
-use crate::db::models::TestConnectionResult;
+use crate::db::models::{
+    QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
+};
 use crate::ssh_tunnel::SshTunnel;
 
 /// Connection status enum
@@ -62,6 +64,8 @@ struct PoolEntry {
 /// Connection pool manager
 pub struct PoolManager {
     pools: RwLock<HashMap<String, PoolEntry>>,
+    /// Mutex per connection UUID to serialize connect/disconnect
+    connect_locks: RwLock<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl Default for PoolManager {
@@ -74,7 +78,24 @@ impl PoolManager {
     pub fn new() -> Self {
         Self {
             pools: RwLock::new(HashMap::new()),
+            connect_locks: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Get or create a lock for a specific connection UUID
+    pub async fn get_connect_lock(&self, uuid: &str) -> Arc<Mutex<()>> {
+        {
+            let locks = self.connect_locks.read().await;
+            if let Some(lock) = locks.get(uuid) {
+                return lock.clone();
+            }
+        }
+        // Need to create a new lock
+        let mut locks = self.connect_locks.write().await;
+        locks
+            .entry(uuid.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     /// Create a driver from configuration (with optional SSH tunnel)
@@ -325,5 +346,56 @@ impl PoolManager {
     pub async fn get_config(&self, uuid: &str) -> Option<ConnectionConfig> {
         let pools = self.pools.read().await;
         pools.get(uuid).map(|e| e.config.clone())
+    }
+
+    /// List tables using the pooled connection
+    pub async fn list_tables(&self, uuid: &str) -> Result<Vec<TableInfo>, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.list_tables().await
+    }
+
+    /// Get table data using the pooled connection
+    pub async fn get_table_data(
+        &self,
+        uuid: &str,
+        schema: &str,
+        table: &str,
+        page: i64,
+        limit: i64,
+        filter: Option<String>,
+    ) -> Result<TableDataResponse, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver
+            .get_table_data(schema, table, page, limit, filter)
+            .await
+    }
+
+    /// Get table structure using the pooled connection
+    pub async fn get_table_structure(
+        &self,
+        uuid: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<TableStructure, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.get_table_structure(schema, table).await
+    }
+
+    /// Execute query using the pooled connection
+    pub async fn execute_query(&self, uuid: &str, query: &str) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.execute_query(query).await
     }
 }

@@ -2,7 +2,7 @@ use async_ssh2_lite::{AsyncSession, TokioTcpStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 
 pub struct SshTunnel {
     pub local_port: u16,
@@ -19,27 +19,34 @@ impl SshTunnel {
         remote_host: &str,
         remote_port: u16,
     ) -> Result<Self, String> {
-        // Connect to SSH server
+        println!(
+            "[SSH] Creating tunnel to {}:{} -> {}:{}",
+            ssh_host, ssh_port, remote_host, remote_port
+        );
+
         let ssh_addr: SocketAddr = format!("{}:{}", ssh_host, ssh_port)
             .parse()
             .map_err(|e| format!("Invalid SSH address: {}", e))?;
 
+        println!("[SSH] Connecting to SSH server at {}", ssh_addr);
         let stream = TokioTcpStream::connect(ssh_addr)
             .await
             .map_err(|e| format!("Failed to connect to SSH server: {}", e))?;
 
+        println!("[SSH] TCP connection established, creating session");
         let mut session = AsyncSession::new(stream, None)
             .map_err(|e| format!("Failed to create SSH session: {}", e))?;
 
+        println!("[SSH] Performing handshake");
         session
             .handshake()
             .await
             .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
-        // Authenticate with key first if provided
+        println!("[SSH] Handshake complete, authenticating...");
+
         if let Some(key_path) = ssh_key_path {
             if !key_path.is_empty() {
-                // Expand ~ to home directory
                 let expanded_path = if key_path.starts_with("~") {
                     if let Some(home) = dirs::home_dir() {
                         key_path.replacen("~", home.to_str().unwrap_or(""), 1)
@@ -50,21 +57,26 @@ impl SshTunnel {
                     key_path.to_string()
                 };
 
-                let _ = session
+                println!("[SSH] Attempting key auth with: {}", expanded_path);
+                match session
                     .userauth_pubkey_file(
                         ssh_user,
                         None,
                         std::path::Path::new(&expanded_path),
                         None,
                     )
-                    .await;
+                    .await
+                {
+                    Ok(_) => println!("[SSH] Key authentication successful"),
+                    Err(e) => println!("[SSH] Key authentication failed: {}", e),
+                }
             }
         }
 
-        // If not authenticated, try password
         if !session.authenticated() {
             if let Some(password) = ssh_password {
                 if !password.is_empty() {
+                    println!("[SSH] Attempting password authentication");
                     session
                         .userauth_password(ssh_user, password)
                         .await
@@ -77,7 +89,8 @@ impl SshTunnel {
             return Err("SSH authentication failed - check credentials".to_string());
         }
 
-        // Create local listener on random port
+        println!("[SSH] Authentication successful");
+
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|e| format!("Failed to bind local port: {}", e))?;
@@ -87,31 +100,69 @@ impl SshTunnel {
             .map_err(|e| format!("Failed to get local address: {}", e))?
             .port();
 
+        println!("[SSH] Tunnel listening on 127.0.0.1:{}", local_port);
+
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
         let remote_host = remote_host.to_string();
-        let session = Arc::new(session);
+        // Wrap session in Mutex to serialize channel opens (libssh2 isn't thread-safe for concurrent ops)
+        let session = Arc::new(Mutex::new(session));
 
-        // Spawn tunnel forwarding task
         tokio::spawn(async move {
+            println!("[SSH] Forwarding task started");
             loop {
                 tokio::select! {
                     _ = &mut shutdown_rx => {
+                        println!("[SSH] Shutdown requested");
                         break;
                     }
                     accept_result = listener.accept() => {
-                        if let Ok((mut local_stream, _)) = accept_result {
-                            let session = Arc::clone(&session);
-                            let remote_host = remote_host.clone();
+                        match accept_result {
+                            Ok((mut local_stream, peer_addr)) => {
+                                println!("[SSH] New connection from {}", peer_addr);
+                                let session = Arc::clone(&session);
+                                let remote_host = remote_host.clone();
 
-                            tokio::spawn(async move {
-                                if let Ok(channel) = session
-                                    .channel_direct_tcpip(&remote_host, remote_port, None)
-                                    .await
-                                {
-                                    let mut channel = channel;
-                                    let _ = tokio::io::copy_bidirectional(&mut local_stream, &mut channel).await;
-                                }
-                            });
+                                tokio::spawn(async move {
+                                    println!(
+                                        "[SSH] Opening channel to {}:{}",
+                                        remote_host, remote_port
+                                    );
+                                    // Lock session to serialize channel operations
+                                    let session_guard = session.lock().await;
+                                    match session_guard
+                                        .channel_direct_tcpip(&remote_host, remote_port, None)
+                                        .await
+                                    {
+                                        Ok(mut channel) => {
+                                            // Drop lock before copy to allow other channels
+                                            drop(session_guard);
+                                            println!("[SSH] Channel opened successfully");
+                                            match tokio::io::copy_bidirectional(
+                                                &mut local_stream,
+                                                &mut channel,
+                                            )
+                                            .await
+                                            {
+                                                Ok((to_remote, to_local)) => {
+                                                    println!(
+                                                        "[SSH] Tunnel closed. Bytes: {} up, {} down",
+                                                        to_remote, to_local
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    println!("[SSH] Copy error: {}", e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("[SSH] Failed to open channel: {}", e);
+                                        }
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                println!("[SSH] Accept error: {}", e);
+                            }
                         }
                     }
                 }

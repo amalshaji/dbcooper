@@ -22,7 +22,7 @@ fn build_connection_string(
     )
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn test_connection(
     host: String,
     port: i64,
@@ -39,6 +39,10 @@ pub async fn test_connection(
     ssh_use_key: Option<bool>,
 ) -> Result<TestConnectionResult, String> {
     let _tunnel: Option<SshTunnel>;
+    println!(
+        "[test_connection] SSH params: enabled={:?}, host={:?}, port={:?}, user={:?}, use_key={:?}, key_path={:?}",
+        ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_use_key, ssh_key_path
+    );
     let (effective_host, effective_port) = if ssh_enabled.unwrap_or(false) {
         let ssh_host_val = ssh_host.unwrap_or_default();
         let ssh_port_val = ssh_port.unwrap_or(22) as u16;
