@@ -206,7 +206,7 @@ export function Settings() {
 
               <div className="pt-4">
                 <Button onClick={handleSave} disabled={saving}>
-                  {saving && <Spinner className="mr-2" />}
+                  {saving && <Spinner />}
                   Save Settings
                 </Button>
               </div>

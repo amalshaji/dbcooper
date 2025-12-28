@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Column, Row, TypeInfo};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, PostgresConfig};
 use crate::db::models::{
@@ -11,11 +13,15 @@ use crate::db::models::{
 
 pub struct PostgresDriver {
     config: PostgresConfig,
+    pool: Arc<RwLock<Option<sqlx::PgPool>>>,
 }
 
 impl PostgresDriver {
     pub fn new(config: PostgresConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            pool: Arc::new(RwLock::new(None)),
+        }
     }
 
     fn build_connection_string(&self) -> String {
@@ -35,14 +41,54 @@ impl PostgresDriver {
         )
     }
 
-    async fn get_pool(&self) -> Result<sqlx::PgPool, String> {
+    async fn create_pool(&self) -> Result<sqlx::PgPool, String> {
         let conn_str = self.build_connection_string();
         PgPoolOptions::new()
-            .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(10))
+            .max_connections(5)
+            .acquire_timeout(std::time::Duration::from_secs(30))
+            .idle_timeout(std::time::Duration::from_secs(600))
+            .test_before_acquire(true)
             .connect(&conn_str)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn get_pool(&self) -> Result<sqlx::PgPool, String> {
+        {
+            let pool_guard = self.pool.read().await;
+            if let Some(ref pool) = *pool_guard {
+                return Ok(pool.clone());
+            }
+        }
+
+        let mut pool_guard = self.pool.write().await;
+        if let Some(ref pool) = *pool_guard {
+            return Ok(pool.clone());
+        }
+
+        let new_pool = self.create_pool().await?;
+        let pool_clone = new_pool.clone();
+        *pool_guard = Some(new_pool);
+        Ok(pool_clone)
+    }
+
+    async fn reset_pool(&self) -> Result<(), String> {
+        let mut pool_guard = self.pool.write().await;
+        if let Some(pool) = pool_guard.take() {
+            pool.close().await;
+        }
+        Ok(())
+    }
+
+    async fn get_pool_with_retry(&self) -> Result<sqlx::PgPool, String> {
+        match self.get_pool().await {
+            Ok(pool) => Ok(pool),
+            Err(e) => {
+                println!("[Postgres] Pool initialization failed: {}, resetting...", e);
+                self.reset_pool().await?;
+                self.get_pool().await
+            }
+        }
     }
 
     fn row_to_json(row: &sqlx::postgres::PgRow) -> Value {
@@ -122,7 +168,6 @@ impl DatabaseDriver for PostgresDriver {
         match self.get_pool().await {
             Ok(pool) => {
                 let result = sqlx::query("SELECT 1").fetch_one(&pool).await;
-                pool.close().await;
                 match result {
                     Ok(_) => Ok(TestConnectionResult {
                         success: true,
@@ -142,7 +187,7 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
-        let pool = self.get_pool().await?;
+        let pool = self.get_pool_with_retry().await?;
 
         let tables = sqlx::query_as::<_, (String, String, String)>(
             r#"
@@ -161,9 +206,16 @@ impl DatabaseDriver for PostgresDriver {
         )
         .fetch_all(&pool)
         .await
-        .map_err(|e| e.to_string())?;
-
-        pool.close().await;
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("Connection reset by peer") 
+                || error_str.contains("broken pipe")
+                || error_str.contains("connection closed")
+            {
+                println!("[Postgres] Connection error in list_tables, will reset pool on next access: {}", error_str);
+            }
+            error_str
+        })?;
 
         Ok(tables
             .into_iter()
@@ -183,7 +235,7 @@ impl DatabaseDriver for PostgresDriver {
         limit: i64,
         filter: Option<String>,
     ) -> Result<TableDataResponse, String> {
-        let pool = self.get_pool().await?;
+        let pool = self.get_pool_with_retry().await?;
 
         let offset = (page - 1) * limit;
         let full_table_name = format!("\"{}\".\"{}\"", schema, table);
@@ -209,7 +261,16 @@ impl DatabaseDriver for PostgresDriver {
         let count_row: (i64,) = sqlx::query_as(&count_query)
             .fetch_one(&pool)
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("Connection reset by peer") 
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                {
+                    println!("[Postgres] Connection error in get_table_data (count), will reset pool on next access: {}", error_str);
+                }
+                error_str
+            })?;
         let total = count_row.0;
 
         let data_query = format!(
@@ -220,9 +281,16 @@ impl DatabaseDriver for PostgresDriver {
         let rows = sqlx::query(&data_query)
             .fetch_all(&pool)
             .await
-            .map_err(|e| e.to_string())?;
-
-        pool.close().await;
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("Connection reset by peer") 
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                {
+                    println!("[Postgres] Connection error in get_table_data (data), will reset pool on next access: {}", error_str);
+                }
+                error_str
+            })?;
 
         let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
 
@@ -239,7 +307,7 @@ impl DatabaseDriver for PostgresDriver {
         schema: &str,
         table: &str,
     ) -> Result<TableStructure, String> {
-        let pool = self.get_pool().await?;
+        let pool = self.get_pool_with_retry().await?;
 
         let columns = sqlx::query_as::<_, (String, String, bool, Option<String>, bool)>(
             r#"
@@ -267,7 +335,16 @@ impl DatabaseDriver for PostgresDriver {
         .bind(table)
         .fetch_all(&pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("Connection reset by peer") 
+                || error_str.contains("broken pipe")
+                || error_str.contains("connection closed")
+            {
+                println!("[Postgres] Connection error in get_table_structure, will reset pool on next access: {}", error_str);
+            }
+            error_str
+        })?;
 
         let indexes = sqlx::query_as::<_, (String, Vec<String>, bool, bool)>(
             r#"
@@ -289,7 +366,16 @@ impl DatabaseDriver for PostgresDriver {
         .bind(table)
         .fetch_all(&pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("Connection reset by peer") 
+                || error_str.contains("broken pipe")
+                || error_str.contains("connection closed")
+            {
+                println!("[Postgres] Connection error in get_table_structure, will reset pool on next access: {}", error_str);
+            }
+            error_str
+        })?;
 
         let foreign_keys = sqlx::query_as::<_, (String, String, String, String)>(
             r#"
@@ -312,9 +398,16 @@ impl DatabaseDriver for PostgresDriver {
         .bind(table)
         .fetch_all(&pool)
         .await
-        .map_err(|e| e.to_string())?;
-
-        pool.close().await;
+        .map_err(|e| {
+            let error_str = e.to_string();
+            if error_str.contains("Connection reset by peer") 
+                || error_str.contains("broken pipe")
+                || error_str.contains("connection closed")
+            {
+                println!("[Postgres] Connection error in get_table_structure, will reset pool on next access: {}", error_str);
+            }
+            error_str
+        })?;
 
         Ok(TableStructure {
             columns: columns
@@ -354,11 +447,10 @@ impl DatabaseDriver for PostgresDriver {
 
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {
         let start_time = std::time::Instant::now();
-        let pool = self.get_pool().await?;
+        let pool = self.get_pool_with_retry().await?;
 
         match sqlx::query(query).fetch_all(&pool).await {
             Ok(rows) => {
-                pool.close().await;
                 let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
                 let row_count = data.len() as i64;
                 Ok(QueryResult {
@@ -369,11 +461,24 @@ impl DatabaseDriver for PostgresDriver {
                 })
             }
             Err(e) => {
-                pool.close().await;
+                let error_str = e.to_string();
+                let should_reset = error_str.contains("Connection reset by peer")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                    || error_str.contains("server closed the connection");
+
+                if should_reset {
+                    println!(
+                        "[Postgres] Connection error detected, resetting pool: {}",
+                        error_str
+                    );
+                    let _ = self.reset_pool().await;
+                }
+
                 Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
-                    error: Some(e.to_string()),
+                    error: Some(error_str),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 })
             }

@@ -108,7 +108,7 @@ export function UpdateChecker() {
     >
       {downloading ? (
         <>
-          <Spinner className="mr-2 h-3 w-3" />
+          <Spinner className="h-3 w-3" />
           Downloading...
         </>
       ) : (

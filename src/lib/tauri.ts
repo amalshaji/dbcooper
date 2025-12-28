@@ -245,14 +245,21 @@ export const api = {
 
 		listTables: (connection: Connection) =>
 			invoke<TableInfo[]>("unified_list_tables", {
-				dbType: connection.db_type || "postgres",
+				db_type: connection.db_type || "postgres",
 				host: connection.host,
 				port: connection.port,
 				database: connection.database,
 				username: connection.username,
 				password: connection.password,
 				ssl: connection.ssl === 1,
-				filePath: connection.file_path,
+				file_path: connection.file_path,
+				ssh_enabled: connection.ssh_enabled === 1,
+				ssh_host: connection.ssh_host,
+				ssh_port: connection.ssh_port,
+				ssh_user: connection.ssh_user,
+				ssh_password: connection.ssh_password,
+				ssh_key_path: connection.ssh_key_path,
+				ssh_use_key: connection.ssh_use_key === 1,
 			}),
 
 		getTableData: (
@@ -448,13 +455,53 @@ export const api = {
 		connect: (uuid: string) =>
 			invoke<{ status: string; error?: string }>("pool_connect", { uuid }),
 
-		disconnect: (uuid: string) =>
-			invoke<void>("pool_disconnect", { uuid }),
+		disconnect: (uuid: string) => invoke<void>("pool_disconnect", { uuid }),
 
 		getStatus: (uuid: string) =>
 			invoke<{ status: string; error?: string }>("pool_get_status", { uuid }),
 
 		healthCheck: (uuid: string) =>
 			invoke<TestConnectionResult>("pool_health_check", { uuid }),
+
+		listTables: (uuid: string) =>
+			invoke<TableInfo[]>("pool_list_tables", { uuid }),
+
+		getTableData: (
+			uuid: string,
+			schema: string,
+			table: string,
+			page: number,
+			limit: number,
+			filter?: string,
+		) =>
+			invoke<TableDataResponse>("pool_get_table_data", {
+				uuid,
+				schema,
+				table,
+				page,
+				limit,
+				filter,
+			}),
+
+		getTableStructure: (uuid: string, schema: string, table: string) =>
+			invoke<TableStructure>("pool_get_table_structure", {
+				uuid,
+				schema,
+				table,
+			}),
+
+		executeQuery: (uuid: string, query: string) =>
+			invoke<QueryResult>("pool_execute_query", { uuid, query }),
+	},
+
+	ai: {
+		selectTablesForQuery: (
+			instruction: string,
+			tables: { schema: string; name: string }[],
+		) =>
+			invoke<string[]>("select_tables_for_query", {
+				instruction,
+				tables,
+			}),
 	},
 };

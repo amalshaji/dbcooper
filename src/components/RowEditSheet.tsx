@@ -359,9 +359,9 @@ export function RowEditSheet({
                             disabled={!hasPrimaryKey || deleting || saving}
                         >
                             {deleting ? (
-                                <Spinner className="mr-2" />
+                                <Spinner />
                             ) : (
-                                <Trash className="w-4 h-4 mr-2" />
+                                <Trash className="w-4 h-4" />
                             )}
                             Delete
                         </Button>
@@ -370,9 +370,9 @@ export function RowEditSheet({
                             disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
                         >
                             {saving ? (
-                                <Spinner className="mr-2" />
+                                <Spinner />
                             ) : (
-                                <FloppyDisk className="w-4 h-4 mr-2" />
+                                <FloppyDisk className="w-4 h-4" />
                             )}
                             Save Changes
                         </Button>
