@@ -95,6 +95,7 @@ import {
 	DownloadSimple,
 	MagnifyingGlass,
 	Graph,
+	X,
 } from "@phosphor-icons/react";
 import { Check, Copy } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
@@ -146,8 +147,8 @@ function ContentHeader({
 					onClick={() => navigate("/")}
 					className="gap-2"
 				>
-					<ArrowLeft className="w-4 h-4" />
-					Back
+					<X className="w-4 h-4" />
+					Close Connection
 				</Button>
 			</div>
 			<div className="flex items-center gap-3">
@@ -191,8 +192,8 @@ function RedisContentHeader({
 					onClick={() => navigate("/")}
 					className="gap-2"
 				>
-					<ArrowLeft className="w-4 h-4" />
-					Back
+					<X className="w-4 h-4" />
+					Close Connection
 				</Button>
 				<span className="font-semibold">{connection.name}</span>
 				<span className="text-muted-foreground text-sm">
