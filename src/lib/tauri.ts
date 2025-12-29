@@ -492,6 +492,17 @@ export const api = {
 
 		executeQuery: (uuid: string, query: string) =>
 			invoke<QueryResult>("pool_execute_query", { uuid, query }),
+
+		getSchemaOverview: (uuid: string) =>
+			invoke<{
+				tables: {
+					schema: string;
+					name: string;
+					type: string;
+					columns: ColumnInfo[];
+					foreign_keys: ForeignKeyInfo[];
+				}[];
+			}>("pool_get_schema_overview", { uuid }),
 	},
 
 	ai: {

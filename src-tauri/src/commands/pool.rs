@@ -297,3 +297,25 @@ pub async fn pool_execute_query(
         }
     }
 }
+
+/// Get schema overview using the pooled connection (auto-connects if needed, auto-retries on error)
+#[tauri::command]
+pub async fn pool_get_schema_overview(
+    pool_manager: State<'_, PoolManager>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+) -> Result<crate::db::models::SchemaOverview, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    match pool_manager.get_schema_overview(&uuid).await {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            println!(
+                "[Pool] get_schema_overview failed: {}, retrying with fresh connection",
+                e
+            );
+            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+            pool_manager.get_schema_overview(&uuid).await
+        }
+    }
+}

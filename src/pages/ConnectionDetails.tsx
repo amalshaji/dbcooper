@@ -5,12 +5,14 @@ import {
   type TableDataTab,
   type TableStructureTab,
   type QueryTab,
+  type SchemaVisualizerTab,
   type TableColumn,
   type TableStructureData,
   type ForeignKeyInfo,
   createTableDataTab,
   createTableStructureTab,
   createQueryTab,
+  createSchemaVisualizerTab,
 } from "@/types/tabTypes";
 import type { DatabaseTable } from "@/types/table";
 import type { SavedQuery } from "@/types/savedQuery";
@@ -102,6 +104,7 @@ import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
+import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({
@@ -529,6 +532,55 @@ export function ConnectionDetails() {
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newTab.id);
   }, []);
+
+  const handleOpenSchemaVisualizer = useCallback(() => {
+    const existingTab = tabs.find((t) => t.type === "schema-visualizer");
+
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      return;
+    }
+
+    const newTab = createSchemaVisualizerTab();
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newTab.id);
+
+    fetchSchemaOverview(newTab);
+  }, [tabs]);
+
+  const fetchSchemaOverview = useCallback(
+    async (tab: SchemaVisualizerTab) => {
+      if (!uuid) return;
+
+      updateTab<SchemaVisualizerTab>(tab.id, { loading: true });
+
+      try {
+        const data = await api.pool.getSchemaOverview(uuid);
+        updateTab<SchemaVisualizerTab>(tab.id, {
+          schemaOverview: data,
+          loading: false,
+        });
+      } catch (error) {
+        console.error("Failed to fetch schema overview:", error);
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        toast.error("Failed to load schema overview", {
+          description: errorMessage,
+        });
+        updateTab<SchemaVisualizerTab>(tab.id, {
+          schemaOverview: null,
+          loading: false,
+        });
+      }
+    },
+    [uuid, updateTab]
+  );
+
+  const handleRefreshSchemaOverview = useCallback(async () => {
+    if (!activeTab || activeTab.type !== "schema-visualizer" || !uuid) return;
+    const tab = activeTab as SchemaVisualizerTab;
+    await fetchSchemaOverview(tab);
+  }, [activeTab, uuid, fetchSchemaOverview]);
 
   const handleCloseTab = useCallback(
     (tabId: string) => {
@@ -2070,6 +2122,17 @@ export function ConnectionDetails() {
     </div>
   );
 
+  const renderSchemaVisualizerContent = (tab: SchemaVisualizerTab) => (
+    <div className="h-full">
+      <SchemaVisualizer
+        schemaOverview={tab.schemaOverview}
+        loading={tab.loading}
+        onRefresh={handleRefreshSchemaOverview}
+        onTableClick={handleOpenTableData}
+      />
+    </div>
+  );
+
   const renderActiveTabContent = () => {
     if (!activeTab) return renderEmptyState();
 
@@ -2080,6 +2143,8 @@ export function ConnectionDetails() {
         return renderTableStructureContent(activeTab as TableStructureTab);
       case "query":
         return renderQueryContent(activeTab as QueryTab);
+      case "schema-visualizer":
+        return renderSchemaVisualizerContent(activeTab as SchemaVisualizerTab);
       default:
         return renderEmptyState();
     }
@@ -2115,19 +2180,29 @@ export function ConnectionDetails() {
               <Table className="w-5 h-5" />
               <span className="font-semibold">{connection.name}</span>
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleRefreshTables}
-              disabled={refreshingTables}
-              title="Refresh tables list"
-            >
-              {refreshingTables ? (
-                <Spinner />
-              ) : (
-                <ArrowsClockwise className="w-4 h-4" />
-              )}
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleOpenSchemaVisualizer}
+                title="Open Schema Visualizer"
+              >
+                <Database className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handleRefreshTables}
+                disabled={refreshingTables}
+                title="Refresh tables list"
+              >
+                {refreshingTables ? (
+                  <Spinner />
+                ) : (
+                  <ArrowsClockwise className="w-4 h-4" />
+                )}
+              </Button>
+            </div>
           </div>
           <div className="text-xs text-muted-foreground mt-1">
             {connection.database}
@@ -2388,9 +2463,7 @@ export function ConnectionDetails() {
           activeTabId={activeTabId}
           onTabSelect={handleTabSelect}
           onTabClose={handleCloseTab}
-          onNewQuery={
-            connection.type === "redis" ? handleNewRedisQuery : handleNewQuery
-          }
+          onNewQuery={handleNewQuery}
         />
 
         <div className="flex-1 p-4 min-w-0 overflow-auto">

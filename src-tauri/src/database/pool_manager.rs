@@ -398,4 +398,46 @@ impl PoolManager {
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver.execute_query(query).await
     }
+
+    /// Get schema overview using the pooled connection
+    pub async fn get_schema_overview(
+        &self,
+        uuid: &str,
+    ) -> Result<crate::db::models::SchemaOverview, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+
+        let tables = driver.list_tables().await?;
+
+        let mut tables_with_structure = Vec::new();
+
+        for table in tables {
+            match driver
+                .get_table_structure(&table.schema, &table.name)
+                .await
+            {
+                Ok(structure) => {
+                    tables_with_structure.push(crate::db::models::TableWithStructure {
+                        schema: table.schema,
+                        name: table.name,
+                        table_type: table.table_type,
+                        columns: structure.columns,
+                        foreign_keys: structure.foreign_keys,
+                    });
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Failed to get structure for {}.{}: {}",
+                        table.schema, table.name, e
+                    );
+                }
+            }
+        }
+
+        Ok(crate::db::models::SchemaOverview {
+            tables: tables_with_structure,
+        })
+    }
 }

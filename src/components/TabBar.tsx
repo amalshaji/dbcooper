@@ -1,5 +1,5 @@
 import { Tab } from "@/types/tabTypes";
-import { X, Plus, Table, Code, Columns } from "@phosphor-icons/react";
+import { X, Plus, Table, Code, Columns, Database } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useRef, useEffect } from "react";
@@ -20,6 +20,10 @@ function getTabIcon(tab: Tab) {
       return <Columns className="w-3.5 h-3.5" />;
     case "query":
       return <Code className="w-3.5 h-3.5" />;
+    case "schema-visualizer":
+      return <Database className="w-3.5 h-3.5" />;
+    default:
+      return null;
   }
 }
 
