@@ -20,7 +20,22 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowsClockwise, Maximize2 } from "@phosphor-icons/react";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+	SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+	ArrowsClockwise,
+	Maximize2,
+	Funnel,
+	MagnifyingGlass,
+} from "@phosphor-icons/react";
 import type { SchemaOverview, TableWithStructure } from "@/types/tabTypes";
 
 const nodeTypes = { tableNode: TableNode };
@@ -46,7 +61,7 @@ function getLayoutedElements(
 	});
 
 	const referencedColumnsMap = new Map<string, Set<string>>();
-	
+
 	tables.forEach((table) => {
 		const fullName = `${table.schema}.${table.name}`;
 		table.foreign_keys.forEach((fk) => {
@@ -74,7 +89,9 @@ function getLayoutedElements(
 				referencedColumns: referencedColumnsMap.get(nodeId) || new Set(),
 				showColumns,
 				onTableClick: (tableName: string) => {
-					const event = new CustomEvent("table-click", { detail: { tableName } });
+					const event = new CustomEvent("table-click", {
+						detail: { tableName },
+					});
 					window.dispatchEvent(event);
 				},
 			},
@@ -85,8 +102,10 @@ function getLayoutedElements(
 			if (tableMap.has(targetTable)) {
 				const edgeId = `${nodeId}-${targetTable}-${fk.column}`;
 				const sourceHandle = showColumns ? `${fk.column}-source` : undefined;
-				const targetHandle = showColumns ? `${fk.references_column}-target` : undefined;
-				
+				const targetHandle = showColumns
+					? `${fk.references_column}-target`
+					: undefined;
+
 				edges.push({
 					id: edgeId,
 					source: nodeId,
@@ -133,7 +152,9 @@ function getLayoutedElements(
 
 		connectedNodes.forEach((node) => {
 			const columnCount = tableMap.get(node.id)!.columns.length;
-			const nodeHeight = showColumns ? HEADER_HEIGHT + columnCount * ROW_HEIGHT : 60;
+			const nodeHeight = showColumns
+				? HEADER_HEIGHT + columnCount * ROW_HEIGHT
+				: 60;
 			dagreGraph.setNode(node.id, {
 				width: NODE_WIDTH,
 				height: nodeHeight,
@@ -149,7 +170,9 @@ function getLayoutedElements(
 		connectedNodes.forEach((node) => {
 			const nodeWithPosition = dagreGraph.node(node.id);
 			const columnCount = tableMap.get(node.id)!.columns.length;
-			const nodeHeight = showColumns ? HEADER_HEIGHT + columnCount * ROW_HEIGHT : 60;
+			const nodeHeight = showColumns
+				? HEADER_HEIGHT + columnCount * ROW_HEIGHT
+				: 60;
 			node.position = {
 				x: nodeWithPosition.x - NODE_WIDTH / 2,
 				y: nodeWithPosition.y - nodeHeight / 2,
@@ -161,7 +184,9 @@ function getLayoutedElements(
 		let maxBottomY = 0;
 		connectedNodes.forEach((node) => {
 			const columnCount = tableMap.get(node.id)!.columns.length;
-			const nodeHeight = showColumns ? HEADER_HEIGHT + columnCount * ROW_HEIGHT : 60;
+			const nodeHeight = showColumns
+				? HEADER_HEIGHT + columnCount * ROW_HEIGHT
+				: 60;
 			const bottomY = node.position.y + nodeHeight;
 			if (bottomY > maxBottomY) {
 				maxBottomY = bottomY;
@@ -180,7 +205,9 @@ function getLayoutedElements(
 				if (idx < disconnectedNodes.length) {
 					const node = disconnectedNodes[idx];
 					const columnCount = tableMap.get(node.id)!.columns.length;
-					const nodeHeight = showColumns ? HEADER_HEIGHT + columnCount * ROW_HEIGHT : 60;
+					const nodeHeight = showColumns
+						? HEADER_HEIGHT + columnCount * ROW_HEIGHT
+						: 60;
 					if (nodeHeight > maxHeight) maxHeight = nodeHeight;
 				}
 			}
@@ -213,25 +240,69 @@ export function SchemaVisualizer({
 	onTableClick,
 }: SchemaVisualizerProps) {
 	const [showColumns, setShowColumns] = useState(true);
+	const [filterOpen, setFilterOpen] = useState(false);
+	const [tableFilter, setTableFilter] = useState("");
+	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
+	const [hasInitialized, setHasInitialized] = useState(false);
+
+	const allTableNames = useMemo(() => {
+		if (!schemaOverview) return [];
+		return schemaOverview.tables.map((t) => `${t.schema}.${t.name}`);
+	}, [schemaOverview]);
+
+	useEffect(() => {
+		if (schemaOverview && !hasInitialized && allTableNames.length > 0) {
+			setSelectedTables(new Set(allTableNames));
+			setHasInitialized(true);
+		}
+	}, [schemaOverview, allTableNames, hasInitialized]);
+
+	const filteredTables = useMemo(() => {
+		if (!schemaOverview) return [];
+		return schemaOverview.tables.filter((table) => {
+			const fullName = `${table.schema}.${table.name}`;
+			return selectedTables.has(fullName);
+		});
+	}, [schemaOverview, selectedTables]);
+
+	const toggleTable = useCallback((tableName: string) => {
+		setSelectedTables((prev) => {
+			const newSet = new Set(prev);
+			if (newSet.has(tableName)) {
+				newSet.delete(tableName);
+			} else {
+				newSet.add(tableName);
+			}
+			return newSet;
+		});
+	}, []);
+
+	const selectAll = useCallback(() => {
+		setSelectedTables(new Set(allTableNames));
+	}, [allTableNames]);
+
+	const deselectAll = useCallback(() => {
+		setSelectedTables(new Set());
+	}, []);
 
 	const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
-		if (!schemaOverview || schemaOverview.tables.length === 0) {
+		if (!schemaOverview || filteredTables.length === 0) {
 			return { nodes: [], edges: [] };
 		}
-		return getLayoutedElements(schemaOverview.tables, showColumns);
-	}, [schemaOverview, showColumns]);
+		return getLayoutedElements(filteredTables, showColumns);
+	}, [filteredTables, showColumns]);
 
 	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
 	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
 	useEffect(() => {
 		const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
-			schemaOverview?.tables || [],
+			filteredTables,
 			showColumns,
 		);
 		setNodes(newNodes);
 		setEdges(newEdges);
-	}, [schemaOverview, showColumns, setNodes, setEdges]);
+	}, [filteredTables, showColumns, setNodes, setEdges]);
 
 	const onConnect = useCallback(
 		(params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -260,13 +331,19 @@ export function SchemaVisualizer({
 							<div className="flex items-center gap-4 text-xs text-muted-foreground">
 								<span className="font-medium">Legend:</span>
 								<div className="flex items-center gap-1">
-									<Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+									<Badge
+										variant="outline"
+										className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+									>
 										PK
 									</Badge>
 									<span>= Primary Key</span>
 								</div>
 								<div className="flex items-center gap-1">
-									<Badge variant="outline" className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20">
+									<Badge
+										variant="outline"
+										className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20"
+									>
 										FK
 									</Badge>
 									<span>= Foreign Key</span>
@@ -306,7 +383,141 @@ export function SchemaVisualizer({
 					<CardTitle>Schema Visualizer</CardTitle>
 				</CardHeader>
 				<CardContent className="flex items-center justify-center py-12">
-					<p className="text-muted-foreground">No tables found in this database.</p>
+					<p className="text-muted-foreground">
+						No tables found in this database.
+					</p>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	if (filteredTables.length === 0 && selectedTables.size > 0) {
+		return (
+			<Card className="h-full flex flex-col">
+				<CardHeader className="pb-3">
+					<div className="flex items-center justify-between">
+						<div className="flex flex-col gap-2">
+							<CardTitle>Schema Visualizer</CardTitle>
+							<div className="flex items-center gap-4 text-xs text-muted-foreground">
+								<span className="font-medium">Legend:</span>
+								<div className="flex items-center gap-1">
+									<Badge
+										variant="outline"
+										className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+									>
+										PK
+									</Badge>
+									<span>= Primary Key</span>
+								</div>
+								<div className="flex items-center gap-1">
+									<Badge
+										variant="outline"
+										className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20"
+									>
+										FK
+									</Badge>
+									<span>= Foreign Key</span>
+								</div>
+								<div className="flex items-center gap-1">
+									<span className="text-muted-foreground">?</span>
+									<span>= Nullable</span>
+								</div>
+							</div>
+						</div>
+						<div className="flex items-center gap-2">
+							<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
+								<SheetTrigger asChild>
+									<Button variant="outline" size="sm">
+										<Funnel className="w-4 h-4" />
+										Filter ({selectedTables.size}/{allTableNames.length})
+									</Button>
+								</SheetTrigger>
+								<SheetContent side="right" className="w-[400px]">
+									<SheetHeader>
+										<SheetTitle>Filter Tables</SheetTitle>
+										<SheetDescription>
+											Select which tables to display in the schema visualizer
+										</SheetDescription>
+									</SheetHeader>
+									<div className="mt-6 space-y-4 px-1 pb-4">
+										<div className="relative">
+											<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+											<Input
+												placeholder="Search tables..."
+												value={tableFilter}
+												onChange={(e) => setTableFilter(e.target.value)}
+												className="pl-8"
+											/>
+										</div>
+										<div className="flex items-center gap-2">
+											<Button variant="outline" size="sm" onClick={selectAll}>
+												Select All
+											</Button>
+											<Button variant="outline" size="sm" onClick={deselectAll}>
+												Deselect All
+											</Button>
+										</div>
+										<div className="max-h-[calc(100vh-250px)] overflow-y-auto space-y-2 pr-2">
+											{schemaOverview?.tables
+												.filter((table) => {
+													const fullName = `${table.schema}.${table.name}`;
+													return (
+														tableFilter === "" ||
+														fullName
+															.toLowerCase()
+															.includes(tableFilter.toLowerCase()) ||
+														table.name
+															.toLowerCase()
+															.includes(tableFilter.toLowerCase())
+													);
+												})
+												.map((table) => {
+													const fullName = `${table.schema}.${table.name}`;
+													const isSelected = selectedTables.has(fullName);
+													return (
+														<div
+															key={fullName}
+															className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
+														>
+															<div className="flex flex-col min-w-0 flex-1">
+																<span className="text-sm font-medium truncate">
+																	{table.name}
+																</span>
+																<span className="text-xs text-muted-foreground">
+																	{table.schema}
+																</span>
+															</div>
+															<Switch
+																checked={isSelected}
+																onCheckedChange={() => toggleTable(fullName)}
+															/>
+														</div>
+													);
+												})}
+										</div>
+									</div>
+								</SheetContent>
+							</Sheet>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setShowColumns(!showColumns)}
+							>
+								{showColumns ? "Hide Columns" : "Show Columns"}
+							</Button>
+							{onRefresh && (
+								<Button variant="outline" size="sm" onClick={onRefresh}>
+									<ArrowsClockwise className="w-4 h-4" />
+									Refresh
+								</Button>
+							)}
+						</div>
+					</div>
+				</CardHeader>
+				<CardContent className="flex-1 min-h-0 flex items-center justify-center">
+					<p className="text-muted-foreground">
+						No tables selected. Use the filter to select tables.
+					</p>
 				</CardContent>
 			</Card>
 		);
@@ -321,13 +532,19 @@ export function SchemaVisualizer({
 						<div className="flex items-center gap-4 text-xs text-muted-foreground">
 							<span className="font-medium">Legend:</span>
 							<div className="flex items-center gap-1">
-								<Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+								<Badge
+									variant="outline"
+									className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+								>
 									PK
 								</Badge>
 								<span>= Primary Key</span>
 							</div>
 							<div className="flex items-center gap-1">
-								<Badge variant="outline" className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20">
+								<Badge
+									variant="outline"
+									className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20"
+								>
 									FK
 								</Badge>
 								<span>= Foreign Key</span>
@@ -339,6 +556,79 @@ export function SchemaVisualizer({
 						</div>
 					</div>
 					<div className="flex items-center gap-2">
+						<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
+							<SheetTrigger asChild>
+								<Button variant="outline" size="sm">
+									<Funnel className="w-4 h-4" />
+									Filter ({selectedTables.size}/{allTableNames.length})
+								</Button>
+							</SheetTrigger>
+							<SheetContent side="right" className="w-[400px]">
+								<SheetHeader>
+									<SheetTitle>Filter Tables</SheetTitle>
+									<SheetDescription>
+										Select which tables to display in the schema visualizer
+									</SheetDescription>
+								</SheetHeader>
+								<div className="mt-6 space-y-4 px-1 pb-4">
+									<div className="relative">
+										<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+										<Input
+											placeholder="Search tables..."
+											value={tableFilter}
+											onChange={(e) => setTableFilter(e.target.value)}
+											className="pl-8"
+										/>
+									</div>
+									<div className="flex items-center gap-2">
+										<Button variant="outline" size="sm" onClick={selectAll}>
+											Select All
+										</Button>
+										<Button variant="outline" size="sm" onClick={deselectAll}>
+											Deselect All
+										</Button>
+									</div>
+									<div className="max-h-[calc(100vh-250px)] overflow-y-auto space-y-2 pr-2">
+										{schemaOverview?.tables
+											.filter((table) => {
+												const fullName = `${table.schema}.${table.name}`;
+												return (
+													tableFilter === "" ||
+													fullName
+														.toLowerCase()
+														.includes(tableFilter.toLowerCase()) ||
+													table.name
+														.toLowerCase()
+														.includes(tableFilter.toLowerCase())
+												);
+											})
+											.map((table) => {
+												const fullName = `${table.schema}.${table.name}`;
+												const isSelected = selectedTables.has(fullName);
+												return (
+													<div
+														key={fullName}
+														className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
+													>
+														<div className="flex flex-col min-w-0 flex-1">
+															<span className="text-sm font-medium truncate">
+																{table.name}
+															</span>
+															<span className="text-xs text-muted-foreground">
+																{table.schema}
+															</span>
+														</div>
+														<Switch
+															checked={isSelected}
+															onCheckedChange={() => toggleTable(fullName)}
+														/>
+													</div>
+												);
+											})}
+									</div>
+								</div>
+							</SheetContent>
+						</Sheet>
 						<Button
 							variant="outline"
 							size="sm"
