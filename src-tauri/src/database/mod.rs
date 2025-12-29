@@ -3,11 +3,13 @@ use async_trait::async_trait;
 pub mod clickhouse;
 pub mod pool_manager;
 pub mod postgres;
+pub mod queries;
 pub mod redis;
 pub mod sqlite;
 
 use crate::db::models::{
-    QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
+    TestConnectionResult,
 };
 
 /// Common trait for all database drivers
@@ -38,6 +40,9 @@ pub trait DatabaseDriver: Send + Sync {
 
     /// Execute a raw SQL query
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String>;
+
+    /// Get schema overview with all tables and their structures (columns, foreign keys, indexes)
+    async fn get_schema_overview(&self) -> Result<SchemaOverview, String>;
 }
 
 /// Configuration for Postgres connections

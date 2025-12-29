@@ -29,6 +29,13 @@ export interface ForeignKeyInfo {
 	references_column: string;
 }
 
+export interface IndexInfo {
+	name: string;
+	columns: string[];
+	unique: boolean;
+	primary: boolean;
+}
+
 interface BaseTab {
 	id: string;
 	type: TabType;
@@ -92,6 +99,7 @@ export interface TableWithStructure {
 	type: string;
 	columns: TableColumn[];
 	foreign_keys: ForeignKeyInfo[];
+	indexes: IndexInfo[];
 }
 
 export type Tab = TableDataTab | TableStructureTab | QueryTab | RedisQueryTab | SchemaVisualizerTab;

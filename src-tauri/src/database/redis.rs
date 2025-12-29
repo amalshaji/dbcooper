@@ -6,7 +6,8 @@ use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
-    QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
+    TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -355,6 +356,10 @@ impl DatabaseDriver for RedisDriver {
                 })
             }
         }
+    }
+
+    async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
+        Ok(SchemaOverview { tables: vec![] })
     }
 }
 

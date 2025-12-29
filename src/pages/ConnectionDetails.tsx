@@ -9,6 +9,7 @@ import {
 	type TableColumn,
 	type TableStructureData,
 	type ForeignKeyInfo,
+	type SchemaOverview,
 	createTableDataTab,
 	createTableStructureTab,
 	createQueryTab,
@@ -93,6 +94,7 @@ import {
 	Columns,
 	DownloadSimple,
 	MagnifyingGlass,
+	Graph,
 } from "@phosphor-icons/react";
 import { Check, Copy } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
@@ -220,6 +222,8 @@ export function ConnectionDetails() {
 		Record<string, TableColumn[]>
 	>({});
 	const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
+	const [schemaOverview, setSchemaOverview] = useState<SchemaOverview | null>(null);
+	const [loadingSchemaOverview, setLoadingSchemaOverview] = useState(false);
 	const [connectionStatus, setConnectionStatus] = useState<
 		"connected" | "disconnected"
 	>("connected");
@@ -315,6 +319,28 @@ export function ConnectionDetails() {
 		}
 	}, [uuid, navigate]);
 
+	const fetchSchemaOverviewData = useCallback(async () => {
+		if (!uuid) return;
+		
+		setLoadingSchemaOverview(true);
+		try {
+			const data = await api.pool.getSchemaOverview(uuid);
+			setSchemaOverview(data);
+
+			const tableDataMap: Record<string, TableColumn[]> = {};
+			data.tables.forEach((table) => {
+				const fullName = `${table.schema}.${table.name}`;
+				tableDataMap[fullName] = table.columns;
+			});
+			setTableColumns(tableDataMap);
+		} catch (error) {
+			console.error("Failed to fetch schema overview:", error);
+			setSchemaOverview(null);
+		} finally {
+			setLoadingSchemaOverview(false);
+		}
+	}, [uuid, connection]);
+
 	const fetchTables = useCallback(async () => {
 		if (!connection || !uuid) return;
 		try {
@@ -339,8 +365,9 @@ export function ConnectionDetails() {
 	useEffect(() => {
 		if (connection) {
 			fetchTables();
+			fetchSchemaOverviewData();
 		}
-	}, [connection, fetchTables]);
+	}, [connection, fetchTables, fetchSchemaOverviewData]);
 
 	useEffect(() => {
 		const fetchSavedQueries = async () => {
@@ -408,6 +435,26 @@ export function ConnectionDetails() {
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
+				const fullTableName = `${schema}.${tableName}`;
+
+				if (schemaOverview) {
+					const tableData = schemaOverview.tables.find(
+						(t) => `${t.schema}.${t.name}` === fullTableName,
+					);
+
+					if (tableData) {
+						updateTab<TableStructureTab>(tab.id, {
+							structure: {
+								columns: tableData.columns,
+								indexes: tableData.indexes,
+								foreign_keys: tableData.foreign_keys,
+							} as TableStructureData,
+							loading: false,
+						});
+						return;
+					}
+				}
+
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
 
 				updateTab<TableStructureTab>(tab.id, {
@@ -422,7 +469,7 @@ export function ConnectionDetails() {
 				});
 			}
 		},
-		[uuid, updateTab],
+		[uuid, updateTab, schemaOverview],
 	);
 
 	const fetchForeignKeys = useCallback(
@@ -431,6 +478,22 @@ export function ConnectionDetails() {
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
+				const fullTableName = `${schema}.${tableName}`;
+
+				if (schemaOverview) {
+					const tableData = schemaOverview.tables.find(
+						(t) => `${t.schema}.${t.name}` === fullTableName,
+					);
+
+					if (tableData) {
+						updateTab<TableDataTab>(tab.id, {
+							foreignKeys: tableData.foreign_keys || [],
+							columns: tableData.columns || [],
+						});
+						return;
+					}
+				}
+
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
 				updateTab<TableDataTab>(tab.id, {
 					foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
@@ -440,7 +503,7 @@ export function ConnectionDetails() {
 				console.error("Failed to fetch foreign keys:", error);
 			}
 		},
-		[uuid, updateTab],
+		[uuid, updateTab, schemaOverview],
 	);
 
 	const handleOpenTableData = useCallback(
@@ -556,43 +619,12 @@ export function ConnectionDetails() {
 		const newTab = createSchemaVisualizerTab();
 		setTabs((prev) => [...prev, newTab]);
 		setActiveTabId(newTab.id);
-
-		fetchSchemaOverview(newTab);
 	}, [tabs]);
 
-	const fetchSchemaOverview = useCallback(
-		async (tab: SchemaVisualizerTab) => {
-			if (!uuid) return;
-
-			updateTab<SchemaVisualizerTab>(tab.id, { loading: true });
-
-			try {
-				const data = await api.pool.getSchemaOverview(uuid);
-				updateTab<SchemaVisualizerTab>(tab.id, {
-					schemaOverview: data,
-					loading: false,
-				});
-			} catch (error) {
-				console.error("Failed to fetch schema overview:", error);
-				const errorMessage =
-					error instanceof Error ? error.message : String(error);
-				toast.error("Failed to load schema overview", {
-					description: errorMessage,
-				});
-				updateTab<SchemaVisualizerTab>(tab.id, {
-					schemaOverview: null,
-					loading: false,
-				});
-			}
-		},
-		[uuid, updateTab],
-	);
-
 	const handleRefreshSchemaOverview = useCallback(async () => {
-		if (!activeTab || activeTab.type !== "schema-visualizer" || !uuid) return;
-		const tab = activeTab as SchemaVisualizerTab;
-		await fetchSchemaOverview(tab);
-	}, [activeTab, uuid, fetchSchemaOverview]);
+		if (!uuid) return;
+		await fetchSchemaOverviewData();
+	}, [uuid, fetchSchemaOverviewData]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -625,6 +657,9 @@ export function ConnectionDetails() {
 		try {
 			const data = await api.pool.listTables(uuid);
 			setTables(data as DatabaseTable[]);
+			setSchemaOverview(null);
+			setTableColumns({});
+			await fetchSchemaOverviewData();
 		} catch (error) {
 			console.error("Failed to refresh tables:", error);
 			setTables([]);
@@ -697,26 +732,16 @@ export function ConnectionDetails() {
 		newExpanded.add(tableName);
 		setExpandedTables(newExpanded);
 
-		if (!tableColumns[tableName] && uuid) {
-			const [schema, table] = tableName.split(".");
-			const newLoading = new Set(loadingColumns);
-			newLoading.add(tableName);
-			setLoadingColumns(newLoading);
+		if (!tableColumns[tableName] && schemaOverview) {
+			const tableData = schemaOverview.tables.find(
+				(t) => `${t.schema}.${t.name}` === tableName,
+			);
 
-			try {
-				const data = await api.pool.getTableStructure(uuid, schema, table);
+			if (tableData) {
 				setTableColumns((prev) => ({
 					...prev,
-					[tableName]: (data.columns as TableColumn[]) || [],
+					[tableName]: tableData.columns,
 				}));
-			} catch (error) {
-				console.error("Failed to fetch table columns:", error);
-			} finally {
-				setLoadingColumns((prev) => {
-					const updated = new Set(prev);
-					updated.delete(tableName);
-					return updated;
-				});
 			}
 		}
 	};
@@ -1530,74 +1555,34 @@ export function ConnectionDetails() {
 									selectedTableNames.includes(`${t.schema}.${t.name}`),
 								);
 
-								// Fetch schemas concurrently for selected tables
-								const tablesToFetch = selectedTables.filter(
-									(t) => !tableColumns[`${t.schema}.${t.name}`],
-								);
-
-								if (tablesToFetch.length > 0 && uuid) {
-									console.log(
-										`[AI] Fetching schema for ${tablesToFetch.length} tables concurrently...`,
-									);
-									const newColumns = { ...tableColumns };
-
-									// Fetch all schemas concurrently using Promise.all
-									await Promise.all(
-										tablesToFetch.map(async (table) => {
-											try {
-												const data = await api.pool.getTableStructure(
-													uuid,
-													table.schema,
-													table.name,
-												);
-												newColumns[`${table.schema}.${table.name}`] =
-													(data.columns as TableColumn[]) || [];
-											} catch (error) {
-												console.error(
-													`Failed to fetch schema for ${table.schema}.${table.name}:`,
-													error,
-												);
-											}
-										}),
-									);
-
-									console.log("[AI] Schema fetch complete");
-									setTableColumns(newColumns);
-
-									// Use the updated columns for generation
-									let accumulatedSQL = "";
-									await generateSQL(
-										connection.db_type || "postgres",
-										instruction,
-										existingSQL,
-										selectedTables.map((t) => ({
-											schema: t.schema,
-											name: t.name,
-											columns: newColumns[`${t.schema}.${t.name}`],
-										})),
-										(chunk) => {
-											accumulatedSQL += chunk;
-											handleQueryChange(accumulatedSQL);
-										},
-									);
-								} else {
-									// All schemas already cached - use selected tables
-									let accumulatedSQL = "";
-									await generateSQL(
-										connection.db_type || "postgres",
-										instruction,
-										existingSQL,
-										selectedTables.map((t) => ({
-											schema: t.schema,
-											name: t.name,
-											columns: tableColumns[`${t.schema}.${t.name}`],
-										})),
-										(chunk) => {
-											accumulatedSQL += chunk;
-											handleQueryChange(accumulatedSQL);
-										},
-									);
+								// Use schema overview if available, otherwise use tableColumns cache
+								let columnsToUse = { ...tableColumns };
+								
+								if (schemaOverview) {
+									schemaOverview.tables.forEach((table) => {
+										const fullName = `${table.schema}.${table.name}`;
+										if (selectedTableNames.includes(fullName)) {
+											columnsToUse[fullName] = table.columns;
+										}
+									});
 								}
+
+								// Use the columns for generation
+								let accumulatedSQL = "";
+								await generateSQL(
+									connection.db_type || "postgres",
+									instruction,
+									existingSQL,
+									selectedTables.map((t) => ({
+										schema: t.schema,
+										name: t.name,
+										columns: columnsToUse[`${t.schema}.${t.name}`] || [],
+									})),
+									(chunk) => {
+										accumulatedSQL += chunk;
+										handleQueryChange(accumulatedSQL);
+									},
+								);
 							} catch (error) {
 								console.error("AI generation error:", error);
 							} finally {
@@ -2143,9 +2128,9 @@ export function ConnectionDetails() {
 	const renderSchemaVisualizerContent = (tab: SchemaVisualizerTab) => (
 		<div className="h-full">
 			<SchemaVisualizer
-				schemaOverview={tab.schemaOverview}
-				loading={tab.loading}
-				onRefresh={handleRefreshSchemaOverview}
+				schemaOverview={schemaOverview}
+				loading={loadingSchemaOverview}
+				onRefresh={fetchSchemaOverviewData}
 				onTableClick={handleOpenTableData}
 			/>
 		</div>
@@ -2193,28 +2178,31 @@ export function ConnectionDetails() {
 					className="border-b p-4 pt-10"
 					onMouseDown={handleDragStart}
 				>
-					<div className="flex items-center justify-between">
-						<div className="flex items-center gap-2">
-							<Table className="w-5 h-5" />
-							<span className="font-semibold">{connection.name}</span>
+					<div className="flex items-center justify-between gap-2">
+						<div className="flex items-center gap-2 min-w-0 flex-1">
+							<Table className="w-5 h-5 shrink-0" />
+							<span className="font-semibold truncate">{connection.name}</span>
 						</div>
-						<div className="flex items-center gap-1">
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								onClick={handleOpenSchemaVisualizer}
-								title="Open Schema Visualizer"
-							>
-								<Database className="w-4 h-4" />
-							</Button>
+						<div className="flex items-center gap-1 shrink-0">
+							{connection.db_type !== "clickhouse" && (
+								<Button
+									variant="default"
+									size="icon-sm"
+									onClick={handleOpenSchemaVisualizer}
+									title="Open Schema Visualizer"
+									className="h-7 w-7"
+								>
+									<Graph className="w-4 h-4" />
+								</Button>
+							)}
 							<Button
 								variant="ghost"
 								size="icon-sm"
 								onClick={handleRefreshTables}
-								disabled={refreshingTables}
+								disabled={refreshingTables || loadingSchemaOverview}
 								title="Refresh tables list"
 							>
-								{refreshingTables ? (
+								{refreshingTables || loadingSchemaOverview ? (
 									<Spinner />
 								) : (
 									<ArrowsClockwise className="w-4 h-4" />
@@ -2271,7 +2259,11 @@ export function ConnectionDetails() {
 											{(schemaTables as DatabaseTable[]).map((table) => {
 												const tableName = `${table.schema}.${table.name}`;
 												const isExpanded = expandedTables.has(tableName);
-												const isLoading = loadingColumns.has(tableName);
+												const isLoading =
+													loadingColumns.has(tableName) ||
+													(loadingSchemaOverview &&
+														isExpanded &&
+														!tableColumns[tableName]);
 												const cols = tableColumns[tableName] || [];
 
 												return (

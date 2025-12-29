@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::DatabaseDriver;
+use crate::database::queries::clickhouse::{COLUMNS_QUERY, INDEXES_QUERY};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
-    TableStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
+    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
+use std::collections::HashMap;
 
 /// ClickHouse protocol type
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -266,6 +268,102 @@ impl DatabaseDriver for ClickhouseDriver {
             indexes: index_infos,
             foreign_keys,
         })
+    }
+
+    async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
+        let columns_query =
+            COLUMNS_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
+        let columns_rows = self.execute_query_json(&columns_query).await?;
+
+        let indexes_query =
+            INDEXES_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
+        let indexes_rows = self
+            .execute_query_json(&indexes_query)
+            .await
+            .unwrap_or_default();
+
+        let mut indexes_map: HashMap<(String, String), Vec<IndexInfo>> = HashMap::new();
+
+        for idx_row in indexes_rows {
+            let database: String = idx_row["database"].as_str().unwrap_or("").to_string();
+            let table: String = idx_row["table"].as_str().unwrap_or("").to_string();
+            let empty_vec = vec![];
+            let indexes_raw = idx_row["indexes_raw"].as_array().unwrap_or(&empty_vec);
+
+            let mut indexes = Vec::new();
+            for idx_tuple in indexes_raw {
+                if let Some(arr) = idx_tuple.as_array() {
+                    if arr.len() >= 3 {
+                        let name = arr[0].as_str().unwrap_or("").to_string();
+                        let expr = arr[1].as_str().unwrap_or("").to_string();
+                        let _type = arr[2].as_str().unwrap_or("").to_string();
+
+                        indexes.push(IndexInfo {
+                            name,
+                            columns: vec![expr],
+                            unique: false,
+                            primary: false,
+                        });
+                    }
+                }
+            }
+
+            indexes_map.insert((database, table), indexes);
+        }
+
+        let mut tables = Vec::new();
+
+        for col_row in columns_rows {
+            let schema: String = col_row["schema"].as_str().unwrap_or("").to_string();
+            let name: String = col_row["name"].as_str().unwrap_or("").to_string();
+            let table_type: String = col_row["type"].as_str().unwrap_or("table").to_string();
+
+            let empty_vec = vec![];
+            let columns_raw = col_row["columns_raw"].as_array().unwrap_or(&empty_vec);
+
+            let mut columns = Vec::new();
+            for col_tuple in columns_raw {
+                if let Some(arr) = col_tuple.as_array() {
+                    if arr.len() >= 5 {
+                        let col_name = arr[0].as_str().unwrap_or("").to_string();
+                        let col_type = arr[1].as_str().unwrap_or("").to_string();
+                        let default_kind = arr[2].as_str().unwrap_or("");
+                        let default_expr = arr[3].as_str().unwrap_or("");
+                        let is_pk = arr[4].as_u64().unwrap_or(0) == 1;
+
+                        let nullable = col_type.starts_with("Nullable");
+                        let default = if default_expr.is_empty() {
+                            None
+                        } else {
+                            Some(format!("{} {}", default_kind, default_expr))
+                        };
+
+                        columns.push(ColumnInfo {
+                            name: col_name,
+                            data_type: col_type,
+                            nullable,
+                            default,
+                            primary_key: is_pk,
+                        });
+                    }
+                }
+            }
+
+            let indexes = indexes_map
+                .remove(&(schema.clone(), name.clone()))
+                .unwrap_or_default();
+
+            tables.push(TableWithStructure {
+                schema,
+                name,
+                table_type,
+                columns,
+                foreign_keys: Vec::new(),
+                indexes,
+            });
+        }
+
+        Ok(SchemaOverview { tables })
     }
 
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {

@@ -7,9 +7,10 @@ use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, PostgresConfig};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
-    TableStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
+    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
+use crate::database::queries::postgres::SCHEMA_OVERVIEW_QUERY;
 
 pub struct PostgresDriver {
     config: PostgresConfig,
@@ -483,5 +484,57 @@ impl DatabaseDriver for PostgresDriver {
                 })
             }
         }
+    }
+
+    async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
+        let pool = self.get_pool_with_retry().await?;
+
+        let rows = sqlx::query(SCHEMA_OVERVIEW_QUERY)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("Connection reset by peer")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                {
+                    println!(
+                        "[Postgres] Connection error in get_schema_overview, will reset pool on next access: {}",
+                        error_str
+                    );
+                }
+                error_str
+            })?;
+
+        let mut tables = Vec::new();
+
+        for row in rows {
+            let schema: String = row.try_get("schema").map_err(|e| e.to_string())?;
+            let name: String = row.try_get("name").map_err(|e| e.to_string())?;
+            let table_type: String = row.try_get("type").map_err(|e| e.to_string())?;
+
+            let columns_json: Value = row.try_get("columns").map_err(|e| e.to_string())?;
+            let columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
+                .map_err(|e| format!("Failed to parse columns: {}", e))?;
+
+            let foreign_keys_json: Value = row.try_get("foreign_keys").map_err(|e| e.to_string())?;
+            let foreign_keys: Vec<ForeignKeyInfo> = serde_json::from_value(foreign_keys_json)
+                .map_err(|e| format!("Failed to parse foreign_keys: {}", e))?;
+
+            let indexes_json: Value = row.try_get("indexes").map_err(|e| e.to_string())?;
+            let indexes: Vec<IndexInfo> = serde_json::from_value(indexes_json)
+                .map_err(|e| format!("Failed to parse indexes: {}", e))?;
+
+            tables.push(TableWithStructure {
+                schema,
+                name,
+                table_type,
+                columns,
+                foreign_keys,
+                indexes,
+            });
+        }
+
+        Ok(SchemaOverview { tables })
     }
 }

@@ -162,6 +162,7 @@ pub struct TableWithStructure {
     pub table_type: String,
     pub columns: Vec<ColumnInfo>,
     pub foreign_keys: Vec<ForeignKeyInfo>,
+    pub indexes: Vec<IndexInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

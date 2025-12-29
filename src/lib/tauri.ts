@@ -501,6 +501,7 @@ export const api = {
 					type: string;
 					columns: ColumnInfo[];
 					foreign_keys: ForeignKeyInfo[];
+					indexes: IndexInfo[];
 				}[];
 			}>("pool_get_schema_overview", { uuid }),
 	},

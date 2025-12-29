@@ -5,9 +5,13 @@ use sqlx::{Column, Row, TypeInfo};
 
 use super::{DatabaseDriver, SqliteConfig};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
-    TableStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
+    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
+use crate::database::queries::sqlite::{
+    COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
+};
+use std::collections::HashMap;
 
 pub struct SqliteDriver {
     config: SqliteConfig,
@@ -318,5 +322,135 @@ impl DatabaseDriver for SqliteDriver {
                 })
             }
         }
+    }
+
+    async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
+        let pool = self.get_pool().await?;
+
+        let tables_rows = sqlx::query(TABLES_QUERY)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut tables_map: HashMap<String, TableWithStructure> = HashMap::new();
+
+        for row in tables_rows {
+            let name: String = row.try_get("name").map_err(|e| e.to_string())?;
+            let table_type: String = row.try_get("type").map_err(|e| e.to_string())?;
+
+            tables_map.insert(
+                name.clone(),
+                TableWithStructure {
+                    schema: "main".to_string(),
+                    name,
+                    table_type,
+                    columns: Vec::new(),
+                    foreign_keys: Vec::new(),
+                    indexes: Vec::new(),
+                },
+            );
+        }
+
+        let columns_rows = sqlx::query(COLUMNS_QUERY)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        for row in columns_rows {
+            let table_name: String = row.try_get("table_name").map_err(|e| e.to_string())?;
+            let column_name: String = row.try_get("column_name").map_err(|e| e.to_string())?;
+            let data_type: String = row
+                .try_get::<String, _>("data_type")
+                .map_err(|e| e.to_string())?
+                .to_uppercase();
+            let not_null: i32 = row.try_get("not_null").unwrap_or(0);
+            let default_value: Option<String> = row.try_get("default_value").ok();
+            let primary_key: i32 = row.try_get("primary_key").unwrap_or(0);
+
+            if let Some(table) = tables_map.get_mut(&table_name) {
+                table.columns.push(ColumnInfo {
+                    name: column_name,
+                    data_type,
+                    nullable: not_null == 0,
+                    default: default_value,
+                    primary_key: primary_key > 0,
+                });
+            }
+        }
+
+        let foreign_keys_rows = sqlx::query(FOREIGN_KEYS_QUERY)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        for row in foreign_keys_rows {
+            let table_name: String = row.try_get("table_name").map_err(|e| e.to_string())?;
+            let column_name: String = row.try_get("column_name").map_err(|e| e.to_string())?;
+            let references_table: String =
+                row.try_get("references_table").map_err(|e| e.to_string())?;
+            let references_column: String =
+                row.try_get("references_column").map_err(|e| e.to_string())?;
+
+            if let Some(table) = tables_map.get_mut(&table_name) {
+                table.foreign_keys.push(ForeignKeyInfo {
+                    name: format!("fk_{}_{}", table_name, column_name),
+                    column: column_name,
+                    references_table,
+                    references_column,
+                });
+            }
+        }
+
+        let indexes_rows = sqlx::query(INDEXES_QUERY)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut index_map: HashMap<(String, String), IndexInfo> = HashMap::new();
+
+        for row in indexes_rows {
+            let table_name: String = row.try_get("table_name").map_err(|e| e.to_string())?;
+            let index_name: String = row.try_get("index_name").map_err(|e| e.to_string())?;
+            let is_unique: i32 = row.try_get("is_unique").unwrap_or(0);
+            let origin: String = row.try_get("origin").unwrap_or_default();
+
+            index_map.insert(
+                (table_name.clone(), index_name.clone()),
+                IndexInfo {
+                    name: index_name,
+                    columns: Vec::new(),
+                    unique: is_unique > 0,
+                    primary: origin == "pk",
+                },
+            );
+        }
+
+        for ((table_name, index_name), index_info) in index_map {
+            let index_info_query = format!("SELECT name as column_name FROM pragma_index_info('{}') ORDER BY seqno", index_name);
+            let index_cols = sqlx::query(&index_info_query)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let columns: Vec<String> = index_cols
+                .iter()
+                .filter_map(|row| row.try_get("column_name").ok())
+                .collect();
+
+            if let Some(table) = tables_map.get_mut(&table_name) {
+                table.indexes.push(IndexInfo {
+                    name: index_info.name,
+                    columns,
+                    unique: index_info.unique,
+                    primary: index_info.primary,
+                });
+            }
+        }
+
+        pool.close().await;
+
+        let tables: Vec<TableWithStructure> = tables_map.into_values().collect();
+
+        Ok(SchemaOverview { tables })
     }
 }
