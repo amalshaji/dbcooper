@@ -108,6 +108,7 @@ import { RowEditSheet } from "@/components/RowEditSheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
+import { CommandPalette } from "@/components/CommandPalette";
 
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({
@@ -222,7 +223,9 @@ export function ConnectionDetails() {
 		Record<string, TableColumn[]>
 	>({});
 	const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
-	const [schemaOverview, setSchemaOverview] = useState<SchemaOverview | null>(null);
+	const [schemaOverview, setSchemaOverview] = useState<SchemaOverview | null>(
+		null,
+	);
 	const [loadingSchemaOverview, setLoadingSchemaOverview] = useState(false);
 	const [connectionStatus, setConnectionStatus] = useState<
 		"connected" | "disconnected"
@@ -270,6 +273,9 @@ export function ConnectionDetails() {
 		row: Record<string, unknown>;
 		index: number;
 	} | null>(null);
+
+	// Command palette state
+	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
 	const activeTab = useMemo(
 		() => tabs.find((t) => t.id === activeTabId) || null,
@@ -321,7 +327,7 @@ export function ConnectionDetails() {
 
 	const fetchSchemaOverviewData = useCallback(async () => {
 		if (!uuid) return;
-		
+
 		setLoadingSchemaOverview(true);
 		try {
 			const data = await api.pool.getSchemaOverview(uuid);
@@ -986,6 +992,280 @@ export function ConnectionDetails() {
 		}
 	}, [connection, activeTab, editingRow, fetchTableData]);
 
+	// Command palette handlers
+	const handleNextTab = useCallback(() => {
+		if (tabs.length <= 1) return;
+		const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+		const nextIndex = (currentIndex + 1) % tabs.length;
+		setActiveTabId(tabs[nextIndex].id);
+	}, [tabs, activeTabId]);
+
+	const handlePreviousTab = useCallback(() => {
+		if (tabs.length <= 1) return;
+		const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+		const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+		setActiveTabId(tabs[prevIndex].id);
+	}, [tabs, activeTabId]);
+
+	const handleExportCSV = useCallback(async () => {
+		if (!activeTab || activeTab.type !== "query") return;
+		const tab = activeTab as QueryTab;
+		if (!tab.results || tab.results.length === 0) return;
+
+		const { save } = await import("@tauri-apps/plugin-dialog");
+		const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+		const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+
+		const defaultName = `query_results_${new Date()
+			.toISOString()
+			.slice(0, 19)
+			.replace(/[:-]/g, "")}.csv`;
+
+		const filePath = await save({
+			defaultPath: defaultName,
+			filters: [{ name: "CSV", extensions: ["csv"] }],
+		});
+
+		if (!filePath) return;
+
+		const headers = Object.keys(tab.results[0]);
+		const csvContent = [
+			headers.join(","),
+			...tab.results.map((row) =>
+				headers
+					.map((header) => {
+						const value = row[header];
+						if (value === null || value === undefined) return "";
+						const stringValue =
+							typeof value === "object" ? JSON.stringify(value) : String(value);
+						if (
+							stringValue.includes(",") ||
+							stringValue.includes('"') ||
+							stringValue.includes("\n")
+						) {
+							return `"${stringValue.replace(/"/g, '""')}"`;
+						}
+						return stringValue;
+					})
+					.join(","),
+			),
+		].join("\n");
+
+		try {
+			await writeTextFile(filePath, csvContent);
+			toast.success("CSV saved successfully", {
+				action: {
+					label: "Show in Finder",
+					onClick: () => revealItemInDir(filePath),
+				},
+			});
+		} catch (error) {
+			toast.error("Failed to save CSV", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	}, [activeTab]);
+
+	const handleToggleSidebar = useCallback(() => {
+		const sidebarTrigger = document.querySelector(
+			'[data-slot="sidebar-trigger"]',
+		) as HTMLElement;
+		if (sidebarTrigger) {
+			sidebarTrigger.click();
+		}
+	}, []);
+
+	const handleSaveQueryFromPalette = useCallback(() => {
+		if (!activeTab || activeTab.type !== "query") return;
+		const tab = activeTab as QueryTab;
+		if (!tab.query.trim()) return;
+		if (tab.savedQueryName) {
+			setSaveQueryName(tab.savedQueryName);
+		}
+		setShowSaveDialog(true);
+	}, [activeTab]);
+
+	// Global keyboard shortcuts
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			// Don't trigger shortcuts when typing in inputs, textareas, or code editors
+			const target = e.target as HTMLElement;
+			if (
+				target.tagName === "INPUT" ||
+				target.tagName === "TEXTAREA" ||
+				target.closest(".cm-editor")
+			) {
+				// Allow Cmd+Enter for running queries even in editor
+				if (
+					e.key === "Enter" &&
+					(e.metaKey || e.ctrlKey) &&
+					target.closest(".cm-editor")
+				) {
+					return; // Let CodeMirror handle it
+				}
+				// Allow Cmd+K for command palette even in inputs
+				if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+					return; // Let command palette handle it
+				}
+				return;
+			}
+
+			// Cmd+K - Open command palette (handled by CommandPalette component)
+			if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+				return; // Handled by CommandPalette
+			}
+
+			// Cmd+N - New Query
+			if (e.key === "n" && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				handleNewQuery();
+				return;
+			}
+
+			// Cmd+W - Close Tab
+			if (e.key === "w" && (e.metaKey || e.ctrlKey) && activeTabId) {
+				e.preventDefault();
+				handleCloseTab(activeTabId);
+				return;
+			}
+
+			// Cmd+] - Next Tab
+			if (e.key === "]" && (e.metaKey || e.ctrlKey) && tabs.length > 1) {
+				e.preventDefault();
+				handleNextTab();
+				return;
+			}
+
+			// Cmd+[ - Previous Tab
+			if (e.key === "[" && (e.metaKey || e.ctrlKey) && tabs.length > 1) {
+				e.preventDefault();
+				handlePreviousTab();
+				return;
+			}
+
+			// Cmd+B - Toggle Sidebar
+			if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				handleToggleSidebar();
+				return;
+			}
+
+			// Cmd+S - Save Query (only in query tabs)
+			if (
+				e.key === "s" &&
+				(e.metaKey || e.ctrlKey) &&
+				activeTab?.type === "query"
+			) {
+				e.preventDefault();
+				handleSaveQueryFromPalette();
+				return;
+			}
+
+			// Cmd+R - Refresh
+			if (
+				e.key === "r" &&
+				(e.metaKey || e.ctrlKey) &&
+				(activeTab?.type === "query" || activeTab?.type === "table-data")
+			) {
+				e.preventDefault();
+				if (activeTab.type === "query") {
+					handleRunQuery();
+				} else {
+					handleRefreshTableData();
+				}
+				return;
+			}
+
+			// Cmd+E - Export CSV (only when there are results)
+			if (
+				e.key === "e" &&
+				(e.metaKey || e.ctrlKey) &&
+				activeTab?.type === "query" &&
+				activeTab.results &&
+				activeTab.results.length > 0
+			) {
+				e.preventDefault();
+				handleExportCSV();
+				return;
+			}
+
+			// Cmd+Shift+X - Clear Filter
+			if (
+				e.key === "x" &&
+				(e.metaKey || e.ctrlKey) &&
+				e.shiftKey &&
+				activeTab?.type === "table-data" &&
+				activeTab.filter
+			) {
+				e.preventDefault();
+				handleClearFilter();
+				return;
+			}
+
+			// Cmd+Shift+V - Schema Visualizer
+			if (
+				e.key === "v" &&
+				(e.metaKey || e.ctrlKey) &&
+				e.shiftKey &&
+				connection?.type !== "redis" &&
+				connection?.db_type !== "clickhouse"
+			) {
+				e.preventDefault();
+				handleOpenSchemaVisualizer();
+				return;
+			}
+
+			// Cmd+1 - Switch to Tables tab
+			if (
+				e.key === "1" &&
+				(e.metaKey || e.ctrlKey) &&
+				connection?.type !== "redis"
+			) {
+				e.preventDefault();
+				setSidebarTab("tables");
+				return;
+			}
+
+			// Cmd+2 - Switch to Queries tab
+			if (
+				e.key === "2" &&
+				(e.metaKey || e.ctrlKey) &&
+				connection?.type !== "redis"
+			) {
+				e.preventDefault();
+				setSidebarTab("queries");
+				return;
+			}
+
+			// Cmd+Backspace - Go Back
+			if (e.key === "Backspace" && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				navigate("/");
+				return;
+			}
+		};
+
+		document.addEventListener("keydown", handleKeyDown);
+		return () => document.removeEventListener("keydown", handleKeyDown);
+	}, [
+		activeTab,
+		activeTabId,
+		tabs,
+		connection,
+		handleNewQuery,
+		handleCloseTab,
+		handleNextTab,
+		handlePreviousTab,
+		handleToggleSidebar,
+		handleSaveQueryFromPalette,
+		handleRunQuery,
+		handleRefreshTableData,
+		handleExportCSV,
+		handleClearFilter,
+		handleOpenSchemaVisualizer,
+		navigate,
+	]);
+
 	// Memoized columns for table data
 	const tableDataColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!activeTab || activeTab.type !== "table-data") return [];
@@ -1557,7 +1837,7 @@ export function ConnectionDetails() {
 
 								// Use schema overview if available, otherwise use tableColumns cache
 								let columnsToUse = { ...tableColumns };
-								
+
 								if (schemaOverview) {
 									schemaOverview.tables.forEach((table) => {
 										const fullName = `${table.schema}.${table.name}`;
@@ -2532,6 +2812,36 @@ export function ConnectionDetails() {
 				row={selectedQueryRow?.row || null}
 				rowIndex={selectedQueryRow?.index}
 			/>
+
+			{/* Command Palette */}
+			{connection.type !== "redis" && (
+				<CommandPalette
+					open={commandPaletteOpen}
+					onOpenChange={setCommandPaletteOpen}
+					activeTab={activeTab}
+					tabs={tabs}
+					onNavigateBack={() => navigate("/")}
+					onToggleSidebar={handleToggleSidebar}
+					onNewQuery={handleNewQuery}
+					onCloseTab={handleCloseTab}
+					onNextTab={handleNextTab}
+					onPreviousTab={handlePreviousTab}
+					onRunQuery={handleRunQuery}
+					onSaveQuery={handleSaveQueryFromPalette}
+					onRefresh={() => {
+						if (activeTab?.type === "query") {
+							handleRunQuery();
+						} else if (activeTab?.type === "table-data") {
+							handleRefreshTableData();
+						}
+					}}
+					onExportCSV={handleExportCSV}
+					onClearFilter={handleClearFilter}
+					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+					onSwitchSidebarTab={setSidebarTab}
+					connectionType={connection.type}
+				/>
+			)}
 		</SidebarProvider>
 	);
 }
