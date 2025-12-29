@@ -398,11 +398,18 @@ export function ConnectionDetails() {
 	useEffect(() => {
 		if (connection && loadingPhase === "connecting" && !hasStartedLoading.current) {
 			hasStartedLoading.current = true;
-			// Load schema overview (which includes tables)
+			
 			const loadData = async () => {
-				setLoadingPhase("loading-schema");
-				await fetchSchemaOverviewData();
-				setLoadingPhase("complete");
+				if (connection.type === "redis") {
+					// Redis doesn't have schema - connection will be verified when user searches for keys
+					// Don't set connectionStatus here as we haven't actually tested the connection yet
+					setLoadingPhase("complete");
+				} else {
+					// For other DBs, load schema (which also establishes connection)
+					setLoadingPhase("loading-schema");
+					await fetchSchemaOverviewData();
+					setLoadingPhase("complete");
+				}
 			};
 			
 			loadData().catch((error) => {
@@ -1408,11 +1415,16 @@ export function ConnectionDetails() {
 	const loadingPhases: Array<{
 		phase: LoadingPhase;
 		label: string;
-	}> = [
-		{ phase: "fetching-config", label: "Fetching connection details" },
-		{ phase: "connecting", label: "Establishing connection" },
-		{ phase: "loading-schema", label: "Loading schema and tables" },
-	];
+	}> = connection?.type === "redis"
+		? [
+				{ phase: "fetching-config", label: "Fetching connection details" },
+				{ phase: "connecting", label: "Establishing connection" },
+		  ]
+		: [
+				{ phase: "fetching-config", label: "Fetching connection details" },
+				{ phase: "connecting", label: "Establishing connection" },
+				{ phase: "loading-schema", label: "Loading schema and tables" },
+		  ];
 
 	const getPhaseStatus = (phase: LoadingPhase) => {
 		const phaseIndex = loadingPhases.findIndex((p) => p.phase === phase);
