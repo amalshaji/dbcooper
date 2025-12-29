@@ -339,6 +339,20 @@ export function ConnectionDetails() {
 				tableDataMap[fullName] = table.columns;
 			});
 			setTableColumns(tableDataMap);
+
+			// Initialize selectedTables for schema visualizer tabs if empty
+			const allTableNames = data.tables.map((t) => `${t.schema}.${t.name}`);
+			setTabs((prev) =>
+				prev.map((tab) => {
+					if (
+						tab.type === "schema-visualizer" &&
+						tab.selectedTables.length === 0
+					) {
+						return { ...tab, selectedTables: allTableNames };
+					}
+					return tab;
+				}),
+			);
 		} catch (error) {
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
@@ -2412,6 +2426,14 @@ export function ConnectionDetails() {
 				loading={loadingSchemaOverview}
 				onRefresh={fetchSchemaOverviewData}
 				onTableClick={handleOpenTableData}
+				tableFilter={tab.tableFilter}
+				onTableFilterChange={(filter) => {
+					updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
+				}}
+				selectedTables={tab.selectedTables}
+				onSelectedTablesChange={(tables) => {
+					updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
+				}}
 			/>
 		</div>
 	);

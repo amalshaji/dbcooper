@@ -87,6 +87,8 @@ export interface SchemaVisualizerTab extends BaseTab {
 	type: "schema-visualizer";
 	schemaOverview: SchemaOverview | null;
 	loading: boolean;
+	tableFilter: string;
+	selectedTables: string[];
 }
 
 export interface SchemaOverview {
@@ -172,5 +174,7 @@ export function createSchemaVisualizerTab(): SchemaVisualizerTab {
 		title: "Schema Visualizer",
 		schemaOverview: null,
 		loading: false,
+		tableFilter: "",
+		selectedTables: [],
 	};
 }

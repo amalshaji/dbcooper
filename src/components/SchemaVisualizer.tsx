@@ -45,6 +45,10 @@ interface SchemaVisualizerProps {
 	loading: boolean;
 	onRefresh?: () => void;
 	onTableClick?: (tableName: string) => void;
+	tableFilter: string;
+	onTableFilterChange: (filter: string) => void;
+	selectedTables: string[];
+	onSelectedTablesChange: (tables: string[]) => void;
 }
 
 function getLayoutedElements(
@@ -238,11 +242,17 @@ export function SchemaVisualizer({
 	loading,
 	onRefresh,
 	onTableClick,
+	tableFilter,
+	onTableFilterChange,
+	selectedTables: selectedTablesArray,
+	onSelectedTablesChange,
 }: SchemaVisualizerProps) {
 	const [showColumns, setShowColumns] = useState(true);
 	const [filterOpen, setFilterOpen] = useState(false);
-	const [tableFilter, setTableFilter] = useState("");
-	const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
+	const selectedTables = useMemo(
+		() => new Set(selectedTablesArray),
+		[selectedTablesArray],
+	);
 	const [hasInitialized, setHasInitialized] = useState(false);
 
 	const allTableNames = useMemo(() => {
@@ -252,10 +262,18 @@ export function SchemaVisualizer({
 
 	useEffect(() => {
 		if (schemaOverview && !hasInitialized && allTableNames.length > 0) {
-			setSelectedTables(new Set(allTableNames));
+			if (selectedTablesArray.length === 0) {
+				onSelectedTablesChange(allTableNames);
+			}
 			setHasInitialized(true);
 		}
-	}, [schemaOverview, allTableNames, hasInitialized]);
+	}, [
+		schemaOverview,
+		allTableNames,
+		hasInitialized,
+		selectedTablesArray.length,
+		onSelectedTablesChange,
+	]);
 
 	const filteredTables = useMemo(() => {
 		if (!schemaOverview) return [];
@@ -265,25 +283,26 @@ export function SchemaVisualizer({
 		});
 	}, [schemaOverview, selectedTables]);
 
-	const toggleTable = useCallback((tableName: string) => {
-		setSelectedTables((prev) => {
-			const newSet = new Set(prev);
+	const toggleTable = useCallback(
+		(tableName: string) => {
+			const newSet = new Set(selectedTablesArray);
 			if (newSet.has(tableName)) {
 				newSet.delete(tableName);
 			} else {
 				newSet.add(tableName);
 			}
-			return newSet;
-		});
-	}, []);
+			onSelectedTablesChange(Array.from(newSet));
+		},
+		[selectedTablesArray, onSelectedTablesChange],
+	);
 
 	const selectAll = useCallback(() => {
-		setSelectedTables(new Set(allTableNames));
-	}, [allTableNames]);
+		onSelectedTablesChange(allTableNames);
+	}, [allTableNames, onSelectedTablesChange]);
 
 	const deselectAll = useCallback(() => {
-		setSelectedTables(new Set());
-	}, []);
+		onSelectedTablesChange([]);
+	}, [onSelectedTablesChange]);
 
 	const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
 		if (!schemaOverview || filteredTables.length === 0) {
@@ -445,7 +464,7 @@ export function SchemaVisualizer({
 											<Input
 												placeholder="Search tables..."
 												value={tableFilter}
-												onChange={(e) => setTableFilter(e.target.value)}
+												onChange={(e) => onTableFilterChange(e.target.value)}
 												className="pl-8"
 											/>
 										</div>
@@ -576,7 +595,7 @@ export function SchemaVisualizer({
 										<Input
 											placeholder="Search tables..."
 											value={tableFilter}
-											onChange={(e) => setTableFilter(e.target.value)}
+											onChange={(e) => onTableFilterChange(e.target.value)}
 											className="pl-8"
 										/>
 									</div>
