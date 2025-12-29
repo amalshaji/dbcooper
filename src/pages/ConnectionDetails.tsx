@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
 	type Tab,
@@ -110,6 +110,12 @@ import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
 
+type LoadingPhase =
+	| "fetching-config"
+	| "connecting"
+	| "loading-schema"
+	| "complete";
+
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({
 	connection,
@@ -212,7 +218,7 @@ export function ConnectionDetails() {
 	const navigate = useNavigate();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
-	const [loading, setLoading] = useState(true);
+	const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
 	const [sidebarTab, setSidebarTab] = useState<"tables" | "queries">("tables");
 	const [tableSearchQuery, setTableSearchQuery] = useState("");
@@ -277,6 +283,9 @@ export function ConnectionDetails() {
 	// Command palette state
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
+	// Ref to track if initial data loading has started
+	const hasStartedLoading = useRef(false);
+
 	const activeTab = useMemo(
 		() => tabs.find((t) => t.id === activeTabId) || null,
 		[tabs, activeTabId],
@@ -311,9 +320,11 @@ export function ConnectionDetails() {
 	useEffect(() => {
 		const fetchConnection = async () => {
 			if (!uuid) return;
+			setLoadingPhase("fetching-config");
 			try {
 				const data = await api.connections.getByUuid(uuid);
 				setConnection(data);
+				setLoadingPhase("connecting");
 			} catch (error) {
 				console.error("Failed to fetch connection:", error);
 				navigate("/");
@@ -332,6 +343,15 @@ export function ConnectionDetails() {
 		try {
 			const data = await api.pool.getSchemaOverview(uuid);
 			setSchemaOverview(data);
+
+			// Extract tables list from schema overview
+			const tablesList: DatabaseTable[] = data.tables.map((table) => ({
+				schema: table.schema,
+				name: table.name,
+				type: (table.type === "view" ? "view" : "table") as "table" | "view",
+			}));
+			setTables(tablesList);
+			setConnectionStatus("connected");
 
 			const tableDataMap: Record<string, TableColumn[]> = {};
 			data.tables.forEach((table) => {
@@ -356,20 +376,6 @@ export function ConnectionDetails() {
 		} catch (error) {
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
-		} finally {
-			setLoadingSchemaOverview(false);
-		}
-	}, [uuid, connection]);
-
-	const fetchTables = useCallback(async () => {
-		if (!connection || !uuid) return;
-		try {
-			// Backend auto-connects if needed and retries on error
-			const data = await api.pool.listTables(uuid);
-			setTables(data as DatabaseTable[]);
-			setConnectionStatus("connected");
-		} catch (error) {
-			console.error("Failed to fetch tables:", error);
 			setTables([]);
 			setConnectionStatus("disconnected");
 			const errorMessage =
@@ -378,16 +384,34 @@ export function ConnectionDetails() {
 				description: errorMessage,
 			});
 		} finally {
-			setLoading(false);
+			setLoadingSchemaOverview(false);
 		}
-	}, [connection, uuid]);
+	}, [uuid]);
+
+
+	// Reset loading flag when connection changes
+	useEffect(() => {
+		hasStartedLoading.current = false;
+	}, [connection]);
 
 	useEffect(() => {
-		if (connection) {
-			fetchTables();
-			fetchSchemaOverviewData();
+		if (connection && loadingPhase === "connecting" && !hasStartedLoading.current) {
+			hasStartedLoading.current = true;
+			// Load schema overview (which includes tables)
+			const loadData = async () => {
+				setLoadingPhase("loading-schema");
+				await fetchSchemaOverviewData();
+				setLoadingPhase("complete");
+			};
+			
+			loadData().catch((error) => {
+				console.error("Failed to load connection data:", error);
+				setLoadingPhase("complete");
+			});
 		}
-	}, [connection, fetchTables, fetchSchemaOverviewData]);
+		// Only depend on connection and loadingPhase, not the callbacks
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [connection, loadingPhase]);
 
 	useEffect(() => {
 		const fetchSavedQueries = async () => {
@@ -675,8 +699,6 @@ export function ConnectionDetails() {
 
 		setRefreshingTables(true);
 		try {
-			const data = await api.pool.listTables(uuid);
-			setTables(data as DatabaseTable[]);
 			setSchemaOverview(null);
 			setTableColumns({});
 			await fetchSchemaOverviewData();
@@ -1366,48 +1388,79 @@ export function ConnectionDetails() {
 		}));
 	}, [activeTab]);
 
-	const [loadingIndex, setLoadingIndex] = useState(0);
-	const loadingMessages = [
-		"Establishing connection",
-		"Warming up the SQL engine",
-		"Counting your tables",
-		"Preparing the data highway",
-		"Waking up the database",
-		"Fetching some bits and bytes",
-		"Greasing the query wheels",
-		"Polishing the indexes",
-		"Almost there",
-		"Just a moment",
-	];
-
-	const databaseIcons = [
-		<PostgresqlIcon key="pg" className="h-16 w-16" />,
-		<SqliteIcon key="sqlite" className="h-16 w-16" />,
-		<RedisIcon key="redis" className="h-16 w-16" />,
-		<ClickhouseIcon key="ch" className="h-16 w-16" />,
-	];
-
-	useEffect(() => {
-		if (loading || !connection) {
-			const interval = setInterval(() => {
-				setLoadingIndex((prev) => (prev + 1) % loadingMessages.length);
-			}, 1500);
-			return () => clearInterval(interval);
+	const getDatabaseIcon = () => {
+		if (!connection) return null;
+		switch (connection.type) {
+			case "postgres":
+				return <PostgresqlIcon className="h-16 w-16" />;
+			case "sqlite":
+				return <SqliteIcon className="h-16 w-16" />;
+			case "redis":
+				return <RedisIcon className="h-16 w-16" />;
+			case "clickhouse":
+				return <ClickhouseIcon className="h-16 w-16" />;
+			default:
+				return <Database className="h-16 w-16" />;
 		}
-	}, [loading, connection, loadingMessages.length]);
+	};
 
-	if (loading || !connection) {
+	const loadingPhases: Array<{
+		phase: LoadingPhase;
+		label: string;
+	}> = [
+		{ phase: "fetching-config", label: "Fetching connection details" },
+		{ phase: "connecting", label: "Establishing connection" },
+		{ phase: "loading-schema", label: "Loading schema and tables" },
+	];
+
+	const getPhaseStatus = (phase: LoadingPhase) => {
+		const phaseIndex = loadingPhases.findIndex((p) => p.phase === phase);
+		const currentIndex = loadingPhases.findIndex(
+			(p) => p.phase === loadingPhase,
+		);
+
+		if (phaseIndex < currentIndex) return "complete";
+		if (phaseIndex === currentIndex && loadingPhase !== "complete")
+			return "active";
+		return "pending";
+	};
+
+	if (loadingPhase !== "complete" || connection === null) {
 		return (
 			<div className="flex h-screen items-center justify-center bg-background">
-				<div className="flex flex-col items-center gap-6">
-					<div className="animate-pulse">
-						{databaseIcons[loadingIndex % databaseIcons.length]}
-					</div>
-					<div className="flex items-center gap-2">
-						<Spinner className="h-4 w-4" />
-						<p className="text-muted-foreground text-sm">
-							{loadingMessages[loadingIndex]}
-						</p>
+				<div className="flex items-center gap-8">
+					<div className="animate-pulse shrink-0">{getDatabaseIcon()}</div>
+					<div className="flex flex-col gap-3 min-w-[280px]">
+						{loadingPhases.map((phaseInfo) => {
+							const status = getPhaseStatus(phaseInfo.phase);
+							return (
+								<div
+									key={phaseInfo.phase}
+									className="flex items-center gap-3"
+								>
+									<div className="w-5 h-5 flex items-center justify-center shrink-0">
+										{status === "complete" ? (
+											<Check className="w-5 h-5 text-green-600" />
+										) : status === "active" ? (
+											<Spinner className="w-4 h-4" />
+										) : (
+											<div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+										)}
+									</div>
+									<span
+										className={`text-sm flex-1 ${
+											status === "complete"
+												? "text-muted-foreground"
+												: status === "active"
+													? "text-foreground font-medium"
+													: "text-muted-foreground/50"
+										}`}
+									>
+										{phaseInfo.label}
+									</span>
+								</div>
+							);
+						})}
 					</div>
 				</div>
 			</div>
@@ -2463,7 +2516,7 @@ export function ConnectionDetails() {
 					connection={connection}
 					navigate={navigate}
 					connectionStatus={connectionStatus}
-					onReconnect={fetchTables}
+					onReconnect={fetchSchemaOverviewData}
 				/>
 
 				<div className="flex-1 p-4 min-w-0 overflow-auto">
@@ -2767,7 +2820,7 @@ export function ConnectionDetails() {
 					connection={connection}
 					navigate={navigate}
 					connectionStatus={connectionStatus}
-					onReconnect={fetchTables}
+					onReconnect={fetchSchemaOverviewData}
 				/>
 
 				<TabBar
