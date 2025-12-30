@@ -153,32 +153,32 @@ const settings = {
 
 const screenshots = [
 	{
-		light: "/screenshots/simple-light.png",
-		dark: "/screenshots/simple-dark.png",
+		light: "/screenshots/simple-light.webp",
+		dark: "/screenshots/simple-dark.webp",
 		alt: "Table data view",
 		label: "Table Data",
 	},
 	{
-		light: "/screenshots/query-light.png",
-		dark: "/screenshots/query-dark.png",
+		light: "/screenshots/query-light.webp",
+		dark: "/screenshots/query-dark.webp",
 		alt: "SQL query editor",
 		label: "Query Editor",
 	},
 	{
-		light: "/screenshots/structure-light.png",
-		dark: "/screenshots/structure-dark.png",
+		light: "/screenshots/structure-light.webp",
+		dark: "/screenshots/structure-dark.webp",
 		alt: "Table structure view",
 		label: "Table Structure",
 	},
 	{
-		light: "/screenshots/cmd-light.png",
-		dark: "/screenshots/cmd-dark.png",
+		light: "/screenshots/cmd-light.webp",
+		dark: "/screenshots/cmd-dark.webp",
 		alt: "Command palette",
 		label: "Command Palette",
 	},
 	{
-		light: "/screenshots/visual-light.png",
-		dark: "/screenshots/visual-dark.png",
+		light: "/screenshots/visual-light.webp",
+		dark: "/screenshots/visual-dark.webp",
 		alt: "Schema visualizer",
 		label: "Schema Visualizer",
 	},
