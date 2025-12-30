@@ -91,11 +91,13 @@ import {
 	ArrowsClockwise,
 	Database,
 	CaretRight,
+	CaretDown,
 	Columns,
 	DownloadSimple,
 	MagnifyingGlass,
 	Graph,
 	X,
+	PlayCircle,
 } from "@phosphor-icons/react";
 import { Check, Copy } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
@@ -110,6 +112,10 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
+import {
+	getStatementAtCursor,
+	parseStatements as parseSqlStatements,
+} from "@/lib/sqlParser";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -219,7 +225,8 @@ export function ConnectionDetails() {
 	const navigate = useNavigate();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
-	const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("fetching-config");
+	const [loadingPhase, setLoadingPhase] =
+		useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
 	const [sidebarTab, setSidebarTab] = useState<"tables" | "queries">("tables");
 	const [tableSearchQuery, setTableSearchQuery] = useState("");
@@ -257,6 +264,10 @@ export function ConnectionDetails() {
 	// Save dialog state (for query tabs)
 	const [saveQueryName, setSaveQueryName] = useState("");
 	const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+	// Cursor position state (for cursor-based query execution)
+	const [cursorLine, setCursorLine] = useState(0);
+	const [cursorChar, setCursorChar] = useState(0);
 
 	// Query delete confirmation state
 	const [queryToDelete, setQueryToDelete] = useState<SavedQuery | null>(null);
@@ -389,14 +400,17 @@ export function ConnectionDetails() {
 		}
 	}, [uuid]);
 
-
 	// Reset loading flag when connection changes
 	useEffect(() => {
 		hasStartedLoading.current = false;
 	}, [connection]);
 
 	useEffect(() => {
-		if (connection && loadingPhase === "connecting" && !hasStartedLoading.current) {
+		if (
+			connection &&
+			loadingPhase === "connecting" &&
+			!hasStartedLoading.current
+		) {
 			hasStartedLoading.current = true;
 			// Load schema overview (which includes tables)
 			const loadData = async () => {
@@ -404,7 +418,7 @@ export function ConnectionDetails() {
 				await fetchSchemaOverviewData();
 				setLoadingPhase("complete");
 			};
-			
+
 			loadData().catch((error) => {
 				console.error("Failed to load connection data:", error);
 				setLoadingPhase("complete");
@@ -793,7 +807,22 @@ export function ConnectionDetails() {
 		if (!activeTab || activeTab.type !== "query" || !uuid) return;
 
 		const tab = activeTab as QueryTab;
-		if (!tab.query.trim()) return;
+		if (!tab.query.trim()) {
+			toast.error("Cannot execute empty query");
+			return;
+		}
+
+		// Get the statement at cursor position
+		// For single statements, getStatementAtCursor returns it directly
+		// If null (cursor not on any statement), don't run
+		const statement = getStatementAtCursor(tab.query, cursorLine, cursorChar);
+		const queryToRun = statement?.text.trim() || "";
+
+		// Don't run if no statement at cursor
+		if (!queryToRun) {
+			toast.error("No statement at cursor position");
+			return;
+		}
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -804,7 +833,7 @@ export function ConnectionDetails() {
 		});
 
 		try {
-			const result = await api.pool.executeQuery(uuid, tab.query);
+			const result = await api.pool.executeQuery(uuid, queryToRun);
 
 			// Use backend timing if available, otherwise use 0
 			const executionTime = result.time_taken_ms ?? 0;
@@ -828,6 +857,67 @@ export function ConnectionDetails() {
 			updateTab<QueryTab>(tab.id, {
 				error:
 					error instanceof Error ? error.message : "Failed to execute query",
+				executionTime: null,
+				executing: false,
+			});
+		}
+	}, [activeTab, uuid, updateTab, cursorLine, cursorChar]);
+
+	const handleRunAllQueries = useCallback(async () => {
+		if (!activeTab || activeTab.type !== "query" || !uuid) return;
+
+		const tab = activeTab as QueryTab;
+		if (!tab.query.trim()) return;
+
+		const statements = parseSqlStatements(tab.query);
+		if (statements.length === 0) return;
+
+		updateTab<QueryTab>(tab.id, {
+			executing: true,
+			error: null,
+			results: null,
+			success: false,
+			executionTime: null,
+		});
+
+		let totalTime = 0;
+		let lastResult: Record<string, unknown>[] = [];
+		let lastError: string | null = null;
+
+		try {
+			for (const statement of statements) {
+				const queryToRun = statement.text.trim();
+				if (!queryToRun) continue;
+
+				const result = await api.pool.executeQuery(uuid, queryToRun);
+				totalTime += result.time_taken_ms ?? 0;
+
+				if (result.error) {
+					lastError = result.error;
+					break;
+				}
+
+				lastResult = result.data as Record<string, unknown>[];
+			}
+
+			if (lastError) {
+				updateTab<QueryTab>(tab.id, {
+					error: lastError,
+					executionTime: totalTime,
+					executing: false,
+				});
+			} else {
+				updateTab<QueryTab>(tab.id, {
+					results: lastResult,
+					success: true,
+					executionTime: totalTime,
+					executing: false,
+				});
+			}
+		} catch (error) {
+			updateTab<QueryTab>(tab.id, {
+				error:
+					error instanceof Error ? error.message : "Failed to execute queries",
 				executionTime: null,
 				executing: false,
 			});
@@ -1435,10 +1525,7 @@ export function ConnectionDetails() {
 						{loadingPhases.map((phaseInfo) => {
 							const status = getPhaseStatus(phaseInfo.phase);
 							return (
-								<div
-									key={phaseInfo.phase}
-									className="flex items-center gap-3"
-								>
+								<div key={phaseInfo.phase} className="flex items-center gap-3">
 									<div className="w-5 h-5 flex items-center justify-center shrink-0">
 										{status === "complete" ? (
 											<Check className="w-5 h-5 text-green-600" />
@@ -1846,26 +1933,48 @@ export function ConnectionDetails() {
 										<FloppyDisk className="w-4 h-4 mr-2" />
 										Save Query
 									</Button>
-									<Button
-										size="sm"
-										onClick={handleRunQuery}
-										disabled={tab.executing || !tab.query.trim()}
-									>
-										{tab.executing ? (
-											<>
-												<Spinner />
-												Running...
-											</>
-										) : (
-											<>
-												Run SQL{" "}
-												<span className="text-xs opacity-60">
-													({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
-													+↵)
-												</span>
-											</>
-										)}
-									</Button>
+									<div className="flex">
+										<Button
+											size="sm"
+											onClick={handleRunQuery}
+											disabled={tab.executing}
+											className="rounded-r-none border-r-0 -mr-1"
+										>
+											{tab.executing ? (
+												<>
+													<Spinner />
+													Running...
+												</>
+											) : (
+												<>
+													Run Query{" "}
+													<span className="text-xs opacity-60">
+														({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+														+↵)
+													</span>
+												</>
+											)}
+										</Button>
+										<DropdownMenu>
+											<DropdownMenuTrigger
+												render={
+													<Button
+														size="sm"
+														className="px-1 rounded-l-none border border-border"
+														disabled={tab.executing}
+													>
+														<CaretDown className="w-4 h-4" />
+													</Button>
+												}
+											/>
+											<DropdownMenuContent align="end">
+												<DropdownMenuItem onClick={handleRunAllQueries}>
+													<PlayCircle className="w-4 h-4" />
+													Run All Queries
+												</DropdownMenuItem>
+											</DropdownMenuContent>
+										</DropdownMenu>
+									</div>
 								</>
 							)}
 						</div>
@@ -1877,6 +1986,7 @@ export function ConnectionDetails() {
 						onChange={handleQueryChange}
 						onRunQuery={handleRunQuery}
 						height="300px"
+						// disabled={!tab.query.trim()}
 						tables={tables.map((t) => ({
 							schema: t.schema,
 							name: t.name,
@@ -1939,6 +2049,10 @@ export function ConnectionDetails() {
 						}}
 						generating={isAiGenerating}
 						aiConfigured={aiConfigured}
+						onCursorActivity={(line, char) => {
+							setCursorLine(line);
+							setCursorChar(char);
+						}}
 					/>
 				</CardContent>
 			</Card>
@@ -2095,8 +2209,8 @@ export function ConnectionDetails() {
 					) : (
 						<div className="text-center py-8 text-muted-foreground">
 							<p>
-								No results yet. Write a SQL query and click &quot;Run SQL&quot;
-								to execute it.
+								No results yet. Write a SQL query and click &quot;Run
+								Query&quot; to execute it.
 							</p>
 						</div>
 					)}
