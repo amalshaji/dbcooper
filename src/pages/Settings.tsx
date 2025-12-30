@@ -35,7 +35,6 @@ export function Settings() {
 
 	const [theme, setTheme] = useState<Theme>("system");
 	const [checkUpdates, setCheckUpdates] = useState(true);
-	const [autodownloadUpdates, setAutodownloadUpdates] = useState(false);
 	const [openaiEndpoint, setOpenaiEndpoint] = useState("");
 	const [openaiApiKey, setOpenaiApiKey] = useState("");
 	const [openaiModel, setOpenaiModel] = useState("gpt-4.1");
@@ -49,7 +48,6 @@ export function Settings() {
 			const settings = await api.settings.getAll();
 			setTheme((settings.theme as Theme) || "system");
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
-			setAutodownloadUpdates(settings.autodownload_updates === "true");
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
 			setOpenaiModel(settings.openai_model || "gpt-4.1");
@@ -67,10 +65,6 @@ export function Settings() {
 			await api.settings.set(
 				"check_updates_on_startup",
 				checkUpdates.toString(),
-			);
-			await api.settings.set(
-				"autodownload_updates",
-				autodownloadUpdates.toString(),
 			);
 			await api.settings.set("openai_endpoint", openaiEndpoint);
 			await api.settings.set("openai_api_key", openaiApiKey);
@@ -155,16 +149,6 @@ export function Settings() {
 										id="check-updates"
 										checked={checkUpdates}
 										onCheckedChange={setCheckUpdates}
-									/>
-								</div>
-								<div className="flex items-center justify-between">
-									<Label htmlFor="autodownload-updates">
-										Automatically download updates
-									</Label>
-									<Switch
-										id="autodownload-updates"
-										checked={autodownloadUpdates}
-										onCheckedChange={setAutodownloadUpdates}
 									/>
 								</div>
 							</div>
