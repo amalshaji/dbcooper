@@ -65,9 +65,16 @@ interface LightboxProps {
 	darkImage: string;
 	alt: string;
 	onClose: () => void;
+	isDark: boolean;
 }
 
-function Lightbox({ lightImage, darkImage, alt, onClose }: LightboxProps) {
+function Lightbox({
+	lightImage,
+	darkImage,
+	alt,
+	onClose,
+	isDark,
+}: LightboxProps) {
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
@@ -124,6 +131,7 @@ function Lightbox({ lightImage, darkImage, alt, onClose }: LightboxProps) {
 					firstImageAlt={`${alt} - Light mode`}
 					secondImageAlt={`${alt} - Dark mode`}
 					initialPosition={50}
+					isDark={isDark}
 				/>
 			</div>
 		</div>
@@ -144,42 +152,55 @@ const settings = {
 };
 
 const screenshots = [
-	{ 
-		light: "/screenshots/simple-light.png", 
-		dark: "/screenshots/simple-dark.png", 
+	{
+		light: "/screenshots/simple-light.png",
+		dark: "/screenshots/simple-dark.png",
 		alt: "Table data view",
-		label: "Table Data"
+		label: "Table Data",
 	},
-	{ 
-		light: "/screenshots/query-light.png", 
-		dark: "/screenshots/query-dark.png", 
+	{
+		light: "/screenshots/query-light.png",
+		dark: "/screenshots/query-dark.png",
 		alt: "SQL query editor",
-		label: "Query Editor"
+		label: "Query Editor",
 	},
-	{ 
-		light: "/screenshots/structure-light.png", 
-		dark: "/screenshots/structure-dark.png", 
+	{
+		light: "/screenshots/structure-light.png",
+		dark: "/screenshots/structure-dark.png",
 		alt: "Table structure view",
-		label: "Table Structure"
+		label: "Table Structure",
 	},
-	{ 
-		light: "/screenshots/cmd-light.png", 
-		dark: "/screenshots/cmd-dark.png", 
+	{
+		light: "/screenshots/cmd-light.png",
+		dark: "/screenshots/cmd-dark.png",
 		alt: "Command palette",
-		label: "Command Palette"
+		label: "Command Palette",
 	},
-	{ 
-		light: "/screenshots/visual-light.png", 
-		dark: "/screenshots/visual-dark.png", 
+	{
+		light: "/screenshots/visual-light.png",
+		dark: "/screenshots/visual-dark.png",
 		alt: "Schema visualizer",
-		label: "Schema Visualizer"
+		label: "Schema Visualizer",
 	},
 ];
 
 export function ScreenshotCarousel() {
-	const [lightbox, setLightbox] = useState<{ light: string; dark: string; alt: string } | null>(
-		null,
-	);
+	const [lightbox, setLightbox] = useState<{
+		light: string;
+		dark: string;
+		alt: string;
+	} | null>(null);
+	const [isDark, setIsDark] = useState(false);
+
+	useEffect(() => {
+		// Check system theme preference
+		const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+		setIsDark(dark);
+	}, []);
+
+	const toggleTheme = () => {
+		setIsDark(!isDark);
+	};
 
 	return (
 		<>
@@ -188,9 +209,9 @@ export function ScreenshotCarousel() {
 					{screenshots.map((screenshot) => (
 						<div key={screenshot.light} className="px-1">
 							<div
-								onDoubleClick={() => setLightbox(screenshot)}
+								onClick={() => setLightbox(screenshot)}
 								className="w-full cursor-pointer group"
-								aria-label={`Double-click to view ${screenshot.alt} in fullscreen`}
+								aria-label={`Click to view ${screenshot.alt} in fullscreen`}
 							>
 								<div className="relative">
 									<Compare
@@ -200,6 +221,7 @@ export function ScreenshotCarousel() {
 										secondImageAlt={`${screenshot.alt} - Dark mode`}
 										initialPosition={50}
 										className="rounded-lg shadow-lg group-hover:shadow-xl transition-shadow"
+										isDark={isDark}
 									/>
 									<div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/70 text-white text-sm rounded-full">
 										{screenshot.label}
@@ -209,9 +231,34 @@ export function ScreenshotCarousel() {
 						</div>
 					))}
 				</Slider>
-				<p className="text-center text-xs text-neutral-500 dark:text-neutral-400 mt-6">
-					Drag slider to compare light/dark themes • Double-click for fullscreen
-				</p>
+				<div className="flex items-center justify-center gap-4 mt-6">
+					<span className="text-xs text-neutral-500 dark:text-neutral-400">
+						Toggle switch to compare light/dark themes
+					</span>
+					<div className="flex items-center gap-2">
+						<span className="text-xs text-neutral-600 dark:text-neutral-300">
+							Light
+						</span>
+						<button
+							type="button"
+							onClick={toggleTheme}
+							className="relative inline-flex h-5 w-9 items-center rounded-full bg-neutral-200 dark:bg-neutral-700 transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2"
+							aria-label="Toggle theme view"
+						>
+							<span
+								className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
+									isDark ? "translate-x-5" : "translate-x-0.5"
+								}`}
+							/>
+						</button>
+						<span className="text-xs text-neutral-600 dark:text-neutral-300">
+							Dark
+						</span>
+					</div>
+					<span className="text-xs text-neutral-500 dark:text-neutral-400">
+						• Click for fullscreen
+					</span>
+				</div>
 			</div>
 			{lightbox && (
 				<Lightbox
@@ -219,6 +266,7 @@ export function ScreenshotCarousel() {
 					darkImage={lightbox.dark}
 					alt={lightbox.alt}
 					onClose={() => setLightbox(null)}
+					isDark={isDark}
 				/>
 			)}
 		</>
