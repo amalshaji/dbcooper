@@ -21,6 +21,7 @@ import {
 	Plus,
 	DotsThreeVertical,
 	Lock,
+	Copy,
 } from "@phosphor-icons/react";
 import {
 	DropdownMenu,
@@ -161,6 +162,37 @@ export function Connections() {
 
 	const handleCancelDelete = () => {
 		setDeletingConnection(null);
+	};
+
+	const handleDuplicateConnection = async (connection: Connection) => {
+		try {
+			// Create a copy of the connection data without the id and uuid
+			const {
+				id,
+				uuid,
+				name,
+				created_at,
+				updated_at,
+				ssh_use_key,
+				...connectionData
+			} = connection;
+			const duplicatedData: ConnectionFormData = {
+				...connectionData,
+				name: `${name} (Copy)`,
+				ssl: Boolean(connection.ssl),
+				ssh_enabled: connection.ssh_enabled
+					? Boolean(connection.ssh_enabled)
+					: undefined,
+				ssh_use_key: connection.ssh_use_key
+					? Boolean(connection.ssh_use_key)
+					: undefined,
+			};
+
+			await api.connections.create(duplicatedData);
+			await fetchConnections();
+		} catch (error) {
+			console.error("Failed to duplicate connection:", error);
+		}
 	};
 
 	if (loading) {
@@ -331,6 +363,15 @@ export function Connections() {
 														>
 															<PencilSimple className="w-4 h-4" />
 															Edit
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															onClick={(e) => {
+																e.stopPropagation();
+																handleDuplicateConnection(connection);
+															}}
+														>
+															<Copy className="w-4 h-4" />
+															Duplicate
 														</DropdownMenuItem>
 														<DropdownMenuItem
 															variant="destructive"
