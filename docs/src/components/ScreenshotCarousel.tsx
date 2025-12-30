@@ -124,13 +124,14 @@ function Lightbox({
 					/>
 				</svg>
 			</button>
-			<div className="relative z-10 max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl overflow-hidden">
+			<div className="relative z-10 w-[90vw] h-[90vh] rounded-lg shadow-2xl overflow-hidden flex items-center justify-center p-4">
 				<Compare
 					firstImage={lightImage}
 					secondImage={darkImage}
 					firstImageAlt={`${alt} - Light mode`}
 					secondImageAlt={`${alt} - Dark mode`}
 					initialPosition={50}
+					className="w-full h-full"
 					isDark={isDark}
 				/>
 			</div>

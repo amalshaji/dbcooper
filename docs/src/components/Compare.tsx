@@ -35,6 +35,8 @@ export function Compare({
 	const containerRef = useRef<HTMLDivElement>(null);
 
 
+	const isFullscreen = className.includes('h-full');
+	
 	return (
 		<div
 			ref={containerRef}
@@ -44,8 +46,9 @@ export function Compare({
 			<img
 				src={firstImage}
 				alt={firstImageAlt}
-				className="w-full h-auto block"
+				className={isFullscreen ? "w-full h-full block" : "w-full h-auto block"}
 				draggable={false}
+				style={isFullscreen ? { objectFit: 'contain' } : undefined}
 			/>
 
 			{/* Second image (clipped, on top) */}
@@ -56,8 +59,9 @@ export function Compare({
 				<img
 					src={secondImage}
 					alt={secondImageAlt}
-					className="w-full h-auto block"
+					className={isFullscreen ? "w-full h-full block" : "w-full h-auto block"}
 					draggable={false}
+					style={isFullscreen ? { objectFit: 'contain' } : undefined}
 				/>
 			</div>
 
