@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { ArrowRight } from "@phosphor-icons/react";
@@ -12,8 +12,7 @@ export function UpdateChecker() {
 	const [updateVersion, setUpdateVersion] = useState("");
 	const [downloading, setDownloading] = useState(false);
 	const [readyToInstall, setReadyToInstall] = useState(false);
-	const [updateRef, setUpdateRef] = useState<Update | null>(null);
-	const [autodownloadEnabled, setAutodownloadEnabled] = useState(false);
+	const updateRef = useRef<Update | null>(null);
 
 	useEffect(() => {
 		checkSettingsAndUpdate();
@@ -22,14 +21,10 @@ export function UpdateChecker() {
 	const checkSettingsAndUpdate = async () => {
 		try {
 			const checkOnStartup = await api.settings.get("check_updates_on_startup");
-			const autodownload = await api.settings.get("autodownload_updates");
-			setAutodownloadEnabled(autodownload === "true");
-
 			if (checkOnStartup !== "false") {
 				checkForUpdates();
 			}
 		} catch (error) {
-			setAutodownloadEnabled(false);
 			checkForUpdates();
 		}
 	};
@@ -40,12 +35,7 @@ export function UpdateChecker() {
 			if (update?.available) {
 				setUpdateAvailable(true);
 				setUpdateVersion(update.version);
-				setUpdateRef(update);
-
-				// Check if autodownload is enabled
-				if (autodownloadEnabled) {
-					handleDownload();
-				}
+				updateRef.current = update;
 			}
 		} catch (error) {
 			console.error("Failed to check for updates:", error);
@@ -53,29 +43,12 @@ export function UpdateChecker() {
 	};
 
 	const handleDownload = async () => {
-		if (!updateRef || downloading || readyToInstall) return;
+		const update = updateRef.current;
+		if (!update || downloading || readyToInstall) return;
 
 		try {
 			setDownloading(true);
-			let downloaded = 0;
-			let contentLength = 0;
-
-			await updateRef.download((event) => {
-				switch (event.event) {
-					case "Started":
-						contentLength = event.data.contentLength ?? 0;
-						console.log(`Download started, total size: ${contentLength}`);
-						break;
-					case "Progress":
-						downloaded += event.data.chunkLength;
-						console.log(`Downloaded ${downloaded} of ${contentLength}`);
-						break;
-					case "Finished":
-						console.log("Download finished");
-						break;
-				}
-			});
-
+			await update.download(() => {});
 			setReadyToInstall(true);
 		} catch (error) {
 			console.error("Failed to download update:", error);
@@ -86,10 +59,11 @@ export function UpdateChecker() {
 	};
 
 	const handleInstall = async () => {
-		if (!updateRef || !readyToInstall) return;
+		const update = updateRef.current;
+		if (!update || !readyToInstall) return;
 
 		try {
-			await updateRef.install();
+			await update.install();
 			await relaunch();
 		} catch (error) {
 			console.error("Failed to install update:", error);
@@ -115,19 +89,13 @@ export function UpdateChecker() {
 	return (
 		<Badge
 			variant="secondary"
-			className={`transition-colors rounded-md ${
-				!autodownloadEnabled || downloading
-					? ""
-					: "cursor-pointer hover:bg-primary/90"
-			}`}
-			onClick={
-				!autodownloadEnabled && !downloading ? handleDownload : undefined
-			}
+			className={`transition-colors rounded-md ${downloading ? "" : "cursor-pointer hover:bg-secondary/80"}`}
+			onClick={!downloading ? handleDownload : undefined}
 		>
 			{downloading ? (
 				<>
 					<Spinner className="h-3 w-3" />
-					Downloading update
+					Downloading v{updateVersion}
 				</>
 			) : (
 				`Update to v${updateVersion}`
