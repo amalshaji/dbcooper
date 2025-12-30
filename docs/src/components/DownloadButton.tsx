@@ -31,7 +31,7 @@ export function DownloadButton() {
 	};
 
 	return (
-		<div className="flex flex-col items-start gap-2">
+		<div className="flex flex-col items-center lg:items-start gap-2">
 			<a
 				href="https://github.com/amalshaji/dbcooper/releases/latest"
 				target="_blank"
@@ -44,7 +44,8 @@ export function DownloadButton() {
 			</a>
 			{latestRelease && (
 				<div className="text-xs text-neutral-500 dark:text-neutral-400">
-					Latest: {latestRelease.tag_name} • {formatDate(latestRelease.published_at)}
+					Latest: {latestRelease.tag_name} •{" "}
+					{formatDate(latestRelease.published_at)}
 				</div>
 			)}
 			{loading && (

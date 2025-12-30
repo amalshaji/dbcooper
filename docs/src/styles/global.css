@@ -2,3 +2,32 @@
 @import "@fontsource/google-sans-flex";
 
 @custom-variant dark (&:where(.dark, .dark *));
+
+.slick-slider {
+  margin-bottom: 0 !important;
+}
+
+.slick-list {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.slick-slide > div {
+  line-height: 0;
+}
+
+.slick-dots {
+  bottom: 8px !important;
+  position: absolute !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.slick-dots li button:before {
+  color: white !important;
+  opacity: 0.5 !important;
+}
+
+.slick-dots li.slick-active button:before {
+  opacity: 1 !important;
+}

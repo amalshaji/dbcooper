@@ -13,11 +13,11 @@ function PrevArrow({ onClick }: ArrowProps) {
 		<button
 			type="button"
 			onClick={onClick}
-			className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 z-10 w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
+			className="absolute left-2 sm:left-0 top-1/2 -translate-y-1/2 sm:-translate-x-12 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
 			aria-label="Previous slide"
 		>
 			<svg
-				className="w-5 h-5"
+				className="w-4 h-4 sm:w-5 sm:h-5"
 				fill="none"
 				viewBox="0 0 24 24"
 				stroke="currentColor"
@@ -39,11 +39,11 @@ function NextArrow({ onClick }: ArrowProps) {
 		<button
 			type="button"
 			onClick={onClick}
-			className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 z-10 w-10 h-10 rounded-full bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
+			className="absolute right-2 sm:right-0 top-1/2 -translate-y-1/2 sm:translate-x-12 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
 			aria-label="Next slide"
 		>
 			<svg
-				className="w-5 h-5"
+				className="w-4 h-4 sm:w-5 sm:h-5"
 				fill="none"
 				viewBox="0 0 24 24"
 				stroke="currentColor"
@@ -204,16 +204,17 @@ export function ScreenshotCarousel() {
 
 	return (
 		<>
-			<div className="relative px-14">
+			<div className="relative sm:px-8 lg:px-14">
 				<Slider {...settings}>
 					{screenshots.map((screenshot) => (
-						<div key={screenshot.light} className="px-1">
-							<div
+						<div key={screenshot.light} className="">
+							<button
+								type="button"
 								onClick={() => setLightbox(screenshot)}
-								className="w-full cursor-pointer group"
+								className="w-full cursor-pointer group bg-transparent border-0 p-0 block"
 								aria-label={`Click to view ${screenshot.alt} in fullscreen`}
 							>
-								<div className="relative">
+								<div className="relative leading-[0] rounded-xl overflow-hidden">
 									<Compare
 										firstImage={screenshot.light}
 										secondImage={screenshot.dark}
@@ -223,18 +224,15 @@ export function ScreenshotCarousel() {
 										className="rounded-lg shadow-lg group-hover:shadow-xl transition-shadow"
 										isDark={isDark}
 									/>
-									<div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/70 text-white text-sm rounded-full">
+									<div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-2 sm:px-3 py-1 bg-black/70 text-white text-xs sm:text-sm rounded-full">
 										{screenshot.label}
 									</div>
 								</div>
-							</div>
+							</button>
 						</div>
 					))}
 				</Slider>
-				<div className="flex items-center justify-center gap-4 mt-6">
-					<span className="text-xs text-neutral-500 dark:text-neutral-400">
-						Toggle switch to compare light/dark themes
-					</span>
+				<div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6 text-center sm:text-left">
 					<div className="flex items-center gap-2">
 						<span className="text-xs text-neutral-600 dark:text-neutral-300">
 							Light
@@ -256,7 +254,7 @@ export function ScreenshotCarousel() {
 						</span>
 					</div>
 					<span className="text-xs text-neutral-500 dark:text-neutral-400">
-						• Click for fullscreen
+						Toggle to compare themes • Click for fullscreen
 					</span>
 				</div>
 			</div>
