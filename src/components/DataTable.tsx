@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef } from "react";
 import {
 	flexRender,
 	getCoreRowModel,
@@ -10,19 +10,21 @@ import { Button } from "@/components/ui/button";
 interface DataTableProps<TData> {
 	data: TData[];
 	columns: ColumnDef<TData>[];
-	pageCount: number;
-	currentPage: number;
-	onPageChange: (page: number) => void;
+	pageCount?: number;
+	currentPage?: number;
+	onPageChange?: (page: number) => void;
 	onRowClick?: (row: TData) => void;
+	hidePagination?: boolean;
 }
 
 export function DataTable<TData>({
 	data,
 	columns,
-	pageCount,
-	currentPage,
+	pageCount = 1,
+	currentPage = 1,
 	onPageChange,
 	onRowClick,
+	hidePagination = false,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -95,29 +97,31 @@ export function DataTable<TData>({
 				</table>
 			</div>
 
-			<div className="flex items-center justify-between px-2 pt-3 pb-1">
-				<div className="text-sm text-muted-foreground">
-					Page {currentPage} of {pageCount}
+			{!hidePagination && (
+				<div className="flex items-center justify-between px-2 pt-3 pb-1">
+					<div className="text-sm text-muted-foreground">
+						Page {currentPage} of {pageCount}
+					</div>
+					<div className="flex items-center space-x-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => onPageChange?.(currentPage - 1)}
+							disabled={currentPage === 1}
+						>
+							Previous
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => onPageChange?.(currentPage + 1)}
+							disabled={currentPage >= pageCount}
+						>
+							Next
+						</Button>
+					</div>
 				</div>
-				<div className="flex items-center space-x-2">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => onPageChange(currentPage - 1)}
-						disabled={currentPage === 1}
-					>
-						Previous
-					</Button>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => onPageChange(currentPage + 1)}
-						disabled={currentPage >= pageCount}
-					>
-						Next
-					</Button>
-				</div>
-			</div>
+			)}
 		</div>
 	);
 }

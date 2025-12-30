@@ -412,7 +412,7 @@ export function ConnectionDetails() {
 			!hasStartedLoading.current
 		) {
 			hasStartedLoading.current = true;
-			
+
 			const loadData = async () => {
 				if (connection.type === "redis") {
 					// Redis doesn't have schema - connection will be verified when user searches for keys
@@ -1505,16 +1505,17 @@ export function ConnectionDetails() {
 	const loadingPhases: Array<{
 		phase: LoadingPhase;
 		label: string;
-	}> = connection?.type === "redis"
-		? [
-				{ phase: "fetching-config", label: "Fetching connection details" },
-				{ phase: "connecting", label: "Establishing connection" },
-		  ]
-		: [
-				{ phase: "fetching-config", label: "Fetching connection details" },
-				{ phase: "connecting", label: "Establishing connection" },
-				{ phase: "loading-schema", label: "Loading schema and tables" },
-		  ];
+	}> =
+		connection?.type === "redis"
+			? [
+					{ phase: "fetching-config", label: "Fetching connection details" },
+					{ phase: "connecting", label: "Establishing connection" },
+				]
+			: [
+					{ phase: "fetching-config", label: "Fetching connection details" },
+					{ phase: "connecting", label: "Establishing connection" },
+					{ phase: "loading-schema", label: "Loading schema and tables" },
+				];
 
 	const getPhaseStatus = (phase: LoadingPhase) => {
 		const phaseIndex = loadingPhases.findIndex((p) => p.phase === phase);
@@ -2073,7 +2074,14 @@ export function ConnectionDetails() {
 				<CardHeader>
 					<div className="flex items-center justify-between">
 						<div>
-							<CardTitle>Query Results</CardTitle>
+							<div className="flex items-center gap-2">
+								<CardTitle>Query Results</CardTitle>
+								{tab.executionTime !== null && (
+									<span className="text-xs text-muted-foreground">
+										({tab.executionTime}ms)
+									</span>
+								)}
+							</div>
 							<CardDescription>
 								{tab.results !== null &&
 									tab.results.length > 0 &&
@@ -2084,14 +2092,6 @@ export function ConnectionDetails() {
 									tab.results.length === 0 &&
 									tab.success &&
 									"Query executed successfully - no rows returned"}
-								{tab.error && (
-									<span className="text-destructive">Error: {tab.error}</span>
-								)}
-								{tab.executionTime !== null && (
-									<span className="ml-2 text-muted-foreground">
-										• Executed in {tab.executionTime}ms
-									</span>
-								)}
 							</CardDescription>
 						</div>
 						{tab.results && tab.results.length > 0 && (
@@ -2196,9 +2196,7 @@ export function ConnectionDetails() {
 							<DataTable
 								data={tab.results}
 								columns={queryColumns}
-								pageCount={1}
-								currentPage={1}
-								onPageChange={() => {}}
+								hidePagination
 								onRowClick={(row) => {
 									if (!tab.results) return;
 									const index = tab.results.findIndex((r) => r === row);
