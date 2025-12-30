@@ -89,7 +89,7 @@ export function UpdateChecker() {
 	return (
 		<Badge
 			variant="secondary"
-			className={`transition-colors rounded-md ${downloading ? "" : "cursor-pointer hover:bg-secondary/80"}`}
+			className={`cursor-pointer transition-colors rounded-md ${downloading ? "" : "hover:bg-secondary/80"}`}
 			onClick={!downloading ? handleDownload : undefined}
 		>
 			{downloading ? (
