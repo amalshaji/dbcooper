@@ -329,7 +329,7 @@ export function Connections() {
 																handleEditConnection(connection);
 															}}
 														>
-															<PencilSimple className="w-4 h-4 mr-2" />
+															<PencilSimple className="w-4 h-4" />
 															Edit
 														</DropdownMenuItem>
 														<DropdownMenuItem
@@ -339,7 +339,7 @@ export function Connections() {
 																handleDeleteClick(connection);
 															}}
 														>
-															<Trash className="w-4 h-4 mr-2" />
+															<Trash className="w-4 h-4" />
 															Delete
 														</DropdownMenuItem>
 													</DropdownMenuContent>
