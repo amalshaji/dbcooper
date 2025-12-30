@@ -5,13 +5,6 @@ import { ConnectionForm } from "@/components/ConnectionForm";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
-import {
 	AlertDialog,
 	AlertDialogContent,
 	AlertDialogDescription,
@@ -25,12 +18,68 @@ import {
 	GithubLogo,
 	PencilSimple,
 	Trash,
+	Plus,
+	DotsThreeVertical,
+	Lock,
 } from "@phosphor-icons/react";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-import { api, Connection, ConnectionFormData } from "@/lib/tauri";
+import { PostgresqlIcon } from "@/components/icons/postgres";
+import { RedisIcon } from "@/components/icons/redis";
+import { SqliteIcon } from "@/components/icons/sqlite";
+import { ClickhouseIcon } from "@/components/icons/clickhouse";
+
+import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
 import { Spinner } from "@/components/ui/spinner";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { handleDragStart } from "@/lib/windowDrag";
+
+// Database type icons and colors
+const getDbTypeConfig = (type: string) => {
+	switch (type) {
+		case "postgres":
+			return {
+				icon: PostgresqlIcon,
+				gradient: "from-blue-500/20 to-cyan-500/20",
+				borderColor: "group-hover:border-blue-500/50",
+			};
+		case "mysql":
+			return {
+				icon: Database,
+				gradient: "from-orange-500/20 to-yellow-500/20",
+				borderColor: "group-hover:border-orange-500/50",
+			};
+		case "sqlite":
+			return {
+				icon: SqliteIcon,
+				gradient: "from-emerald-500/20 to-teal-500/20",
+				borderColor: "group-hover:border-emerald-500/50",
+			};
+		case "redis":
+			return {
+				icon: RedisIcon,
+				gradient: "from-red-500/20 to-rose-500/20",
+				borderColor: "group-hover:border-red-500/50",
+			};
+		case "clickhouse":
+			return {
+				icon: ClickhouseIcon,
+				gradient: "from-yellow-400/20 to-yellow-500/20",
+				borderColor: "group-hover:border-yellow-400/50",
+			};
+		default:
+			return {
+				icon: Database,
+				gradient: "from-primary/20 to-accent/20",
+				borderColor: "group-hover:border-primary/50",
+			};
+	}
+};
 
 export function Connections() {
 	const navigate = useNavigate();
@@ -116,8 +165,13 @@ export function Connections() {
 
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center min-h-screen">
-				<div className="text-muted-foreground">Loading...</div>
+			<div className="flex items-center justify-center min-h-screen bg-background">
+				<div className="flex flex-col items-center gap-3">
+					<Spinner className="w-8 h-8" />
+					<p className="text-sm text-muted-foreground">
+						Loading connections...
+					</p>
+				</div>
 			</div>
 		);
 	}
@@ -127,166 +181,176 @@ export function Connections() {
 			{/* Titlebar region */}
 			<header
 				onMouseDown={handleDragStart}
-				className="h-10 shrink-0 flex items-center justify-end gap-2 px-4 pl-20 border-b bg-background"
+				className="h-12 shrink-0 flex items-center justify-between gap-2 px-4 pl-20 border-b bg-background/80 backdrop-blur-sm"
 			>
-				<UpdateChecker />
-				<a
-					href="https://github.com/amalshaji/dbcooper"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent transition-colors"
-					title="View on GitHub"
-				>
-					<GithubLogo className="w-5 h-5" />
-				</a>
+				<div className="flex items-center gap-2">
+					<h1 className="text-sm font-medium text-foreground">Connections</h1>
+					<Badge variant="secondary" className="text-xs">
+						{connections.length}
+					</Badge>
+				</div>
+				<div className="flex items-center gap-1">
+					<UpdateChecker />
+					<a
+						href="https://github.com/amalshaji/dbcooper"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
+						title="View on GitHub"
+					>
+						<GithubLogo className="w-4 h-4" />
+					</a>
 
-				<button
-					onClick={() => navigate("/settings")}
-					className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent transition-colors"
-					title="Settings"
-				>
-					<Gear className="w-5 h-5" />
-				</button>
+					<button
+						type="button"
+						onClick={() => navigate("/settings")}
+						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
+						title="Settings"
+					>
+						<Gear className="w-4 h-4" />
+					</button>
+				</div>
 			</header>
 
-			<div className="flex-1 p-8 overflow-auto">
-				<div className="max-w-7xl mx-auto">
-					<Card>
-						<CardHeader>
+			<div className="flex-1 p-6 overflow-auto">
+				<div className="max-w-2xl mx-auto">
+					{connections.length === 0 ? (
+						<div className="flex items-center justify-center min-h-[60vh]">
+							<EmptyState
+								icon={<Database className="w-16 h-16" />}
+								title="No connections yet"
+								description="Get started by creating your first database connection. You can connect to PostgreSQL, MySQL, SQLite, or Redis."
+								action={{
+									label: "Create Connection",
+									onClick: () => setIsFormOpen(true),
+								}}
+							/>
+						</div>
+					) : (
+						<div className="space-y-4">
+							{/* Header */}
 							<div className="flex items-center justify-between">
 								<div>
-									<CardTitle>Database Connections</CardTitle>
-									<CardDescription>
-										Manage your database connections
-									</CardDescription>
+									<h2 className="text-xl font-semibold tracking-tight">
+										Your Databases
+									</h2>
+									<p className="text-xs text-muted-foreground mt-0.5">
+										Click on a connection to explore
+									</p>
 								</div>
-								<Button onClick={() => setIsFormOpen(true)}>
-									New Connection
+								<Button
+									onClick={() => setIsFormOpen(true)}
+									size="sm"
+									className="gap-1.5 shadow-md shadow-primary/20 hover:shadow-primary/30 transition-shadow duration-300"
+								>
+									<Plus className="w-4 h-4" weight="bold" />
+									New
 								</Button>
 							</div>
-						</CardHeader>
-						<CardContent>
-							{connections.length === 0 ? (
-								<EmptyState
-									icon={<Database className="w-16 h-16" />}
-									title="No connections yet"
-									description="Get started by creating your first database connection. You can connect to any Postgres database."
-									action={{
-										label: "Create Connection",
-										onClick: () => setIsFormOpen(true),
-									}}
-								/>
-							) : (
-								<div className="rounded-lg border overflow-x-auto">
-									<table className="w-full">
-										<thead className="bg-muted/50 border-b">
-											<tr>
-												<th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													Name
-												</th>
-												<th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													Type
-												</th>
-												<th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													Host
-												</th>
-												<th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													Database
-												</th>
-												<th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													SSL
-												</th>
-												<th className="px-6 py-3 text-right text-xs font-medium text-muted-foreground uppercase tracking-wider">
-													Actions
-												</th>
-											</tr>
-										</thead>
-										<tbody className="divide-y">
-											{connections.map((connection) => (
-												<tr
-													key={connection.id}
-													className="hover:bg-muted/30 transition-colors cursor-pointer"
-													onClick={() =>
-														navigate(`/connections/${connection.uuid}`)
-													}
-												>
-													<td className="px-6 py-4 whitespace-nowrap">
-														<div className="text-sm font-medium">
+
+							{/* Connection Cards - Compact List */}
+							<div className="space-y-2">
+								{connections.map((connection) => {
+									const dbConfig = getDbTypeConfig(
+										connection.type || "postgres",
+									);
+									const DbIcon = dbConfig.icon;
+
+									return (
+										<div
+											key={connection.id}
+											role="button"
+											tabIndex={0}
+											onClick={() =>
+												navigate(`/connections/${connection.uuid}`)
+											}
+											onKeyDown={(e) => {
+												if (e.key === "Enter" || e.key === " ") {
+													e.preventDefault();
+													navigate(`/connections/${connection.uuid}`);
+												}
+											}}
+											className={`group relative cursor-pointer rounded-lg border bg-card shadow-sm p-3 transition-all duration-200 hover:shadow-md hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50 ${dbConfig.borderColor}`}
+										>
+											{/* Gradient Background */}
+											<div
+												className={`absolute inset-0 rounded-lg bg-gradient-to-br ${dbConfig.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}
+											/>
+
+											{/* Content */}
+											<div className="relative flex items-center gap-3">
+												{/* Database Icon */}
+												<div className="shrink-0 p-2 rounded-md bg-muted/50">
+													<DbIcon className="w-4 h-4" />
+												</div>
+
+												{/* Connection Info */}
+												<div className="flex-1 min-w-0">
+													<div className="flex items-center gap-2">
+														<h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors duration-200">
 															{connection.name}
-														</div>
-													</td>
-													<td className="px-6 py-4 whitespace-nowrap">
-														<Badge variant="secondary" className="capitalize">
+														</h3>
+														<Badge
+															variant="secondary"
+															className="capitalize text-[10px] px-1.5 py-0 shrink-0"
+														>
 															{connection.type || "postgres"}
 														</Badge>
-													</td>
-													<td className="px-6 py-4 whitespace-nowrap">
-														<div
-															className="text-sm text-muted-foreground max-w-[200px] truncate"
-															title={
-																connection.type === "sqlite"
-																	? ""
-																	: `${connection.host}:${connection.port}`
-															}
-														>
-															{connection.type === "sqlite"
-																? "-"
-																: `${connection.host}:${connection.port}`}
-														</div>
-													</td>
-													<td className="px-6 py-4 whitespace-nowrap">
-														<div
-															className="text-sm text-muted-foreground max-w-[200px] truncate"
-															title={
-																connection.type === "sqlite"
-																	? connection.file_path || ""
-																	: connection.database
-															}
-														>
-															{connection.type === "sqlite"
-																? connection.file_path || "-"
-																: connection.database}
-														</div>
-													</td>
-													<td className="px-6 py-4 whitespace-nowrap">
-														<Badge
-															variant={connection.ssl ? "default" : "secondary"}
-														>
-															{connection.ssl ? "Yes" : "No"}
-														</Badge>
-													</td>
-													<td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-														<Button
-															variant="ghost"
-															size="sm"
+														{connection.ssl === 1 && (
+															<Lock
+																className="w-3 h-3 text-muted-foreground shrink-0"
+																weight="fill"
+															/>
+														)}
+													</div>
+													<p className="text-xs text-muted-foreground truncate mt-0.5">
+														{connection.type === "sqlite"
+															? connection.file_path?.split("/").pop() ||
+																"Local file"
+															: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+													</p>
+												</div>
+
+												{/* Actions Menu */}
+												<DropdownMenu>
+													<DropdownMenuTrigger
+														onClick={(e) => e.stopPropagation()}
+														className="p-1.5 rounded-md hover:bg-muted/80 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+													>
+														<DotsThreeVertical
+															className="w-4 h-4"
+															weight="bold"
+														/>
+													</DropdownMenuTrigger>
+													<DropdownMenuContent align="end" side="bottom">
+														<DropdownMenuItem
 															onClick={(e) => {
 																e.stopPropagation();
 																handleEditConnection(connection);
 															}}
-															title="Edit connection"
 														>
-															<PencilSimple className="w-4 h-4" />
-														</Button>
-														<Button
-															variant="ghost"
-															size="sm"
+															<PencilSimple className="w-4 h-4 mr-2" />
+															Edit
+														</DropdownMenuItem>
+														<DropdownMenuItem
+															variant="destructive"
 															onClick={(e) => {
 																e.stopPropagation();
 																handleDeleteClick(connection);
 															}}
-															title="Delete connection"
 														>
-															<Trash className="w-4 h-4" />
-														</Button>
-													</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								</div>
-							)}
-						</CardContent>
-					</Card>
+															<Trash className="w-4 h-4 mr-2" />
+															Delete
+														</DropdownMenuItem>
+													</DropdownMenuContent>
+												</DropdownMenu>
+											</div>
+										</div>
+									);
+								})}
+							</div>
+						</div>
+					)}
 				</div>
 
 				<ConnectionForm
