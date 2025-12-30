@@ -19,11 +19,11 @@ Then you can open the app normally.
 
 ## Features
 
-Check out the full list of features on our [documentation site](https://amalshaji.github.io/dbcooper/#features).
+Check out the full list of features on our [documentation site](https://dbcooper.amal.sh/#features).
 
 ## FAQ
 
-Find answers to common questions on our [documentation site](https://amalshaji.github.io/dbcooper/#faq).
+Find answers to common questions on our [documentation site](https://dbcooper.amal.sh/#faq).
 
 ## Tech Stack
 
