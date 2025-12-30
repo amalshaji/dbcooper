@@ -40,7 +40,7 @@ export function DataTable<TData>({
 		<div className="flex flex-col h-full w-full min-w-0">
 			<div
 				ref={containerRef}
-				className="rounded-md border overflow-auto w-full flex-1 min-h-0"
+				className="rounded-md border overflow-auto w-full h-full"
 			>
 				<table className="w-full caption-bottom text-xs">
 					<thead className="sticky top-0 bg-background z-10 shadow-sm">

@@ -141,7 +141,7 @@ function ContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background ${
+			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 ${
 				isCollapsed ? "pl-20" : ""
 			}`}
 		>
@@ -189,7 +189,7 @@ function RedisContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background"
+			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20"
 		>
 			<div className="flex items-center gap-2 flex-1">
 				<Button
@@ -1639,7 +1639,7 @@ export function ConnectionDetails() {
 					</div>
 				)}
 			</div>
-			<CardContent className="max-h-[65vh] overflow-hidden flex flex-col">
+			<CardContent className="max-h-[65vh] flex flex-col">
 				{tab.loading ? (
 					<div className="space-y-3 h-full overflow-auto">
 						<div className="flex items-center gap-2">
@@ -1656,7 +1656,7 @@ export function ConnectionDetails() {
 						))}
 					</div>
 				) : tab.data && tab.data.data.length > 0 ? (
-					<div className="flex-1 min-h-0">
+					<div className="h-[65vh] overflow-hidden">
 						<DataTable
 							data={tab.data.data}
 							columns={tableDataColumns}
@@ -2940,7 +2940,7 @@ export function ConnectionDetails() {
 				</SidebarContent>
 			</Sidebar>
 
-			<SidebarInset className="min-w-0 overflow-hidden flex flex-col">
+			<SidebarInset className="min-w-0 flex flex-col h-screen">
 				<ContentHeader
 					connection={connection}
 					navigate={navigate}
