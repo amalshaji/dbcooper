@@ -19,15 +19,11 @@ Then you can open the app normally.
 
 ## Features
 
-- 🔌 **Connection Management** - Create, edit, and manage multiple PostgreSQL connections
-- 📊 **Data Browsing** - View and filter table data with pagination
-- 🔍 **Table Structure** - Inspect columns, indexes, and foreign keys
-- 💾 **Query Editor** - Execute SQL queries with syntax highlighting (Google Sans Code font)
-- 🤖 **AI SQL Generation** - Generate SQL queries using natural language with OpenAI (streaming)
-- 🔖 **Saved Queries** - Save and organize frequently used queries
-- ⚙️ **Settings** - Configure theme, update preferences, and OpenAI API settings
-- 🎨 **Modern UI** - Clean interface with light/dark mode support
-- 🔄 **Auto Updates** - Built-in updater with update badge for seamless updates
+Check out the full list of features on our [documentation site](https://amalshaji.github.io/dbcooper/#features).
+
+## FAQ
+
+Find answers to common questions on our [documentation site](https://amalshaji.github.io/dbcooper/#faq).
 
 ## Tech Stack
 
