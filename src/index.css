@@ -159,3 +159,46 @@
   -webkit-app-region: no-drag;
   cursor: pointer;
 }
+
+/* ReactFlow dark mode controls styling */
+.react-flow__controls {
+  @apply bg-card;
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+.dark .react-flow__controls {
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+.react-flow__controls button {
+  @apply bg-card text-foreground hover:bg-accent;
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+}
+
+.dark .react-flow__controls button {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.react-flow__controls button:hover {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.react-flow__controls button:active {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.react-flow__controls button svg {
+  fill: hsl(var(--foreground)) !important;
+  stroke: hsl(var(--foreground)) !important;
+}
+
+.dark .react-flow__controls button svg {
+  fill: hsl(0 0% 90%) !important;
+  stroke: hsl(0 0% 90%) !important;
+}

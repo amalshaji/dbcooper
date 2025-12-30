@@ -718,6 +718,7 @@ function SchemaVisualizerFlow({
 			minZoom={0.05}
 			maxZoom={2}
 			className="bg-background"
+			proOptions={{ hideAttribution: true }}
 		>
 			<Background />
 			<Controls />
