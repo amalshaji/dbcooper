@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import Slider from "react-slick";
 import "slick-carousel/slick/slick.css";
 import "slick-carousel/slick/slick-theme.css";
+import { Compare } from "./Compare";
 
 interface ArrowProps {
 	onClick?: () => void;
@@ -60,12 +61,13 @@ function NextArrow({ onClick }: ArrowProps) {
 }
 
 interface LightboxProps {
-	src: string;
+	lightImage: string;
+	darkImage: string;
 	alt: string;
 	onClose: () => void;
 }
 
-function Lightbox({ src, alt, onClose }: LightboxProps) {
+function Lightbox({ lightImage, darkImage, alt, onClose }: LightboxProps) {
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
@@ -115,11 +117,15 @@ function Lightbox({ src, alt, onClose }: LightboxProps) {
 					/>
 				</svg>
 			</button>
-			<img
-				src={src}
-				alt={alt}
-				className="relative z-10 max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl"
-			/>
+			<div className="relative z-10 max-w-[90vw] max-h-[90vh] rounded-lg shadow-2xl overflow-hidden">
+				<Compare
+					firstImage={lightImage}
+					secondImage={darkImage}
+					firstImageAlt={`${alt} - Light mode`}
+					secondImageAlt={`${alt} - Dark mode`}
+					initialPosition={50}
+				/>
+			</div>
 		</div>
 	);
 }
@@ -131,19 +137,47 @@ const settings = {
 	slidesToShow: 1,
 	slidesToScroll: 1,
 	autoplay: true,
-	autoplaySpeed: 4000,
+	autoplaySpeed: 5000,
 	arrows: true,
 	prevArrow: <PrevArrow />,
 	nextArrow: <NextArrow />,
 };
 
 const screenshots = [
-	{ src: "/images/dbcooper.png", alt: "DBcooper interface" },
-	{ src: "/images/aggregate.png", alt: "Complex query" },
+	{ 
+		light: "/screenshots/simple-light.png", 
+		dark: "/screenshots/simple-dark.png", 
+		alt: "Table data view",
+		label: "Table Data"
+	},
+	{ 
+		light: "/screenshots/query-light.png", 
+		dark: "/screenshots/query-dark.png", 
+		alt: "SQL query editor",
+		label: "Query Editor"
+	},
+	{ 
+		light: "/screenshots/structure-light.png", 
+		dark: "/screenshots/structure-dark.png", 
+		alt: "Table structure view",
+		label: "Table Structure"
+	},
+	{ 
+		light: "/screenshots/cmd-light.png", 
+		dark: "/screenshots/cmd-dark.png", 
+		alt: "Command palette",
+		label: "Command Palette"
+	},
+	{ 
+		light: "/screenshots/visual-light.png", 
+		dark: "/screenshots/visual-dark.png", 
+		alt: "Schema visualizer",
+		label: "Schema Visualizer"
+	},
 ];
 
 export function ScreenshotCarousel() {
-	const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(
+	const [lightbox, setLightbox] = useState<{ light: string; dark: string; alt: string } | null>(
 		null,
 	);
 
@@ -152,26 +186,37 @@ export function ScreenshotCarousel() {
 			<div className="relative px-14">
 				<Slider {...settings}>
 					{screenshots.map((screenshot) => (
-						<div key={screenshot.src}>
-							<button
-								type="button"
-								onClick={() => setLightbox(screenshot)}
-								className="w-full cursor-zoom-in"
-								aria-label={`View ${screenshot.alt} in fullscreen`}
+						<div key={screenshot.light} className="px-1">
+							<div
+								onDoubleClick={() => setLightbox(screenshot)}
+								className="w-full cursor-pointer group"
+								aria-label={`Double-click to view ${screenshot.alt} in fullscreen`}
 							>
-								<img
-									src={screenshot.src}
-									alt={screenshot.alt}
-									className="w-full rounded-lg hover:opacity-95 transition-opacity"
-								/>
-							</button>
+								<div className="relative">
+									<Compare
+										firstImage={screenshot.light}
+										secondImage={screenshot.dark}
+										firstImageAlt={`${screenshot.alt} - Light mode`}
+										secondImageAlt={`${screenshot.alt} - Dark mode`}
+										initialPosition={50}
+										className="rounded-lg shadow-lg group-hover:shadow-xl transition-shadow"
+									/>
+									<div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-3 py-1 bg-black/70 text-white text-sm rounded-full">
+										{screenshot.label}
+									</div>
+								</div>
+							</div>
 						</div>
 					))}
 				</Slider>
+				<p className="text-center text-xs text-neutral-500 dark:text-neutral-400 mt-6">
+					Drag slider to compare light/dark themes • Double-click for fullscreen
+				</p>
 			</div>
 			{lightbox && (
 				<Lightbox
-					src={lightbox.src}
+					lightImage={lightbox.light}
+					darkImage={lightbox.dark}
 					alt={lightbox.alt}
 					onClose={() => setLightbox(null)}
 				/>

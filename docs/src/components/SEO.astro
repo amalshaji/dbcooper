@@ -1,0 +1,46 @@
+---
+export interface Props {
+  title?: string;
+  description?: string;
+  ogUrl?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  twitterUrl?: string;
+  twitterTitle?: string;
+  twitterDescription?: string;
+  twitterImage?: string;
+}
+
+const {
+  title = "DBcooper",
+  description = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
+  ogUrl = "https://dbcooper.amal.sh/",
+  ogTitle = "DBcooper",
+  ogDescription = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
+  ogImage = "/screenshots/visual-light.png",
+  twitterUrl = "https://dbcooper.amal.sh/",
+  twitterTitle = "DBcooper",
+  twitterDescription = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
+  twitterImage = "/screenshots/visual-light.png",
+} = Astro.props;
+---
+
+<!-- Primary Meta Tags -->
+<title>{title}</title>
+<meta name="title" content={title} />
+<meta name="description" content={description} />
+
+<!-- Open Graph / Facebook -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content={ogUrl} />
+<meta property="og:title" content={ogTitle} />
+<meta property="og:description" content={ogDescription} />
+<meta property="og:image" content={ogImage} />
+
+<!-- X (Twitter) -->
+<meta property="twitter:card" content="summary_large_image" />
+<meta property="twitter:url" content={twitterUrl} />
+<meta property="twitter:title" content={twitterTitle} />
+<meta property="twitter:description" content={twitterDescription} />
+<meta property="twitter:image" content={twitterImage} />

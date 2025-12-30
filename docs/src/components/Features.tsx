@@ -132,7 +132,7 @@ export function Features() {
 	const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
 	return (
-		<section className="py-20">
+		<section id="features" className="py-20">
 			<div className="text-center mb-12">
 				<h2 className="text-2xl font-semibold mb-3">Everything you need</h2>
 				<p className="text-neutral-500 dark:text-neutral-400 max-w-md mx-auto">
