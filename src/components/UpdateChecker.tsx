@@ -11,7 +11,7 @@ export function UpdateChecker() {
 	const [updateAvailable, setUpdateAvailable] = useState(false);
 	const [updateVersion, setUpdateVersion] = useState("");
 	const [downloading, setDownloading] = useState(false);
-	const [checking, setChecking] = useState(false);
+	const [checkingManually, setCheckingManually] = useState(false);
 	const [readyToInstall, setReadyToInstall] = useState(false);
 	const updateRef = useRef<Update | null>(null);
 
@@ -23,31 +23,37 @@ export function UpdateChecker() {
 		try {
 			const checkOnStartup = await api.settings.get("check_updates_on_startup");
 			if (checkOnStartup !== "false") {
-				checkForUpdates();
+				await checkForUpdates(false);
 			}
 		} catch {
-			checkForUpdates();
+			await checkForUpdates(false);
 		}
 	};
 
-	const checkForUpdates = async () => {
-		if (checking) return;
+	const checkForUpdates = async (manual: boolean = false) => {
+		if (manual && checkingManually) return;
 
 		try {
-			setChecking(true);
+			if (manual) {
+				setCheckingManually(true);
+			}
 			const update = await check();
 			if (update?.available) {
 				setUpdateAvailable(true);
 				setUpdateVersion(update.version);
 				updateRef.current = update;
-			} else {
+			} else if (manual) {
 				toast.info("You're on the latest version");
 			}
 		} catch (error) {
 			console.error("Failed to check for updates:", error);
-			toast.error("Failed to check for updates");
+			if (manual) {
+				toast.error("Failed to check for updates");
+			}
 		} finally {
-			setChecking(false);
+			if (manual) {
+				setCheckingManually(false);
+			}
 		}
 	};
 
@@ -118,10 +124,10 @@ export function UpdateChecker() {
 	return (
 		<Badge
 			variant="secondary"
-			className={`cursor-pointer transition-colors rounded-md ${checking ? "" : "hover:bg-secondary/80"}`}
-			onClick={!checking ? checkForUpdates : undefined}
+			className={`cursor-pointer transition-colors rounded-md ${checkingManually ? "" : "hover:bg-secondary/80"}`}
+			onClick={!checkingManually ? () => checkForUpdates(true) : undefined}
 		>
-			{checking ? (
+			{checkingManually ? (
 				<>
 					<Spinner className="h-3 w-3" />
 					Checking for updates
