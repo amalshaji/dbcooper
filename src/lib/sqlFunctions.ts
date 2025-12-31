@@ -36,15 +36,29 @@ const SQL_FUNCTIONS: Record<DbType, Record<string, string[]>> = {
 
 /**
  * Get suggested SQL functions for a given database type and column type
+ * @param dbType - The database type (postgres, sqlite, clickhouse)
+ * @param columnType - The column data type
+ * @param columnName - Optional column name to check for patterns (e.g., "uuid" in name)
  */
 export function getSuggestedFunctions(
 	dbType: DbType,
 	columnType: string,
+	columnName?: string,
 ): string[] {
 	const normalizedType = columnType.toLowerCase().trim();
+	const normalizedName = columnName?.toLowerCase().trim() || "";
 
-	// Check for exact match
 	const dbFunctions = SQL_FUNCTIONS[dbType];
+
+	// Check if column name contains "uuid" OR type is uuid - return UUID functions if available
+	// This check happens first to prioritize UUID functions when name/type suggests UUID
+	if (dbFunctions?.uuid) {
+		if (normalizedName.includes("uuid") || normalizedType === "uuid" || normalizedType.includes("uuid")) {
+			return dbFunctions.uuid;
+		}
+	}
+
+	// Check for exact match by type
 	if (dbFunctions[normalizedType]) {
 		return dbFunctions[normalizedType];
 	}

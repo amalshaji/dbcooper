@@ -24,8 +24,21 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
-import { Trash, FloppyDisk, Warning, Key } from "@phosphor-icons/react";
+import { Trash, FloppyDisk, Warning, Key, Code } from "@phosphor-icons/react";
+import {
+	Combobox,
+	ComboboxInput,
+	ComboboxContent,
+	ComboboxList,
+	ComboboxItem,
+} from "@/components/ui/combobox";
 import type { TableColumn } from "@/types/tabTypes";
+import {
+	getSuggestedFunctions,
+	isSqlFunction,
+} from "@/lib/sqlFunctions";
+
+type DbType = "postgres" | "sqlite" | "clickhouse";
 
 interface RowEditSheetProps {
     open: boolean;
@@ -33,10 +46,16 @@ interface RowEditSheetProps {
     tableName: string;
     row: Record<string, unknown> | null;
     columns: TableColumn[];
+    dbType: DbType;
     onSave: (updates: Record<string, unknown>) => Promise<void>;
     onDelete: () => Promise<void>;
     saving?: boolean;
     deleting?: boolean;
+}
+
+interface FieldValue {
+	value: unknown;
+	isRawSql: boolean;
 }
 
 export function RowEditSheet({
@@ -45,12 +64,13 @@ export function RowEditSheet({
     tableName,
     row,
     columns,
+    dbType,
     onSave,
     onDelete,
     saving = false,
     deleting = false,
 }: RowEditSheetProps) {
-    const [editedValues, setEditedValues] = useState<Record<string, unknown>>({});
+    const [editedValues, setEditedValues] = useState<Record<string, FieldValue>>({});
     const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
     // Get primary key columns
@@ -64,7 +84,11 @@ export function RowEditSheet({
     // Reset edited values when row changes
     useEffect(() => {
         if (row) {
-            setEditedValues({ ...row });
+            const initialValues: Record<string, FieldValue> = {};
+            Object.entries(row).forEach(([key, value]) => {
+                initialValues[key] = { value, isRawSql: false };
+            });
+            setEditedValues(initialValues);
         } else {
             setEditedValues({});
         }
@@ -78,30 +102,63 @@ export function RowEditSheet({
             if (primaryKeyColumns.some((pk) => pk.name === key)) return false;
             // Compare values (handle null specially)
             const original = row[key];
-            const edited = editedValues[key];
+            const fieldValue = editedValues[key];
+            if (!fieldValue) return false;
+            const edited = fieldValue.value;
             if (original === null && edited === null) return false;
             if (original === null || edited === null) return original !== edited;
             return JSON.stringify(original) !== JSON.stringify(edited);
         });
     }, [row, editedValues, primaryKeyColumns]);
 
-    const handleValueChange = (columnName: string, value: unknown) => {
+    const handleValueChange = (
+        columnName: string,
+        value: unknown,
+        isRawSql: boolean = false,
+    ) => {
         setEditedValues((prev) => ({
             ...prev,
-            [columnName]: value,
+            [columnName]: { value, isRawSql },
         }));
+    };
+
+    // Generate UUID v4 using Web Crypto API
+    const generateUUIDv4 = (): string => {
+        return crypto.randomUUID();
+    };
+
+    // Check if column is UUID-related
+    const isUuidColumn = (column: TableColumn): boolean => {
+        const columnNameLower = column.name.toLowerCase();
+        const columnTypeLower = column.type.toLowerCase();
+        return (
+            columnNameLower.includes("uuid") ||
+            columnTypeLower === "uuid" ||
+            columnTypeLower.includes("uuid")
+        );
     };
 
     const handleSave = async () => {
         if (!hasChanges) return;
 
-        // Build updates object (exclude primary key columns)
-        const updates: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(editedValues)) {
+        // Build updates array with raw SQL support (exclude primary key columns)
+        const updates: Array<{
+            column: string;
+            value: unknown;
+            isRawSql: boolean;
+        }> = [];
+        for (const [key, fieldValue] of Object.entries(editedValues)) {
             if (!primaryKeyColumns.some((pk) => pk.name === key)) {
+                if (!fieldValue) continue;
+                const original = row?.[key];
+                const edited = fieldValue.value;
                 // Only include changed values
-                if (row && JSON.stringify(row[key]) !== JSON.stringify(value)) {
-                    updates[key] = value;
+                if (row && JSON.stringify(original) !== JSON.stringify(edited)) {
+                    updates.push({
+                        column: key,
+                        value: edited,
+                        isRawSql: fieldValue.isRawSql,
+                    });
                 }
             }
         }
@@ -115,12 +172,24 @@ export function RowEditSheet({
     };
 
     const renderFieldInput = (column: TableColumn) => {
-        const value = editedValues[column.name];
+        const fieldValue = editedValues[column.name] || {
+            value: row?.[column.name] ?? null,
+            isRawSql: false,
+        };
+        const value = fieldValue.value;
+        const isRawSql = fieldValue.isRawSql;
         const isPrimaryKey = column.primary_key;
         const columnType = column.type.toLowerCase();
 
         // Determine if this should be readonly (primary keys are readonly)
         const isReadonly = isPrimaryKey || !hasPrimaryKey;
+
+        // Get suggested functions for this column type and name
+        const suggestedFunctions = getSuggestedFunctions(
+            dbType,
+            columnType,
+            column.name,
+        );
 
         // Handle null values
         const isNull = value === null;
@@ -130,14 +199,22 @@ export function RowEditSheet({
             return (
                 <div className="flex items-center gap-2">
                     <Switch
-                        checked={value === true}
+                        checked={value === true || value === "TRUE" || value === "1"}
                         onCheckedChange={(checked) =>
-                            handleValueChange(column.name, checked)
+                            handleValueChange(
+                                column.name,
+                                dbType === "sqlite" ? (checked ? "1" : "0") : checked,
+                                false,
+                            )
                         }
                         disabled={isReadonly}
                     />
                     <span className="text-sm text-muted-foreground">
-                        {value === true ? "true" : value === false ? "false" : "null"}
+                        {value === true || value === "TRUE" || value === "1"
+                            ? "true"
+                            : value === false || value === "FALSE" || value === "0"
+                                ? "false"
+                                : "null"}
                     </span>
                     {column.nullable && !isReadonly && (
                         <Button
@@ -145,7 +222,7 @@ export function RowEditSheet({
                             size="sm"
                             className="h-6 text-xs"
                             onClick={() =>
-                                handleValueChange(column.name, isNull ? false : null)
+                                handleValueChange(column.name, isNull ? false : null, false)
                             }
                         >
                             {isNull ? "Set value" : "Set NULL"}
@@ -174,10 +251,10 @@ export function RowEditSheet({
                         onChange={(e) => {
                             try {
                                 const parsed = JSON.parse(e.target.value);
-                                handleValueChange(column.name, parsed);
+                                handleValueChange(column.name, parsed, false);
                             } catch {
                                 // If not valid JSON, store as string (will show error on save)
-                                handleValueChange(column.name, e.target.value);
+                                handleValueChange(column.name, e.target.value, false);
                             }
                         }}
                         disabled={isReadonly}
@@ -190,7 +267,7 @@ export function RowEditSheet({
                             size="sm"
                             className="h-6 text-xs"
                             onClick={() =>
-                                handleValueChange(column.name, isNull ? {} : null)
+                                handleValueChange(column.name, isNull ? {} : null, false)
                             }
                         >
                             {isNull ? "Set value" : "Set NULL"}
@@ -204,25 +281,113 @@ export function RowEditSheet({
         if (columnType === "text" || columnType.includes("varchar")) {
             const stringValue = isNull ? "" : String(value ?? "");
 
+            // Use Combobox if UUID functions are available
+            if (suggestedFunctions.length > 0 && !isReadonly) {
+                return (
+                    <div className="space-y-1">
+                        <Combobox
+                            value={stringValue}
+                            onValueChange={(newValue) => {
+                                if (!newValue) return;
+                                const isFunction =
+                                    suggestedFunctions.includes(newValue) ||
+                                    isSqlFunction(newValue);
+                                handleValueChange(column.name, newValue, isFunction);
+                            }}
+                        >
+                            <ComboboxInput
+                                type="text"
+                                value={stringValue}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    const isFunction =
+                                        suggestedFunctions.includes(newValue) ||
+                                        isSqlFunction(newValue);
+                                    handleValueChange(column.name, newValue, isFunction);
+                                }}
+                                disabled={isReadonly}
+                                placeholder={isNull ? "NULL" : ""}
+                                className="flex-1 !rounded-md"
+                            />
+                            <ComboboxContent className="!rounded-md">
+                                <ComboboxList>
+                                    {suggestedFunctions.map((func) => (
+                                        <ComboboxItem key={func} value={func}>
+                                            <Code className="w-4 h-4 mr-2" />
+                                            {func}
+                                        </ComboboxItem>
+                                    ))}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
+                        {isRawSql && (
+                            <Badge variant="secondary" className="text-xs">
+                                SQL Function
+                            </Badge>
+                        )}
+                        <div className="flex items-center gap-2">
+                            {isUuidColumn(column) && !isReadonly && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs"
+                                    onClick={() =>
+                                        handleValueChange(column.name, generateUUIDv4(), false)
+                                    }
+                                >
+                                    Generate UUID
+                                </Button>
+                            )}
+                            {column.nullable && !isReadonly && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs"
+                                    onClick={() =>
+                                        handleValueChange(column.name, isNull ? "" : null, false)
+                                    }
+                                >
+                                    {isNull ? "Set value" : "Set NULL"}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className="space-y-1">
                     <Textarea
                         value={stringValue}
-                        onChange={(e) => handleValueChange(column.name, e.target.value)}
+                        onChange={(e) => handleValueChange(column.name, e.target.value, false)}
                         disabled={isReadonly}
                         placeholder={isNull ? "NULL" : ""}
                         className="min-h-[60px]"
                     />
-                    {column.nullable && !isReadonly && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs"
-                            onClick={() => handleValueChange(column.name, isNull ? "" : null)}
-                        >
-                            {isNull ? "Set value" : "Set NULL"}
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                        {isUuidColumn(column) && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, generateUUIDv4(), false)
+                                }
+                            >
+                                Generate UUID
+                            </Button>
+                        )}
+                        {column.nullable && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() => handleValueChange(column.name, isNull ? "" : null, false)}
+                            >
+                                {isNull ? "Set value" : "Set NULL"}
+                            </Button>
+                        )}
+                    </div>
                 </div>
             );
         }
@@ -238,19 +403,110 @@ export function RowEditSheet({
             columnType === "serial" ||
             columnType === "bigserial"
         ) {
+            const displayValue = isNull ? "" : String(value ?? "");
+
+            // Use Combobox if functions are available
+            if (suggestedFunctions.length > 0 && !isReadonly) {
+                return (
+                    <div className="space-y-1">
+                        <Combobox
+                            value={displayValue}
+                            onValueChange={(newValue) => {
+                                if (!newValue) return;
+                                const isFunction = suggestedFunctions.includes(newValue);
+                                if (isFunction) {
+                                    handleValueChange(column.name, newValue, true);
+                                } else if (newValue === "") {
+                                    handleValueChange(column.name, null, false);
+                                } else {
+                                    const numValue =
+                                        columnType.includes("int") || columnType.includes("serial")
+                                            ? parseInt(newValue, 10)
+                                            : parseFloat(newValue);
+                                    handleValueChange(
+                                        column.name,
+                                        Number.isNaN(numValue) ? newValue : numValue,
+                                        false,
+                                    );
+                                }
+                            }}
+                        >
+                            <ComboboxInput
+                                type="text"
+                                value={displayValue}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    if (newValue === "") {
+                                        handleValueChange(column.name, null, false);
+                                    } else {
+                                        const isFunction =
+                                            suggestedFunctions.includes(newValue) ||
+                                            isSqlFunction(newValue);
+                                        if (isFunction) {
+                                            handleValueChange(column.name, newValue, true);
+                                        } else {
+                                            const numValue =
+                                                columnType.includes("int") ||
+                                                columnType.includes("serial")
+                                                    ? parseInt(newValue, 10)
+                                                    : parseFloat(newValue);
+                                            handleValueChange(
+                                                column.name,
+                                                Number.isNaN(numValue) ? newValue : numValue,
+                                                false,
+                                            );
+                                        }
+                                    }
+                                }}
+                                disabled={isReadonly}
+                                placeholder={isNull ? "NULL" : ""}
+                                className="flex-1 !rounded-md"
+                            />
+                            <ComboboxContent className="!rounded-md">
+                                <ComboboxList>
+                                    {suggestedFunctions.map((func) => (
+                                        <ComboboxItem key={func} value={func}>
+                                            <Code className="w-4 h-4 mr-2" />
+                                            {func}
+                                        </ComboboxItem>
+                                    ))}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
+                        {isRawSql && (
+                            <Badge variant="secondary" className="text-xs">
+                                SQL Function
+                            </Badge>
+                        )}
+                        {column.nullable && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, isNull ? 0 : null, false)
+                                }
+                            >
+                                {isNull ? "Set 0" : "NULL"}
+                            </Button>
+                        )}
+                    </div>
+                );
+            }
+
             return (
                 <div className="flex items-center gap-2">
                     <Input
                         type="number"
-                        value={isNull ? "" : String(value ?? "")}
+                        value={displayValue}
                         onChange={(e) => {
                             const val = e.target.value;
                             if (val === "") {
-                                handleValueChange(column.name, null);
+                                handleValueChange(column.name, null, false);
                             } else if (columnType.includes("int") || columnType.includes("serial")) {
-                                handleValueChange(column.name, parseInt(val, 10));
+                                handleValueChange(column.name, parseInt(val, 10), false);
                             } else {
-                                handleValueChange(column.name, parseFloat(val));
+                                handleValueChange(column.name, parseFloat(val), false);
                             }
                         }}
                         disabled={isReadonly}
@@ -263,7 +519,7 @@ export function RowEditSheet({
                             size="sm"
                             className="h-8 text-xs"
                             onClick={() =>
-                                handleValueChange(column.name, isNull ? 0 : null)
+                                handleValueChange(column.name, isNull ? 0 : null, false)
                             }
                         >
                             {isNull ? "Set 0" : "NULL"}
@@ -273,32 +529,323 @@ export function RowEditSheet({
             );
         }
 
-        // Default: text input
+        // Timestamp/Date types
+        if (
+            columnType.includes("timestamp") ||
+            columnType === "date" ||
+            columnType === "time"
+        ) {
+            const displayValue = isNull ? "" : String(value ?? "");
+
+            if (suggestedFunctions.length > 0 && !isReadonly) {
+                return (
+                    <div className="space-y-1">
+                        <Combobox
+                            value={displayValue}
+                            onValueChange={(newValue) => {
+                                if (!newValue) return;
+                                const isFunction = suggestedFunctions.includes(newValue);
+                                handleValueChange(column.name, newValue, isFunction);
+                            }}
+                        >
+                            <ComboboxInput
+                                type="text"
+                                value={displayValue}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    const isFunction =
+                                        suggestedFunctions.includes(newValue) ||
+                                        isSqlFunction(newValue);
+                                    handleValueChange(column.name, newValue, isFunction);
+                                }}
+                                disabled={isReadonly}
+                                placeholder={isNull ? "NULL" : "Enter date/time or select function"}
+                                className="flex-1 !rounded-md"
+                            />
+                            <ComboboxContent className="!rounded-md">
+                                <ComboboxList>
+                                    {suggestedFunctions.map((func) => (
+                                        <ComboboxItem key={func} value={func}>
+                                            <Code className="w-4 h-4 mr-2" />
+                                            {func}
+                                        </ComboboxItem>
+                                    ))}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
+                        {isRawSql && (
+                            <Badge variant="secondary" className="text-xs">
+                                SQL Function
+                            </Badge>
+                        )}
+                        {column.nullable && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, isNull ? "" : null, false)
+                                }
+                            >
+                                {isNull ? "Set value" : "Set NULL"}
+                            </Button>
+                        )}
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-1">
+                    <Input
+                        type="text"
+                        value={displayValue}
+                        onChange={(e) => handleValueChange(column.name, e.target.value, false)}
+                        disabled={isReadonly}
+                        placeholder={isNull ? "NULL" : "Enter date/time"}
+                        className="flex-1"
+                    />
+                    {column.nullable && !isReadonly && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() =>
+                                handleValueChange(column.name, isNull ? "" : null, false)
+                            }
+                        >
+                            {isNull ? "Set value" : "Set NULL"}
+                        </Button>
+                    )}
+                </div>
+            );
+        }
+
+        // UUID types
+        if (columnType === "uuid" || isUuidColumn(column)) {
+            const displayValue = isNull ? "" : String(value ?? "");
+
+            if (suggestedFunctions.length > 0 && !isReadonly) {
+                return (
+                    <div className="space-y-1">
+                        <Combobox
+                            value={displayValue}
+                            onValueChange={(newValue) => {
+                                if (!newValue) return;
+                                const isFunction = suggestedFunctions.includes(newValue);
+                                handleValueChange(column.name, newValue, isFunction);
+                            }}
+                        >
+                            <ComboboxInput
+                                type="text"
+                                value={displayValue}
+                                onChange={(e) => {
+                                    const newValue = e.target.value;
+                                    const isFunction =
+                                        suggestedFunctions.includes(newValue) ||
+                                        isSqlFunction(newValue);
+                                    handleValueChange(column.name, newValue, isFunction);
+                                }}
+                                disabled={isReadonly}
+                                placeholder={isNull ? "NULL" : "Enter UUID or select function"}
+                                className="flex-1 !rounded-md"
+                            />
+                            <ComboboxContent className="!rounded-md">
+                                <ComboboxList>
+                                    {suggestedFunctions.map((func) => (
+                                        <ComboboxItem key={func} value={func}>
+                                            <Code className="w-4 h-4 mr-2" />
+                                            {func}
+                                        </ComboboxItem>
+                                    ))}
+                                </ComboboxList>
+                            </ComboboxContent>
+                        </Combobox>
+                        {isRawSql && (
+                            <Badge variant="secondary" className="text-xs">
+                                SQL Function
+                            </Badge>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, generateUUIDv4(), false)
+                                }
+                                disabled={isReadonly}
+                            >
+                                Generate UUID
+                            </Button>
+                            {column.nullable && !isReadonly && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs"
+                                    onClick={() =>
+                                        handleValueChange(column.name, isNull ? "" : null, false)
+                                    }
+                                >
+                                    {isNull ? "Set value" : "Set NULL"}
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-1">
+                    <Input
+                        type="text"
+                        value={displayValue}
+                        onChange={(e) => handleValueChange(column.name, e.target.value, false)}
+                        disabled={isReadonly}
+                        placeholder={isNull ? "NULL" : "Enter UUID"}
+                        className="flex-1"
+                    />
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() =>
+                                handleValueChange(column.name, generateUUIDv4(), false)
+                            }
+                            disabled={isReadonly}
+                        >
+                            Generate UUID
+                        </Button>
+                        {column.nullable && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, isNull ? "" : null, false)
+                                }
+                            >
+                                {isNull ? "Set value" : "Set NULL"}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Default: text input with combobox for any suggested functions
         const stringValue = isNull
             ? ""
             : typeof value === "object"
                 ? JSON.stringify(value)
                 : String(value ?? "");
 
+        if (suggestedFunctions.length > 0 && !isReadonly) {
+            return (
+                <div className="space-y-1">
+                    <Combobox
+                        value={stringValue}
+                        onValueChange={(newValue) => {
+                            if (!newValue) return;
+                            const isFunction =
+                                suggestedFunctions.includes(newValue) ||
+                                isSqlFunction(newValue);
+                            handleValueChange(column.name, newValue, isFunction);
+                        }}
+                    >
+                        <ComboboxInput
+                            type="text"
+                            value={stringValue}
+                            onChange={(e) => {
+                                const newValue = e.target.value;
+                                const isFunction =
+                                    suggestedFunctions.includes(newValue) ||
+                                    isSqlFunction(newValue);
+                                handleValueChange(column.name, newValue, isFunction);
+                            }}
+                            disabled={isReadonly}
+                            placeholder={isNull ? "NULL" : ""}
+                            className="flex-1 !rounded-md"
+                        />
+                        <ComboboxContent className="!rounded-md">
+                            <ComboboxList>
+                                {suggestedFunctions.map((func) => (
+                                    <ComboboxItem key={func} value={func}>
+                                        <Code className="w-4 h-4 mr-2" />
+                                        {func}
+                                    </ComboboxItem>
+                                ))}
+                            </ComboboxList>
+                        </ComboboxContent>
+                    </Combobox>
+                    {isRawSql && (
+                        <Badge variant="secondary" className="text-xs">
+                            SQL Function
+                        </Badge>
+                    )}
+                    <div className="flex items-center gap-2">
+                        {isUuidColumn(column) && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, generateUUIDv4(), false)
+                                }
+                            >
+                                Generate UUID
+                            </Button>
+                        )}
+                        {column.nullable && !isReadonly && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() =>
+                                    handleValueChange(column.name, isNull ? "" : null, false)
+                                }
+                            >
+                                {isNull ? "Set value" : "Set NULL"}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="flex items-center gap-2">
                 <Input
                     value={stringValue}
-                    onChange={(e) => handleValueChange(column.name, e.target.value)}
+                    onChange={(e) => handleValueChange(column.name, e.target.value, false)}
                     disabled={isReadonly}
                     placeholder={isNull ? "NULL" : ""}
                     className="flex-1"
                 />
-                {column.nullable && !isReadonly && (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => handleValueChange(column.name, isNull ? "" : null)}
-                    >
-                        {isNull ? "Set value" : "NULL"}
-                    </Button>
-                )}
+                <div className="flex items-center gap-2">
+                    {isUuidColumn(column) && !isReadonly && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 text-xs"
+                            onClick={() =>
+                                handleValueChange(column.name, generateUUIDv4(), false)
+                            }
+                        >
+                            Generate UUID
+                        </Button>
+                    )}
+                    {column.nullable && !isReadonly && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-xs"
+                            onClick={() => handleValueChange(column.name, isNull ? "" : null, false)}
+                        >
+                            {isNull ? "Set value" : "NULL"}
+                        </Button>
+                    )}
+                </div>
             </div>
         );
     };
@@ -335,16 +882,15 @@ export function RowEditSheet({
                         {columns.map((column) => (
                             <div key={column.name} className="space-y-1.5">
                                 <Label className="flex items-center gap-2">
-                                    {column.name}
+                                    <span className="font-medium">{column.name}</span>
                                     {column.primary_key && (
                                         <Badge variant="default" className="text-[10px] px-1 py-0 gap-0.5">
                                             <Key className="w-3 h-3" />
                                             PK
                                         </Badge>
                                     )}
-                                    <span className="text-muted-foreground text-xs font-normal">
+                                    <span className="text-muted-foreground text-xs font-normal ml-auto">
                                         {column.type}
-                                        {column.nullable && " (nullable)"}
                                     </span>
                                 </Label>
                                 {renderFieldInput(column)}

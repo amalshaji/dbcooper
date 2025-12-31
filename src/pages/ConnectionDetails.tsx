@@ -3095,7 +3095,7 @@ export function ConnectionDetails() {
 			</AlertDialog>
 
 			{/* Row Edit Sheet */}
-			{activeTab && activeTab.type === "table-data" && (
+			{activeTab && activeTab.type === "table-data" && connection && (
 				<RowEditSheet
 					open={rowEditSheetOpen}
 					onOpenChange={(open) => {
@@ -3105,6 +3105,12 @@ export function ConnectionDetails() {
 					tableName={(activeTab as TableDataTab).tableName}
 					row={editingRow}
 					columns={(activeTab as TableDataTab).columns}
+					dbType={
+						(connection.db_type || "postgres") as
+							| "postgres"
+							| "sqlite"
+							| "clickhouse"
+					}
 					onSave={handleSaveRow}
 					onDelete={handleDeleteRow}
 					saving={savingRow}

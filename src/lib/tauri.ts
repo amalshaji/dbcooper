@@ -323,9 +323,35 @@ export const api = {
 			table: string,
 			primaryKeyColumns: string[],
 			primaryKeyValues: unknown[],
-			updates: Record<string, unknown>,
-		) =>
-			invoke<QueryResult>("update_table_row", {
+			updates: Record<string, unknown> | Array<{
+				column: string;
+				value: unknown;
+				isRawSql: boolean;
+			}>,
+		) => {
+			// Convert array format to map format for backward compatibility
+			if (Array.isArray(updates)) {
+				return invoke<QueryResult>("update_table_row_with_raw_sql", {
+					dbType: connection.db_type || "postgres",
+					host: connection.host,
+					port: connection.port,
+					database: connection.database,
+					username: connection.username,
+					password: connection.password,
+					ssl: connection.ssl === 1,
+					filePath: connection.file_path,
+					schema,
+					table,
+					primaryKeyColumns,
+					primaryKeyValues,
+					updates: updates.map((u) => ({
+						column: u.column,
+						value: u.value,
+						isRawSql: u.isRawSql,
+					})),
+				});
+			}
+			return invoke<QueryResult>("update_table_row", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
 				port: connection.port,
@@ -339,7 +365,8 @@ export const api = {
 				primaryKeyColumns,
 				primaryKeyValues,
 				updates,
-			}),
+			});
+		},
 
 		deleteTableRow: (
 			connection: Connection,

@@ -369,6 +369,95 @@ pub async fn update_table_row(
     driver.execute_query(&query).await
 }
 
+/// Update a row in a table with raw SQL support
+#[tauri::command]
+pub async fn update_table_row_with_raw_sql(
+    db_type: String,
+    host: Option<String>,
+    port: Option<i64>,
+    database: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    ssl: Option<bool>,
+    file_path: Option<String>,
+    schema: String,
+    table: String,
+    primary_key_columns: Vec<String>,
+    primary_key_values: Vec<serde_json::Value>,
+    updates: Vec<serde_json::Value>,
+) -> Result<QueryResult, String> {
+    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
+        return Err("Primary key columns and values must match".to_string());
+    }
+
+    if updates.is_empty() {
+        return Err("No updates provided".to_string());
+    }
+
+    let driver = create_driver(
+        &db_type, host, port, database, username, password, ssl, file_path,
+    )?;
+
+    // Build the UPDATE query
+    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+        format!("\"{}\"", table)
+    } else {
+        format!("\"{}\".\"{}\"", schema, table)
+    };
+
+    // Extract columns and values from the updates array
+    let mut set_parts: Vec<String> = Vec::new();
+
+    for update_obj in updates.iter() {
+        let update_map = update_obj
+            .as_object()
+            .ok_or("Each update must be an object")?;
+
+        let column = update_map
+            .get("column")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing column name")?;
+        let value = update_map.get("value").ok_or("Missing value")?;
+        let is_raw_sql = update_map
+            .get("isRawSql")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let formatted_value = if is_raw_sql {
+            // For raw SQL (functions), use the value as-is
+            value
+                .as_str()
+                .ok_or("Raw SQL value must be a string")?
+                .to_string()
+        } else {
+            // For literal values, format them properly
+            format_sql_value(value)
+        };
+
+        set_parts.push(format!("\"{}\" = {}", column, formatted_value));
+    }
+
+    let set_clause = set_parts.join(", ");
+
+    // Build WHERE clause for primary key
+    let where_parts: Vec<String> = primary_key_columns
+        .iter()
+        .zip(primary_key_values.iter())
+        .map(|(col, val)| {
+            let formatted_value = format_sql_value(val);
+            format!("\"{}\" = {}", col, formatted_value)
+        })
+        .collect();
+    let where_clause = where_parts.join(" AND ");
+
+    let query = format!(
+        "UPDATE {} SET {} WHERE {}",
+        table_ref, set_clause, where_clause
+    );
+
+    driver.execute_query(&query).await
+}
+
 /// Delete a row from a table
 #[tauri::command]
 pub async fn delete_table_row(

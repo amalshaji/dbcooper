@@ -95,6 +95,22 @@ export function RowInsertSheet({
 		}));
 	};
 
+	// Generate UUID v4 using Web Crypto API
+	const generateUUIDv4 = (): string => {
+		return crypto.randomUUID();
+	};
+
+	// Check if column is UUID-related
+	const isUuidColumn = (column: TableColumn): boolean => {
+		const columnNameLower = column.name.toLowerCase();
+		const columnTypeLower = column.type.toLowerCase();
+		return (
+			columnNameLower.includes("uuid") ||
+			columnTypeLower === "uuid" ||
+			columnTypeLower.includes("uuid")
+		);
+	};
+
 	const handleInsert = async () => {
 		// Build values array, excluding empty/null values appropriately
 		const values: Array<{
@@ -201,8 +217,12 @@ export function RowInsertSheet({
 		const isRawSql = fieldValue.isRawSql;
 		const columnType = column.type.toLowerCase();
 
-		// Get suggested functions for this column type
-		const suggestedFunctions = getSuggestedFunctions(dbType, columnType);
+		// Get suggested functions for this column type and name
+		const suggestedFunctions = getSuggestedFunctions(
+			dbType,
+			columnType,
+			column.name,
+		);
 
 		// Handle null values
 		const isNull = value === null || value === "";
@@ -288,6 +308,90 @@ export function RowInsertSheet({
 		if (columnType === "text" || columnType.includes("varchar")) {
 			const stringValue = isNull ? "" : String(value ?? "");
 
+			// Use Combobox if UUID functions are available (e.g., column name contains "uuid")
+			if (suggestedFunctions.length > 0) {
+				return (
+					<div className="space-y-1">
+						<Combobox
+							value={stringValue}
+							onValueChange={(newValue) => {
+								if (!newValue) return;
+								const isFunction =
+									suggestedFunctions.includes(newValue) ||
+									isSqlFunction(newValue);
+								handleValueChange(column.name, newValue, isFunction);
+							}}
+						>
+							<ComboboxInput
+								type="text"
+								value={stringValue}
+								onChange={(e) => {
+									const newValue = e.target.value;
+									const isFunction =
+										suggestedFunctions.includes(newValue) ||
+										isSqlFunction(newValue);
+									handleValueChange(column.name, newValue, isFunction);
+								}}
+								placeholder={
+									isNull
+										? "NULL"
+										: column.default
+											? `Default: ${column.default}`
+											: "Enter value or select function"
+								}
+								className="flex-1 !rounded-md"
+							/>
+							<ComboboxContent className="!rounded-md">
+								<ComboboxList>
+									{suggestedFunctions.map((func) => (
+										<ComboboxItem key={func} value={func}>
+											<Code className="w-4 h-4 mr-2" />
+											{func}
+										</ComboboxItem>
+									))}
+								</ComboboxList>
+							</ComboboxContent>
+						</Combobox>
+						{isRawSql && (
+							<Badge variant="secondary" className="text-xs">
+								SQL Function
+							</Badge>
+						)}
+						<div className="flex items-center gap-2">
+							{isUuidColumn(column) && (
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-6 text-xs"
+									onClick={() =>
+										handleValueChange(
+											column.name,
+											generateUUIDv4(),
+											false,
+										)
+									}
+								>
+									Generate UUID
+								</Button>
+							)}
+							{column.nullable && (
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-6 text-xs"
+									onClick={() =>
+										handleValueChange(column.name, isNull ? "" : null, false)
+									}
+								>
+									{isNull ? "Set value" : "Set NULL"}
+								</Button>
+							)}
+						</div>
+					</div>
+				);
+			}
+
+			// Use Textarea for regular text fields without functions
 			return (
 				<div className="space-y-1">
 					<Textarea
@@ -298,18 +402,32 @@ export function RowInsertSheet({
 						placeholder={isNull ? "NULL" : ""}
 						className="min-h-[60px]"
 					/>
-					{column.nullable && (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 text-xs"
-							onClick={() =>
-								handleValueChange(column.name, isNull ? "" : null, false)
-							}
-						>
-							{isNull ? "Set value" : "Set NULL"}
-						</Button>
-					)}
+					<div className="flex items-center gap-2">
+						{isUuidColumn(column) && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs"
+								onClick={() =>
+									handleValueChange(column.name, generateUUIDv4(), false)
+								}
+							>
+								Generate UUID
+							</Button>
+						)}
+						{column.nullable && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs"
+								onClick={() =>
+									handleValueChange(column.name, isNull ? "" : null, false)
+								}
+							>
+								{isNull ? "Set value" : "Set NULL"}
+							</Button>
+						)}
+					</div>
 				</div>
 			);
 		}
@@ -583,7 +701,7 @@ export function RowInsertSheet({
 		if (columnType === "uuid") {
 			const displayValue = isNull ? "" : String(value ?? "");
 
-			// Use regular Input if no functions available
+			// Use regular Input if no functions available (SQLite)
 			if (suggestedFunctions.length === 0) {
 				return (
 					<div className="space-y-1">
@@ -602,23 +720,35 @@ export function RowInsertSheet({
 							}
 							className="flex-1"
 						/>
-						{column.nullable && (
+						<div className="flex items-center gap-2">
 							<Button
 								variant="ghost"
 								size="sm"
 								className="h-6 text-xs"
 								onClick={() =>
-									handleValueChange(column.name, isNull ? "" : null, false)
+									handleValueChange(column.name, generateUUIDv4(), false)
 								}
 							>
-								{isNull ? "Set value" : "Set NULL"}
+								Generate UUID
 							</Button>
-						)}
+							{column.nullable && (
+								<Button
+									variant="ghost"
+									size="sm"
+									className="h-6 text-xs"
+									onClick={() =>
+										handleValueChange(column.name, isNull ? "" : null, false)
+									}
+								>
+									{isNull ? "Set value" : "Set NULL"}
+								</Button>
+							)}
+						</div>
 					</div>
 				);
 			}
 
-			// Use Combobox when functions are available
+			// Use Combobox when functions are available (PostgreSQL/ClickHouse)
 			return (
 				<div className="space-y-1">
 					<Combobox
@@ -668,18 +798,30 @@ export function RowInsertSheet({
 							SQL Function
 						</Badge>
 					)}
-					{column.nullable && (
+					<div className="flex items-center gap-2">
 						<Button
 							variant="ghost"
 							size="sm"
 							className="h-6 text-xs"
 							onClick={() =>
-								handleValueChange(column.name, isNull ? "" : null, false)
+								handleValueChange(column.name, generateUUIDv4(), false)
 							}
 						>
-							{isNull ? "Set value" : "Set NULL"}
+							Generate UUID
 						</Button>
-					)}
+						{column.nullable && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs"
+								onClick={() =>
+									handleValueChange(column.name, isNull ? "" : null, false)
+								}
+							>
+								{isNull ? "Set value" : "Set NULL"}
+							</Button>
+						)}
+					</div>
 				</div>
 			);
 		}
@@ -710,18 +852,32 @@ export function RowInsertSheet({
 						}
 						className="flex-1"
 					/>
-					{column.nullable && (
-						<Button
-							variant="ghost"
-							size="sm"
-							className="h-6 text-xs"
-							onClick={() =>
-								handleValueChange(column.name, isNull ? "" : null, false)
-							}
-						>
-							{isNull ? "Set value" : "Set NULL"}
-						</Button>
-					)}
+					<div className="flex items-center gap-2">
+						{isUuidColumn(column) && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs"
+								onClick={() =>
+									handleValueChange(column.name, generateUUIDv4(), false)
+								}
+							>
+								Generate UUID
+							</Button>
+						)}
+						{column.nullable && (
+							<Button
+								variant="ghost"
+								size="sm"
+								className="h-6 text-xs"
+								onClick={() =>
+									handleValueChange(column.name, isNull ? "" : null, false)
+								}
+							>
+								{isNull ? "Set value" : "Set NULL"}
+							</Button>
+						)}
+					</div>
 				</div>
 			);
 		}
@@ -773,18 +929,32 @@ export function RowInsertSheet({
 						SQL Function
 					</Badge>
 				)}
-				{column.nullable && (
-					<Button
-						variant="ghost"
-						size="sm"
-						className="h-6 text-xs"
-						onClick={() =>
-							handleValueChange(column.name, isNull ? "" : null, false)
-						}
-					>
-						{isNull ? "Set value" : "Set NULL"}
-					</Button>
-				)}
+				<div className="flex items-center gap-2">
+					{isUuidColumn(column) && (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-6 text-xs"
+							onClick={() =>
+								handleValueChange(column.name, generateUUIDv4(), false)
+							}
+						>
+							Generate UUID
+						</Button>
+					)}
+					{column.nullable && (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="h-6 text-xs"
+							onClick={() =>
+								handleValueChange(column.name, isNull ? "" : null, false)
+							}
+						>
+							{isNull ? "Set value" : "Set NULL"}
+						</Button>
+					)}
+				</div>
 			</div>
 		);
 	};

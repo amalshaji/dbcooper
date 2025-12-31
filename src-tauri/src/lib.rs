@@ -12,6 +12,7 @@ use commands::database::{
     delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
     redis_set_key, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
     unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
+    update_table_row_with_raw_sql,
 };
 use commands::pool::{
     pool_connect, pool_disconnect, pool_execute_query, pool_get_schema_overview, pool_get_status,
@@ -72,6 +73,7 @@ pub fn run() {
             redis_delete_key,
             redis_set_key,
             update_table_row,
+            update_table_row_with_raw_sql,
             delete_table_row,
             insert_table_row,
             get_saved_queries,
