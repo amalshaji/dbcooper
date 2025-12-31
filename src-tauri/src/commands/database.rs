@@ -416,6 +416,83 @@ pub async fn delete_table_row(
     driver.execute_query(&query).await
 }
 
+/// Insert a new row into a table
+#[tauri::command]
+pub async fn insert_table_row(
+    db_type: String,
+    host: Option<String>,
+    port: Option<i64>,
+    database: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    ssl: Option<bool>,
+    file_path: Option<String>,
+    schema: String,
+    table: String,
+    values: Vec<serde_json::Value>,
+) -> Result<QueryResult, String> {
+    if values.is_empty() {
+        return Err("No values provided".to_string());
+    }
+
+    let driver = create_driver(
+        &db_type, host, port, database, username, password, ssl, file_path,
+    )?;
+
+    // Build the INSERT query
+    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+        format!("\"{}\"", table)
+    } else {
+        format!("\"{}\".\"{}\"", schema, table)
+    };
+
+    // Extract columns and values from the values array
+    // Each value should be an object with: column, value, isRawSql
+    let mut columns: Vec<String> = Vec::new();
+    let mut value_parts: Vec<String> = Vec::new();
+
+    for value_obj in values.iter() {
+        let value_map = value_obj
+            .as_object()
+            .ok_or("Each value must be an object")?;
+        
+        let column = value_map
+            .get("column")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing column name")?;
+        let value = value_map.get("value").ok_or("Missing value")?;
+        let is_raw_sql = value_map
+            .get("isRawSql")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        columns.push(format!("\"{}\"", column));
+
+        let formatted_value = if is_raw_sql {
+            // For raw SQL (functions), use the value as-is
+            value
+                .as_str()
+                .ok_or("Raw SQL value must be a string")?
+                .to_string()
+        } else {
+            // For literal values, format them properly
+            format_sql_value(value)
+        };
+
+        value_parts.push(formatted_value);
+    }
+
+    let columns_clause = columns.join(", ");
+    let values_clause = value_parts.join(", ");
+
+    let query = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        table_ref, columns_clause, values_clause
+    );
+
+    driver.execute_query(&query).await
+}
+
 /// Format a JSON value for SQL insertion
 fn format_sql_value(value: &serde_json::Value) -> String {
     match value {

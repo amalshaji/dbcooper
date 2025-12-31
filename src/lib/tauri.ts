@@ -362,6 +362,30 @@ export const api = {
 				primaryKeyColumns,
 				primaryKeyValues,
 			}),
+
+		insertTableRow: (
+			connection: Connection,
+			schema: string,
+			table: string,
+			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) =>
+			invoke<QueryResult>("insert_table_row", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+				schema,
+				table,
+				values: values.map((v) => ({
+					column: v.column,
+					value: v.value,
+					isRawSql: v.isRawSql,
+				})),
+			}),
 	},
 
 	// Redis-specific API

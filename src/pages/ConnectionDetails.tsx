@@ -100,6 +100,7 @@ import {
 	PlayCircle,
 	Check,
 	Copy,
+	Plus,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -109,6 +110,7 @@ import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
+import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
@@ -291,6 +293,10 @@ export function ConnectionDetails() {
 	);
 	const [savingRow, setSavingRow] = useState(false);
 	const [deletingRow, setDeletingRow] = useState(false);
+
+	// Row insert state
+	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
+	const [insertingRow, setInsertingRow] = useState(false);
 
 	// Query result sheet state
 	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
@@ -1158,6 +1164,49 @@ export function ConnectionDetails() {
 		}
 	}, [connection, activeTab, editingRow, fetchTableData]);
 
+	const handleInsertRow = useCallback(
+		async (
+			values: Array<{
+				column: string;
+				value: unknown;
+				isRawSql: boolean;
+			}>,
+		) => {
+			if (!connection || !activeTab || activeTab.type !== "table-data") return;
+
+			const tab = activeTab as TableDataTab;
+			const [schema, tableName] = tab.tableName.split(".");
+
+			setInsertingRow(true);
+
+			try {
+				const result = await api.database.insertTableRow(
+					connection,
+					schema,
+					tableName,
+					values,
+				);
+
+				if (result.error) {
+					toast.error("Failed to insert row", { description: result.error });
+				} else {
+					toast.success("Row inserted successfully");
+					setRowInsertSheetOpen(false);
+					// Refresh table data
+					fetchTableData(tab);
+				}
+			} catch (error) {
+				console.error("Failed to insert row:", error);
+				toast.error("Failed to insert row", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				setInsertingRow(false);
+			}
+		},
+		[connection, activeTab, fetchTableData],
+	);
+
 	// Command palette handlers
 	const handleNextTab = useCallback(() => {
 		if (tabs.length <= 1) return;
@@ -1632,20 +1681,30 @@ export function ConnectionDetails() {
 								})()}
 						</CardDescription>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleRefreshTableData}
-						disabled={tab.loading}
-						className="ml-4"
-					>
-						{tab.loading ? (
-							<Spinner />
-						) : (
-							<ArrowsClockwise className="w-4 h-4" />
-						)}
-						Refresh Data
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							variant="default"
+							size="sm"
+							onClick={() => setRowInsertSheetOpen(true)}
+							disabled={tab.loading}
+						>
+							<Plus className="w-4 h-4" />
+							Add Row
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleRefreshTableData}
+							disabled={tab.loading}
+						>
+							{tab.loading ? (
+								<Spinner />
+							) : (
+								<ArrowsClockwise className="w-4 h-4" />
+							)}
+							Refresh Data
+						</Button>
+					</div>
 				</div>
 			</CardHeader>
 			<div className="px-6 pb-4">
@@ -3050,6 +3109,26 @@ export function ConnectionDetails() {
 					onDelete={handleDeleteRow}
 					saving={savingRow}
 					deleting={deletingRow}
+				/>
+			)}
+
+			{/* Row Insert Sheet */}
+			{activeTab && activeTab.type === "table-data" && connection && (
+				<RowInsertSheet
+					open={rowInsertSheetOpen}
+					onOpenChange={(open) => {
+						setRowInsertSheetOpen(open);
+					}}
+					tableName={(activeTab as TableDataTab).tableName}
+					columns={(activeTab as TableDataTab).columns}
+					dbType={
+						(connection.db_type || "postgres") as
+							| "postgres"
+							| "sqlite"
+							| "clickhouse"
+					}
+					onInsert={handleInsertRow}
+					inserting={insertingRow}
 				/>
 			)}
 
