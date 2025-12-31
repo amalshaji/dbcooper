@@ -112,16 +112,27 @@ impl PoolManager {
             let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
             let remote_port = config.port.unwrap_or(5432) as u16;
 
-            let tunnel = SshTunnel::new(
-                ssh_host,
-                ssh_port,
-                ssh_user,
-                ssh_password,
-                ssh_key_path,
-                remote_host,
-                remote_port,
+            // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
+            let tunnel = match tokio::time::timeout(
+                std::time::Duration::from_secs(20),
+                SshTunnel::new(
+                    ssh_host,
+                    ssh_port,
+                    ssh_user,
+                    ssh_password,
+                    ssh_key_path,
+                    remote_host,
+                    remote_port,
+                ),
             )
-            .await?;
+            .await
+            {
+                Ok(Ok(tunnel)) => tunnel,
+                Ok(Err(e)) => return Err(format!("SSH tunnel failed: {}", e)),
+                Err(_) => {
+                    return Err("SSH tunnel connection timed out after 20 seconds".to_string())
+                }
+            };
 
             (
                 "127.0.0.1".to_string(),

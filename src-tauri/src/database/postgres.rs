@@ -44,14 +44,23 @@ impl PostgresDriver {
 
     async fn create_pool(&self) -> Result<sqlx::PgPool, String> {
         let conn_str = self.build_connection_string();
-        PgPoolOptions::new()
-            .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(30))
-            .idle_timeout(std::time::Duration::from_secs(600))
-            .test_before_acquire(true)
-            .connect(&conn_str)
-            .await
-            .map_err(|e| e.to_string())
+        
+        // Use a 15 second timeout for connection (longer for SSH tunnel overhead)
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            PgPoolOptions::new()
+                .max_connections(5)
+                .acquire_timeout(std::time::Duration::from_secs(30))
+                .idle_timeout(std::time::Duration::from_secs(600))
+                .test_before_acquire(true)
+                .connect(&conn_str),
+        )
+        .await
+        {
+            Ok(Ok(pool)) => Ok(pool),
+            Ok(Err(e)) => Err(format!("Failed to connect to PostgreSQL: {}", e)),
+            Err(_) => Err("Connection timed out after 15 seconds".to_string()),
+        }
     }
 
     async fn get_pool(&self) -> Result<sqlx::PgPool, String> {

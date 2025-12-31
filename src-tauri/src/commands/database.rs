@@ -11,8 +11,7 @@ use crate::database::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
-    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -56,16 +55,25 @@ async fn create_driver_with_ssh(
         let remote_host = host.clone().unwrap_or_default();
         let remote_port = port.unwrap_or(5432) as u16;
 
-        let tunnel = SshTunnel::new(
-            &ssh_host_val,
-            ssh_port_val,
-            &ssh_user_val,
-            password_opt,
-            key_path,
-            &remote_host,
-            remote_port,
+        // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
+        let tunnel = match tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            SshTunnel::new(
+                &ssh_host_val,
+                ssh_port_val,
+                &ssh_user_val,
+                password_opt,
+                key_path,
+                &remote_host,
+                remote_port,
+            ),
         )
-        .await?;
+        .await
+        {
+            Ok(Ok(tunnel)) => tunnel,
+            Ok(Err(e)) => return Err(format!("SSH tunnel failed: {}", e)),
+            Err(_) => return Err("SSH tunnel connection timed out after 20 seconds".to_string()),
+        };
 
         (
             "127.0.0.1".to_string(),

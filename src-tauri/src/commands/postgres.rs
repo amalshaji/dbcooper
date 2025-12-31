@@ -62,26 +62,36 @@ pub async fn test_connection(
             None
         };
 
-        match SshTunnel::new(
-            &ssh_host_val,
-            ssh_port_val,
-            &ssh_user_val,
-            password_opt,
-            key_path,
-            &host,
-            port as u16,
+        // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            SshTunnel::new(
+                &ssh_host_val,
+                ssh_port_val,
+                &ssh_user_val,
+                password_opt,
+                key_path,
+                &host,
+                port as u16,
+            ),
         )
         .await
         {
-            Ok(tunnel) => {
+            Ok(Ok(tunnel)) => {
                 let local_port = tunnel.local_port;
                 _tunnel = Some(tunnel);
                 ("127.0.0.1".to_string(), local_port as i64)
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 return Ok(TestConnectionResult {
                     success: false,
                     message: format!("SSH tunnel failed: {}", e),
+                });
+            }
+            Err(_) => {
+                return Ok(TestConnectionResult {
+                    success: false,
+                    message: "SSH tunnel connection timed out after 20 seconds".to_string(),
                 });
             }
         }
@@ -99,13 +109,17 @@ pub async fn test_connection(
         ssl,
     );
 
-    match PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&conn_str)
-        .await
+    // Use a 15 second timeout for connection (longer for SSH tunnel overhead)
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect(&conn_str),
+    )
+    .await
     {
-        Ok(pool) => {
+        Ok(Ok(pool)) => {
             let result = sqlx::query("SELECT 1").fetch_one(&pool).await;
             pool.close().await;
             match result {
@@ -119,9 +133,13 @@ pub async fn test_connection(
                 }),
             }
         }
-        Err(e) => Ok(TestConnectionResult {
+        Ok(Err(e)) => Ok(TestConnectionResult {
             success: false,
             message: format!("Connection failed: {}", e),
+        }),
+        Err(_) => Ok(TestConnectionResult {
+            success: false,
+            message: "Connection timed out after 15 seconds".to_string(),
         }),
     }
 }
