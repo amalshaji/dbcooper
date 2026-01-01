@@ -73,23 +73,39 @@ export function getSuggestedFunctions(
 	return [];
 }
 
+const ALLOWED_SQL_VALUES: Set<string> = new Set([
+	...SQL_FUNCTIONS.postgres.timestamp,
+	...SQL_FUNCTIONS.postgres.timestamptz,
+	...SQL_FUNCTIONS.postgres.date,
+	...SQL_FUNCTIONS.postgres.time,
+	...SQL_FUNCTIONS.postgres.uuid,
+	...SQL_FUNCTIONS.postgres.serial,
+	...SQL_FUNCTIONS.postgres.bigserial,
+	...SQL_FUNCTIONS.postgres.boolean,
+	...SQL_FUNCTIONS.postgres.bool,
+	...SQL_FUNCTIONS.postgres.json,
+	...SQL_FUNCTIONS.postgres.jsonb,
+	...SQL_FUNCTIONS.sqlite.datetime,
+	...SQL_FUNCTIONS.sqlite.timestamp,
+	...SQL_FUNCTIONS.sqlite.date,
+	...SQL_FUNCTIONS.sqlite.time,
+	...SQL_FUNCTIONS.sqlite.integer,
+	...SQL_FUNCTIONS.sqlite.boolean,
+	...SQL_FUNCTIONS.sqlite.bool,
+	...SQL_FUNCTIONS.clickhouse.datetime,
+	...SQL_FUNCTIONS.clickhouse.datetime64,
+	...SQL_FUNCTIONS.clickhouse.date,
+	...SQL_FUNCTIONS.clickhouse.date32,
+	...SQL_FUNCTIONS.clickhouse.uuid,
+	...SQL_FUNCTIONS.clickhouse.bool,
+	...SQL_FUNCTIONS.clickhouse.json,
+]);
+
 /**
- * Check if a value looks like a SQL function call
+ * Check if a value is an allowed SQL function/keyword from our known list.
+ * This uses a strict allowlist to prevent arbitrary SQL injection.
  */
 export function isSqlFunction(value: string): boolean {
 	if (!value || typeof value !== "string") return false;
-	const trimmed = value.trim();
-	// Check if it ends with () or matches common function patterns
-	return (
-		trimmed.endsWith("()") ||
-		trimmed.match(/^[a-zA-Z_][a-zA-Z0-9_]*\s*\(/i) !== null ||
-		trimmed === "TRUE" ||
-		trimmed === "FALSE" ||
-		trimmed === "DEFAULT" ||
-		trimmed === "NULL" ||
-		trimmed === "true" ||
-		trimmed === "false" ||
-		trimmed === "1" ||
-		trimmed === "0"
-	);
+	return ALLOWED_SQL_VALUES.has(value.trim());
 }

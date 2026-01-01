@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isSqlFunction } from "@/lib/sqlFunctions";
 
 export interface Connection {
 	id: number;
@@ -331,6 +332,17 @@ export const api = {
 		) => {
 			// Convert array format to map format for backward compatibility
 			if (Array.isArray(updates)) {
+				// Validate raw SQL values before sending to backend
+				for (const update of updates) {
+					if (update.isRawSql && typeof update.value === "string") {
+						if (!isSqlFunction(update.value)) {
+							throw new Error(
+								`Invalid raw SQL value: "${update.value}". Only whitelisted SQL functions are allowed for security.`
+							);
+						}
+					}
+				}
+
 				return invoke<QueryResult>("update_table_row_with_raw_sql", {
 					dbType: connection.db_type || "postgres",
 					host: connection.host,
@@ -395,8 +407,19 @@ export const api = {
 			schema: string,
 			table: string,
 			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
-		) =>
-			invoke<QueryResult>("insert_table_row", {
+		) => {
+			// Validate raw SQL values before sending to backend
+			for (const value of values) {
+				if (value.isRawSql && typeof value.value === "string") {
+					if (!isSqlFunction(value.value)) {
+						throw new Error(
+							`Invalid raw SQL value: "${value.value}". Only whitelisted SQL functions are allowed for security.`
+						);
+					}
+				}
+			}
+
+			return invoke<QueryResult>("insert_table_row", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
 				port: connection.port,
@@ -412,7 +435,8 @@ export const api = {
 					value: v.value,
 					isRawSql: v.isRawSql,
 				})),
-			}),
+			});
+		},
 	},
 
 	// Redis-specific API

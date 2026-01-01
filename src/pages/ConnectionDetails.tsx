@@ -2696,7 +2696,10 @@ export function ConnectionDetails() {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={handleRedisDeleteKey}>
+						<AlertDialogAction
+							onClick={handleRedisDeleteKey}
+							variant="destructive"
+						>
 							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
@@ -3088,7 +3091,10 @@ export function ConnectionDetails() {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={confirmDeleteQuery}>
+						<AlertDialogAction
+							onClick={confirmDeleteQuery}
+							variant="destructive"
+						>
 							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
