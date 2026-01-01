@@ -2819,7 +2819,7 @@ export function ConnectionDetails() {
 							</TabsTrigger>
 						</TabsList>
 						<TabsContent value="tables" className="mt-2">
-							<div className="space-y-2 mb-2">
+							<div className="space-y-2 mb-2 px-2">
 								<div className="relative">
 									<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
 									<Input
@@ -2830,18 +2830,18 @@ export function ConnectionDetails() {
 									/>
 								</div>
 								{tableSearchQuery && (
-									<div className="text-xs text-muted-foreground px-2">
+									<div className="text-xs text-muted-foreground">
 										{filteredTables.length} of {tables.length} tables
 									</div>
 								)}
 								{!tableSearchQuery && (
-									<div className="text-xs text-muted-foreground px-2">
+									<div className="text-xs text-muted-foreground">
 										{tables.length} tables
 									</div>
 								)}
 							</div>
 							{Object.entries(tablesBySchema).map(([schema, schemaTables]) => (
-								<SidebarGroup key={schema}>
+								<SidebarGroup key={schema} className="p-0">
 									<SidebarGroupLabel>{schema}</SidebarGroupLabel>
 									<SidebarGroupContent>
 										<SidebarMenu>
@@ -2942,6 +2942,7 @@ export function ConnectionDetails() {
 																	cols.map((col) => (
 																		<SidebarMenuSubItem key={col.name}>
 																			<SidebarMenuSubButton
+																				className="group/col-item"
 																				onClick={() => {
 																					// If there's an active query tab, insert column name
 																					if (
@@ -2959,7 +2960,7 @@ export function ConnectionDetails() {
 																				<span className="font-mono text-xs truncate">
 																					{col.name}
 																				</span>
-																				<span className="text-muted-foreground text-xs ml-auto truncate max-w-[80px]">
+																				<span className="text-muted-foreground group-hover/col-item:text-sidebar-accent-foreground text-xs ml-auto truncate max-w-[80px]">
 																					{col.type}
 																				</span>
 																				{col.primary_key && (
