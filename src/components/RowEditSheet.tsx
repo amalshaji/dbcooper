@@ -70,6 +70,9 @@ export function RowEditSheet({
 
 	const hasPrimaryKey = primaryKeyColumns.length > 0;
 
+	// ClickHouse doesn't support direct row updates through the edit sheet
+	const isClickHouse = dbType === "clickhouse";
+
 	// Reset edited values when row changes
 	useEffect(() => {
 		if (row) {
@@ -155,13 +158,18 @@ export function RowEditSheet({
 				>
 					<SheetHeader>
 						<SheetTitle className="flex items-center gap-2">
-							Edit Row
+							{isClickHouse ? "View Row" : "Edit Row"}
 							<Badge variant="secondary" className="font-mono">
 								{tableName}
 							</Badge>
 						</SheetTitle>
 						<SheetDescription>
-							{hasPrimaryKey ? (
+							{isClickHouse ? (
+								<span className="flex items-center gap-1 mt-2 text-amber-600">
+									ClickHouse doesn't support direct row editing. Use ALTER TABLE
+									UPDATE queries in the SQL editor instead.
+								</span>
+							) : hasPrimaryKey ? (
 								<>
 									Edit the values below and click Save to update the row.
 									Primary key fields cannot be edited.
@@ -182,7 +190,7 @@ export function RowEditSheet({
 								isRawSql: false,
 							};
 							const isPrimaryKey = column.primary_key;
-							const isReadonly = isPrimaryKey || !hasPrimaryKey;
+							const isReadonly = isPrimaryKey || !hasPrimaryKey || isClickHouse;
 
 							return (
 								<div key={column.name} className="space-y-1.5">
@@ -214,23 +222,25 @@ export function RowEditSheet({
 						})}
 					</div>
 
-					<SheetFooter className="flex-row gap-2 justify-between sm:justify-between px-4">
-						<Button
-							variant="destructive"
-							onClick={() => setShowDeleteDialog(true)}
-							disabled={!hasPrimaryKey || deleting || saving}
-						>
-							{deleting ? <Spinner /> : <Trash className="w-4 h-4" />}
-							Delete
-						</Button>
-						<Button
-							onClick={handleSave}
-							disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
-						>
-							{saving ? <Spinner /> : <FloppyDisk className="w-4 h-4" />}
-							Save Changes
-						</Button>
-					</SheetFooter>
+					{!isClickHouse && (
+						<SheetFooter className="flex-row gap-2 justify-between sm:justify-between px-4">
+							<Button
+								variant="destructive"
+								onClick={() => setShowDeleteDialog(true)}
+								disabled={!hasPrimaryKey || deleting || saving}
+							>
+								{deleting ? <Spinner /> : <Trash className="w-4 h-4" />}
+								Delete
+							</Button>
+							<Button
+								onClick={handleSave}
+								disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
+							>
+								{saving ? <Spinner /> : <FloppyDisk className="w-4 h-4" />}
+								Save Changes
+							</Button>
+						</SheetFooter>
+					)}
 				</SheetContent>
 			</Sheet>
 
