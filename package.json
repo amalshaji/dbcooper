@@ -22,6 +22,7 @@
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.14",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",

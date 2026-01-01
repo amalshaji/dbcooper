@@ -5,6 +5,7 @@ import {
 	useReactTable,
 	type ColumnDef,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 
 interface DataTableProps<TData> {
@@ -15,6 +16,8 @@ interface DataTableProps<TData> {
 	onPageChange?: (page: number) => void;
 	onRowClick?: (row: TData) => void;
 	hidePagination?: boolean;
+	virtualize?: boolean;
+	estimatedRowHeight?: number;
 }
 
 export function DataTable<TData>({
@@ -25,6 +28,8 @@ export function DataTable<TData>({
 	onPageChange,
 	onRowClick,
 	hidePagination = false,
+	virtualize = false,
+	estimatedRowHeight = 41,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +40,96 @@ export function DataTable<TData>({
 		manualPagination: true,
 		pageCount,
 	});
+
+	const { rows } = table.getRowModel();
+
+	const rowVirtualizer = useVirtualizer({
+		count: rows.length,
+		getScrollElement: () => containerRef.current,
+		estimateSize: () => estimatedRowHeight,
+		overscan: 10,
+	});
+
+	const virtualRows = rowVirtualizer.getVirtualItems();
+	const totalSize = rowVirtualizer.getTotalSize();
+
+	// Calculate padding for virtual scrolling
+	const paddingTop = virtualRows.length > 0 ? (virtualRows[0]?.start ?? 0) : 0;
+	const paddingBottom =
+		virtualRows.length > 0
+			? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+			: 0;
+
+	const renderTableBody = () => {
+		if (!rows.length) {
+			return (
+				<tr>
+					<td colSpan={columns.length} className="h-32 text-center p-3">
+						No results.
+					</td>
+				</tr>
+			);
+		}
+
+		if (virtualize) {
+			return (
+				<>
+					{paddingTop > 0 && (
+						<tr>
+							<td style={{ height: `${paddingTop}px` }} />
+						</tr>
+					)}
+					{virtualRows.map((virtualRow) => {
+						const row = rows[virtualRow.index];
+						return (
+							<tr
+								key={row.id}
+								data-index={virtualRow.index}
+								ref={(node) => rowVirtualizer.measureElement(node)}
+								data-state={row.getIsSelected() && "selected"}
+								className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
+									onRowClick ? "cursor-pointer" : ""
+								}`}
+								onClick={() => onRowClick?.(row.original)}
+							>
+								{row.getVisibleCells().map((cell) => (
+									<td
+										key={cell.id}
+										className="p-3 align-middle whitespace-nowrap"
+									>
+										{flexRender(cell.column.columnDef.cell, cell.getContext())}
+									</td>
+								))}
+							</tr>
+						);
+					})}
+					{paddingBottom > 0 && (
+						<tr>
+							<td style={{ height: `${paddingBottom}px` }} />
+						</tr>
+					)}
+				</>
+			);
+		}
+
+		// Non-virtualized rendering (original behavior)
+		return rows.map((row) => (
+			<tr
+				key={row.id}
+				data-state={row.getIsSelected() && "selected"}
+				className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
+					onRowClick ? "cursor-pointer" : ""
+				}`}
+				onClick={() => onRowClick?.(row.original)}
+			>
+				{row.getVisibleCells().map((cell) => (
+					<td key={cell.id} className="p-3 align-middle whitespace-nowrap">
+						{flexRender(cell.column.columnDef.cell, cell.getContext())}
+					</td>
+				))}
+			</tr>
+		));
+	};
 
 	return (
 		<div className="flex flex-col h-full w-full min-w-0">
@@ -63,36 +158,7 @@ export function DataTable<TData>({
 						))}
 					</thead>
 					<tbody className="[&_tr:last-child]:border-0">
-						{table.getRowModel().rows?.length ? (
-							table.getRowModel().rows.map((row) => (
-								<tr
-									key={row.id}
-									data-state={row.getIsSelected() && "selected"}
-									className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
-										onRowClick ? "cursor-pointer" : ""
-									}`}
-									onClick={() => onRowClick?.(row.original)}
-								>
-									{row.getVisibleCells().map((cell) => (
-										<td
-											key={cell.id}
-											className="p-3 align-middle whitespace-nowrap"
-										>
-											{flexRender(
-												cell.column.columnDef.cell,
-												cell.getContext(),
-											)}
-										</td>
-									))}
-								</tr>
-							))
-						) : (
-							<tr>
-								<td colSpan={columns.length} className="h-32 text-center p-3">
-									No results.
-								</td>
-							</tr>
-						)}
+						{renderTableBody()}
 					</tbody>
 				</table>
 			</div>

@@ -1776,6 +1776,7 @@ export function ConnectionDetails() {
 							currentPage={tab.currentPage}
 							onPageChange={handlePageChange}
 							onRowClick={handleRowClick}
+							virtualize={tab.data.data.length > 100}
 						/>
 					</div>
 				) : (
@@ -2327,11 +2328,12 @@ export function ConnectionDetails() {
 							<p className="text-sm text-destructive/80 mt-1">{tab.error}</p>
 						</div>
 					) : tab.results && tab.results.length > 0 ? (
-						<div className="max-h-[85vh] overflow-x-auto">
+						<div className="h-[85vh]">
 							<DataTable
 								data={tab.results}
 								columns={queryColumns}
 								hidePagination
+								virtualize={tab.results.length > 100}
 								onRowClick={(row) => {
 									if (!tab.results) return;
 									const index = tab.results.findIndex((r) => r === row);
