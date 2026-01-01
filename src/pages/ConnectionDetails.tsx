@@ -2055,7 +2055,9 @@ export function ConnectionDetails() {
 															? "sqlite"
 															: connection?.db_type === "clickhouse"
 																? "sql"
-																: "postgresql",
+																: connection?.db_type === "postgres"
+																	? "postgresql"
+																	: "postgresql",
 													tabWidth: 2,
 													keywordCase: "upper",
 												});
