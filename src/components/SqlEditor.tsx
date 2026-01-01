@@ -159,7 +159,7 @@ export function SqlEditor({
 						placeholder={
 							aiConfigured === false
 								? "Configure API in Settings to enable AI"
-								: "Describe the SQL you want to generate..."
+								: "Describe the SQL you want to generate"
 						}
 						value={instruction}
 						onChange={(e) => setInstruction(e.target.value)}
@@ -179,16 +179,11 @@ export function SqlEditor({
 									className="whitespace-nowrap"
 								>
 									{generating ? (
-										<>
-											<Spinner className="h-4 w-4" />
-											Generating...
-										</>
+										<Spinner className="h-4 w-4" />
 									) : (
-										<>
-											<Sparkle className="h-4 w-4" />
-											Generate
-										</>
+										<Sparkle className="h-4 w-4" />
 									)}
+									Generate
 								</Button>
 							}
 						/>

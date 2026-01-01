@@ -2063,20 +2063,12 @@ export function ConnectionDetails() {
 											disabled={tab.executing}
 											className="rounded-r-none border-r-0 -mr-1"
 										>
-											{tab.executing ? (
-												<>
-													<Spinner />
-													Running...
-												</>
-											) : (
-												<>
-													Run Query{" "}
-													<span className="text-xs opacity-60">
-														({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
-														+↵)
-													</span>
-												</>
-											)}
+											{tab.executing ? <Spinner /> : null}
+											Run Query{" "}
+											<span className="text-xs opacity-60">
+												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
+												+↵)
+											</span>
 										</Button>
 										<DropdownMenu>
 											<DropdownMenuTrigger

@@ -462,7 +462,7 @@ export function SchemaVisualizer({
 										<div className="relative">
 											<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 											<Input
-												placeholder="Search tables..."
+												placeholder="Search tables"
 												value={tableFilter}
 												onChange={(e) => onTableFilterChange(e.target.value)}
 												className="pl-8"
@@ -593,7 +593,7 @@ export function SchemaVisualizer({
 									<div className="relative">
 										<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 										<Input
-											placeholder="Search tables..."
+											placeholder="Search tables"
 											value={tableFilter}
 											onChange={(e) => onTableFilterChange(e.target.value)}
 											className="pl-8"

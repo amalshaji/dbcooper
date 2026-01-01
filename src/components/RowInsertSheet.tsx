@@ -22,11 +22,13 @@ interface RowInsertSheetProps {
 	tableName: string;
 	columns: TableColumn[];
 	dbType: DbType;
-	onInsert: (values: Array<{
-		column: string;
-		value: unknown;
-		isRawSql: boolean;
-	}>) => Promise<void>;
+	onInsert: (
+		values: Array<{
+			column: string;
+			value: unknown;
+			isRawSql: boolean;
+		}>,
+	) => Promise<void>;
 	inserting?: boolean;
 }
 
@@ -67,7 +69,9 @@ export function RowInsertSheet({
 	onInsert,
 	inserting = false,
 }: RowInsertSheetProps) {
-	const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>({});
+	const [fieldValues, setFieldValues] = useState<Record<string, FieldValue>>(
+		{},
+	);
 
 	useEffect(() => {
 		if (open) {
@@ -221,17 +225,8 @@ export function RowInsertSheet({
 						Cancel
 					</Button>
 					<Button onClick={handleInsert} disabled={inserting}>
-						{inserting ? (
-							<>
-								<Spinner />
-								Inserting...
-							</>
-						) : (
-							<>
-								<FloppyDisk className="w-4 h-4" />
-								Insert Row
-							</>
-						)}
+						{inserting ? <Spinner /> : <FloppyDisk className="w-4 h-4" />}
+						Insert Row
 					</Button>
 				</SheetFooter>
 			</SheetContent>
