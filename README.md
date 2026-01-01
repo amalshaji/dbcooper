@@ -1,8 +1,6 @@
 # DBcooper
 
-A vibe-coded database client built with Tauri, React, and TypeScript.
-
-> ⚠️ **Early Development**: This app is under active development. Expect breaking changes between versions.
+A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
 
 ![dbcooper](./docs/public/images/dbcooper.png)
 ![aggregation](./docs/public/images/aggregate.png)

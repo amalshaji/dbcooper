@@ -25,12 +25,6 @@ import SEO from '../components/SEO.astro';
 		</script>
 	</head>
 	<body class="bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 font-['Google_Sans_Flex',system-ui,sans-serif]">
-		
-		<!-- Banner -->
-		<div class="text-center py-2 text-sm bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-b border-amber-100 dark:border-amber-900">
-			🚧 In development
-		</div>
-
 		<!-- Header -->
 		<header class="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between">
 			<a href="/" class="flex items-center gap-2">
@@ -56,7 +50,7 @@ import SEO from '../components/SEO.astro';
 			<section class="py-16 flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
 				<!-- Hero -->
 				<div class="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left">
-					<h1 class="md:text-3xl text-2xl font-semibold mb-2 whitespace-nowrap sm:whitespace-normal">Database manager for macOS</h1>
+					<h1 class="md:text-3xl text-2xl font-semibold mb-2 whitespace-nowrap sm:whitespace-normal">Database client for developers</h1>
 					<div class="flex items-center justify-center lg:justify-start gap-1 text-neutral-500 dark:text-neutral-400 mb-6">
 						<DatabaseIcons client:load />
 					</div>
@@ -79,7 +73,7 @@ import SEO from '../components/SEO.astro';
 		<!-- Footer -->
 		<footer class="border-t border-neutral-200 dark:border-neutral-800">
 			<div class="max-w-3xl mx-auto px-6 py-6 text-sm text-neutral-500">
-				© 2024 DBcooper
+				© {new Date().getFullYear()} DBcooper
 			</div>
 		</footer>
 		<!-- 100% privacy-first analytics -->
