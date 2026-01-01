@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isSqlFunction } from "@/lib/sqlFunctions";
 
 export interface Connection {
 	id: number;
@@ -323,9 +324,48 @@ export const api = {
 			table: string,
 			primaryKeyColumns: string[],
 			primaryKeyValues: unknown[],
-			updates: Record<string, unknown>,
-		) =>
-			invoke<QueryResult>("update_table_row", {
+			updates:
+				| Record<string, unknown>
+				| Array<{
+						column: string;
+						value: unknown;
+						isRawSql: boolean;
+				  }>,
+		) => {
+			// Convert array format to map format for backward compatibility
+			if (Array.isArray(updates)) {
+				// Validate raw SQL values before sending to backend
+				for (const update of updates) {
+					if (update.isRawSql && typeof update.value === "string") {
+						if (!isSqlFunction(update.value)) {
+							throw new Error(
+								`Invalid raw SQL value: "${update.value}". Only whitelisted SQL functions are allowed for security.`,
+							);
+						}
+					}
+				}
+
+				return invoke<QueryResult>("update_table_row_with_raw_sql", {
+					dbType: connection.db_type || "postgres",
+					host: connection.host,
+					port: connection.port,
+					database: connection.database,
+					username: connection.username,
+					password: connection.password,
+					ssl: connection.ssl === 1,
+					filePath: connection.file_path,
+					schema,
+					table,
+					primaryKeyColumns,
+					primaryKeyValues,
+					updates: updates.map((u) => ({
+						column: u.column,
+						value: u.value,
+						isRawSql: u.isRawSql,
+					})),
+				});
+			}
+			return invoke<QueryResult>("update_table_row", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
 				port: connection.port,
@@ -339,7 +379,8 @@ export const api = {
 				primaryKeyColumns,
 				primaryKeyValues,
 				updates,
-			}),
+			});
+		},
 
 		deleteTableRow: (
 			connection: Connection,
@@ -362,6 +403,42 @@ export const api = {
 				primaryKeyColumns,
 				primaryKeyValues,
 			}),
+
+		insertTableRow: (
+			connection: Connection,
+			schema: string,
+			table: string,
+			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) => {
+			// Validate raw SQL values before sending to backend
+			for (const value of values) {
+				if (value.isRawSql && typeof value.value === "string") {
+					if (!isSqlFunction(value.value)) {
+						throw new Error(
+							`Invalid raw SQL value: "${value.value}". Only whitelisted SQL functions are allowed for security.`,
+						);
+					}
+				}
+			}
+
+			return invoke<QueryResult>("insert_table_row", {
+				dbType: connection.db_type || "postgres",
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
+				ssl: connection.ssl === 1,
+				filePath: connection.file_path,
+				schema,
+				table,
+				values: values.map((v) => ({
+					column: v.column,
+					value: v.value,
+					isRawSql: v.isRawSql,
+				})),
+			});
+		},
 	},
 
 	// Redis-specific API
@@ -504,6 +581,51 @@ export const api = {
 					indexes: IndexInfo[];
 				}[];
 			}>("pool_get_schema_overview", { uuid }),
+
+		updateTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			primaryKeyColumns: string[],
+			primaryKeyValues: unknown[],
+			updates: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) =>
+			invoke<QueryResult>("pool_update_table_row", {
+				uuid,
+				schema,
+				table,
+				primaryKeyColumns,
+				primaryKeyValues,
+				updates,
+			}),
+
+		deleteTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			primaryKeyColumns: string[],
+			primaryKeyValues: unknown[],
+		) =>
+			invoke<QueryResult>("pool_delete_table_row", {
+				uuid,
+				schema,
+				table,
+				primaryKeyColumns,
+				primaryKeyValues,
+			}),
+
+		insertTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) =>
+			invoke<QueryResult>("pool_insert_table_row", {
+				uuid,
+				schema,
+				table,
+				values,
+			}),
 	},
 
 	ai: {

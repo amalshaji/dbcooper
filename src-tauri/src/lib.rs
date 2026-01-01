@@ -9,13 +9,15 @@ use commands::connections::{
     update_connection,
 };
 use commands::database::{
-    delete_table_row, redis_delete_key, redis_get_key_details, redis_search_keys, redis_set_key,
-    unified_execute_query, unified_get_schema_overview, unified_get_table_data,
+    delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
+    redis_set_key, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
     unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
+    update_table_row_with_raw_sql,
 };
 use commands::pool::{
-    pool_connect, pool_disconnect, pool_execute_query, pool_get_schema_overview, pool_get_status,
-    pool_get_table_data, pool_get_table_structure, pool_health_check, pool_list_tables,
+    pool_connect, pool_delete_table_row, pool_disconnect, pool_execute_query,
+    pool_get_schema_overview, pool_get_status, pool_get_table_data, pool_get_table_structure,
+    pool_health_check, pool_insert_table_row, pool_list_tables, pool_update_table_row,
 };
 use commands::postgres::{
     execute_query, get_table_data, get_table_structure, list_tables, test_connection,
@@ -72,7 +74,9 @@ pub fn run() {
             redis_delete_key,
             redis_set_key,
             update_table_row,
+            update_table_row_with_raw_sql,
             delete_table_row,
+            insert_table_row,
             get_saved_queries,
             create_saved_query,
             update_saved_query,
@@ -90,6 +94,9 @@ pub fn run() {
             pool_get_table_structure,
             pool_execute_query,
             pool_get_schema_overview,
+            pool_update_table_row,
+            pool_delete_table_row,
+            pool_insert_table_row,
             select_tables_for_query,
         ])
         .run(tauri::generate_context!())

@@ -17,28 +17,36 @@ const HEADER_HEIGHT = 36;
 const ROW_HEIGHT = 36;
 
 export const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
-	const { tableName, schema, columns, foreignKeys, referencedColumns, showColumns, onTableClick } = data;
+	const {
+		tableName,
+		schema,
+		columns,
+		foreignKeys,
+		referencedColumns,
+		showColumns,
+		onTableClick,
+	} = data;
 	const fullTableName = `${schema}.${tableName}`;
 
 	const handles = useMemo(() => {
 		if (!showColumns) return null;
-		
+
 		const sourceHandles: { id: string; top: number }[] = [];
 		const targetHandles: { id: string; top: number }[] = [];
-		
+
 		columns.forEach((column, index) => {
-			const top = HEADER_HEIGHT + (index * ROW_HEIGHT) + (ROW_HEIGHT / 2);
-			
+			const top = HEADER_HEIGHT + index * ROW_HEIGHT + ROW_HEIGHT / 2;
+
 			const fk = foreignKeys.find((fk) => fk.column === column.name);
 			if (fk) {
 				sourceHandles.push({ id: `${column.name}-source`, top });
 			}
-			
+
 			if (column.primary_key || referencedColumns.has(column.name)) {
 				targetHandles.push({ id: `${column.name}-target`, top });
 			}
 		});
-		
+
 		return { sourceHandles, targetHandles };
 	}, [columns, foreignKeys, referencedColumns, showColumns]);
 
@@ -64,12 +72,18 @@ export const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
 								<span className="font-mono truncate mr-2">{column.name}</span>
 								<div className="flex items-center gap-1 shrink-0">
 									{column.primary_key && (
-										<Badge variant="outline" className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
+										<Badge
+											variant="outline"
+											className="text-[10px] px-1 py-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+										>
 											PK
 										</Badge>
 									)}
 									{fk && (
-										<Badge variant="outline" className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20">
+										<Badge
+											variant="outline"
+											className="text-[10px] px-1 py-0 bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20"
+										>
 											FK
 										</Badge>
 									)}
@@ -82,7 +96,7 @@ export const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
 					})}
 				</div>
 			)}
-			
+
 			{showColumns && handles && (
 				<>
 					{handles.sourceHandles.map((handle) => (
@@ -117,7 +131,7 @@ export const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
 					))}
 				</>
 			)}
-			
+
 			{!showColumns && (
 				<>
 					<Handle

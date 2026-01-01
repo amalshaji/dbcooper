@@ -100,6 +100,7 @@ import {
 	PlayCircle,
 	Check,
 	Copy,
+	Plus,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -109,6 +110,7 @@ import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
+import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
@@ -291,6 +293,10 @@ export function ConnectionDetails() {
 	);
 	const [savingRow, setSavingRow] = useState(false);
 	const [deletingRow, setDeletingRow] = useState(false);
+
+	// Row insert state
+	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
+	const [insertingRow, setInsertingRow] = useState(false);
 
 	// Query result sheet state
 	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
@@ -1049,7 +1055,9 @@ export function ConnectionDetails() {
 	}, []);
 
 	const handleSaveRow = useCallback(
-		async (updates: Record<string, unknown>) => {
+		async (
+			updates: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) => {
 			if (
 				!connection ||
 				!activeTab ||
@@ -1075,8 +1083,8 @@ export function ConnectionDetails() {
 			setSavingRow(true);
 
 			try {
-				const result = await api.database.updateTableRow(
-					connection,
+				const result = await api.pool.updateTableRow(
+					connection.uuid,
 					schema,
 					tableName,
 					primaryKeyColumns,
@@ -1131,8 +1139,8 @@ export function ConnectionDetails() {
 		setDeletingRow(true);
 
 		try {
-			const result = await api.database.deleteTableRow(
-				connection,
+			const result = await api.pool.deleteTableRow(
+				connection.uuid,
 				schema,
 				tableName,
 				primaryKeyColumns,
@@ -1157,6 +1165,49 @@ export function ConnectionDetails() {
 			setDeletingRow(false);
 		}
 	}, [connection, activeTab, editingRow, fetchTableData]);
+
+	const handleInsertRow = useCallback(
+		async (
+			values: Array<{
+				column: string;
+				value: unknown;
+				isRawSql: boolean;
+			}>,
+		) => {
+			if (!connection || !activeTab || activeTab.type !== "table-data") return;
+
+			const tab = activeTab as TableDataTab;
+			const [schema, tableName] = tab.tableName.split(".");
+
+			setInsertingRow(true);
+
+			try {
+				const result = await api.pool.insertTableRow(
+					connection.uuid,
+					schema,
+					tableName,
+					values,
+				);
+
+				if (result.error) {
+					toast.error("Failed to insert row", { description: result.error });
+				} else {
+					toast.success("Row inserted successfully");
+					setRowInsertSheetOpen(false);
+					// Refresh table data
+					fetchTableData(tab);
+				}
+			} catch (error) {
+				console.error("Failed to insert row:", error);
+				toast.error("Failed to insert row", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				setInsertingRow(false);
+			}
+		},
+		[connection, activeTab, fetchTableData],
+	);
 
 	// Command palette handlers
 	const handleNextTab = useCallback(() => {
@@ -1632,20 +1683,30 @@ export function ConnectionDetails() {
 								})()}
 						</CardDescription>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleRefreshTableData}
-						disabled={tab.loading}
-						className="ml-4"
-					>
-						{tab.loading ? (
-							<Spinner />
-						) : (
-							<ArrowsClockwise className="w-4 h-4" />
-						)}
-						Refresh Data
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							variant="default"
+							size="sm"
+							onClick={() => setRowInsertSheetOpen(true)}
+							disabled={tab.loading}
+						>
+							<Plus className="w-4 h-4" />
+							Add Row
+						</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleRefreshTableData}
+							disabled={tab.loading}
+						>
+							{tab.loading ? (
+								<Spinner />
+							) : (
+								<ArrowsClockwise className="w-4 h-4" />
+							)}
+							Refresh Data
+						</Button>
+					</div>
 				</div>
 			</CardHeader>
 			<div className="px-6 pb-4">
@@ -2637,7 +2698,10 @@ export function ConnectionDetails() {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={handleRedisDeleteKey}>
+						<AlertDialogAction
+							onClick={handleRedisDeleteKey}
+							variant="destructive"
+						>
 							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
@@ -2760,7 +2824,7 @@ export function ConnectionDetails() {
 							</TabsTrigger>
 						</TabsList>
 						<TabsContent value="tables" className="mt-2">
-							<div className="space-y-2 mb-2">
+							<div className="space-y-2 mb-2 px-2">
 								<div className="relative">
 									<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
 									<Input
@@ -2771,18 +2835,18 @@ export function ConnectionDetails() {
 									/>
 								</div>
 								{tableSearchQuery && (
-									<div className="text-xs text-muted-foreground px-2">
+									<div className="text-xs text-muted-foreground">
 										{filteredTables.length} of {tables.length} tables
 									</div>
 								)}
 								{!tableSearchQuery && (
-									<div className="text-xs text-muted-foreground px-2">
+									<div className="text-xs text-muted-foreground">
 										{tables.length} tables
 									</div>
 								)}
 							</div>
 							{Object.entries(tablesBySchema).map(([schema, schemaTables]) => (
-								<SidebarGroup key={schema}>
+								<SidebarGroup key={schema} className="p-0">
 									<SidebarGroupLabel>{schema}</SidebarGroupLabel>
 									<SidebarGroupContent>
 										<SidebarMenu>
@@ -2883,6 +2947,7 @@ export function ConnectionDetails() {
 																	cols.map((col) => (
 																		<SidebarMenuSubItem key={col.name}>
 																			<SidebarMenuSubButton
+																				className="group/col-item"
 																				onClick={() => {
 																					// If there's an active query tab, insert column name
 																					if (
@@ -2900,7 +2965,7 @@ export function ConnectionDetails() {
 																				<span className="font-mono text-xs truncate">
 																					{col.name}
 																				</span>
-																				<span className="text-muted-foreground text-xs ml-auto truncate max-w-[80px]">
+																				<span className="text-muted-foreground group-hover/col-item:text-sidebar-accent-foreground text-xs ml-auto truncate max-w-[80px]">
 																					{col.type}
 																				</span>
 																				{col.primary_key && (
@@ -3028,7 +3093,10 @@ export function ConnectionDetails() {
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction onClick={confirmDeleteQuery}>
+						<AlertDialogAction
+							onClick={confirmDeleteQuery}
+							variant="destructive"
+						>
 							Delete
 						</AlertDialogAction>
 					</AlertDialogFooter>
@@ -3036,7 +3104,7 @@ export function ConnectionDetails() {
 			</AlertDialog>
 
 			{/* Row Edit Sheet */}
-			{activeTab && activeTab.type === "table-data" && (
+			{activeTab && activeTab.type === "table-data" && connection && (
 				<RowEditSheet
 					open={rowEditSheetOpen}
 					onOpenChange={(open) => {
@@ -3046,10 +3114,36 @@ export function ConnectionDetails() {
 					tableName={(activeTab as TableDataTab).tableName}
 					row={editingRow}
 					columns={(activeTab as TableDataTab).columns}
+					dbType={
+						(connection.db_type || "postgres") as
+							| "postgres"
+							| "sqlite"
+							| "clickhouse"
+					}
 					onSave={handleSaveRow}
 					onDelete={handleDeleteRow}
 					saving={savingRow}
 					deleting={deletingRow}
+				/>
+			)}
+
+			{/* Row Insert Sheet */}
+			{activeTab && activeTab.type === "table-data" && connection && (
+				<RowInsertSheet
+					open={rowInsertSheetOpen}
+					onOpenChange={(open) => {
+						setRowInsertSheetOpen(open);
+					}}
+					tableName={(activeTab as TableDataTab).tableName}
+					columns={(activeTab as TableDataTab).columns}
+					dbType={
+						(connection.db_type || "postgres") as
+							| "postgres"
+							| "sqlite"
+							| "clickhouse"
+					}
+					onInsert={handleInsertRow}
+					inserting={insertingRow}
 				/>
 			)}
 

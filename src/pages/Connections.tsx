@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
 	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
 	AlertDialogContent,
 	AlertDialogDescription,
 	AlertDialogFooter,
@@ -416,21 +418,17 @@ export function Connections() {
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter>
-							<Button
-								variant="outline"
-								onClick={handleCancelDelete}
-								disabled={isDeleting}
-							>
+							<AlertDialogCancel disabled={isDeleting}>
 								Cancel
-							</Button>
-							<Button
-								variant="destructive"
+							</AlertDialogCancel>
+							<AlertDialogAction
 								onClick={handleConfirmDelete}
 								disabled={isDeleting}
+								variant="destructive"
 							>
 								{isDeleting && <Spinner />}
 								Delete
-							</Button>
+							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>

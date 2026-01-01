@@ -335,9 +335,13 @@ pub async fn update_table_row(
 
     // Build the UPDATE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", table)
+        format!("\"{}\"", escape_sql_identifier(&table))
     } else {
-        format!("\"{}\".\"{}\"", schema, table)
+        format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(&schema),
+            escape_sql_identifier(&table)
+        )
     };
 
     // Build SET clause
@@ -345,7 +349,7 @@ pub async fn update_table_row(
         .iter()
         .map(|(col, val)| {
             let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", col, formatted_value)
+            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
         })
         .collect();
     let set_clause = set_parts.join(", ");
@@ -356,7 +360,108 @@ pub async fn update_table_row(
         .zip(primary_key_values.iter())
         .map(|(col, val)| {
             let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", col, formatted_value)
+            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
+        })
+        .collect();
+    let where_clause = where_parts.join(" AND ");
+
+    let query = format!(
+        "UPDATE {} SET {} WHERE {}",
+        table_ref, set_clause, where_clause
+    );
+
+    driver.execute_query(&query).await
+}
+
+/// Update a row in a table with raw SQL support
+#[tauri::command]
+pub async fn update_table_row_with_raw_sql(
+    db_type: String,
+    host: Option<String>,
+    port: Option<i64>,
+    database: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    ssl: Option<bool>,
+    file_path: Option<String>,
+    schema: String,
+    table: String,
+    primary_key_columns: Vec<String>,
+    primary_key_values: Vec<serde_json::Value>,
+    updates: Vec<serde_json::Value>,
+) -> Result<QueryResult, String> {
+    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
+        return Err("Primary key columns and values must match".to_string());
+    }
+
+    if updates.is_empty() {
+        return Err("No updates provided".to_string());
+    }
+
+    let driver = create_driver(
+        &db_type, host, port, database, username, password, ssl, file_path,
+    )?;
+
+    // Build the UPDATE query
+    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+        format!("\"{}\"", escape_sql_identifier(&table))
+    } else {
+        format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(&schema),
+            escape_sql_identifier(&table)
+        )
+    };
+
+    // Extract columns and values from the updates array
+    let mut set_parts: Vec<String> = Vec::new();
+
+    for update_obj in updates.iter() {
+        let update_map = update_obj
+            .as_object()
+            .ok_or("Each update must be an object")?;
+
+        let column = update_map
+            .get("column")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing column name")?;
+        let value = update_map.get("value").ok_or("Missing value")?;
+        let is_raw_sql = update_map
+            .get("isRawSql")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let formatted_value = if is_raw_sql {
+            // For raw SQL (functions), validate against whitelist first
+            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
+
+            // Validate the raw SQL value against whitelist
+            validate_raw_sql_value(raw_value, &db_type)
+                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
+
+            // Use the value as-is after validation
+            raw_value.to_string()
+        } else {
+            // For literal values, format them properly
+            format_sql_value(value)
+        };
+
+        set_parts.push(format!(
+            "\"{}\" = {}",
+            escape_sql_identifier(column),
+            formatted_value
+        ));
+    }
+
+    let set_clause = set_parts.join(", ");
+
+    // Build WHERE clause for primary key
+    let where_parts: Vec<String> = primary_key_columns
+        .iter()
+        .zip(primary_key_values.iter())
+        .map(|(col, val)| {
+            let formatted_value = format_sql_value(val);
+            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
         })
         .collect();
     let where_clause = where_parts.join(" AND ");
@@ -395,9 +500,13 @@ pub async fn delete_table_row(
 
     // Build the DELETE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", table)
+        format!("\"{}\"", escape_sql_identifier(&table))
     } else {
-        format!("\"{}\".\"{}\"", schema, table)
+        format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(&schema),
+            escape_sql_identifier(&table)
+        )
     };
 
     // Build WHERE clause for primary key
@@ -406,7 +515,7 @@ pub async fn delete_table_row(
         .zip(primary_key_values.iter())
         .map(|(col, val)| {
             let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", col, formatted_value)
+            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
         })
         .collect();
     let where_clause = where_parts.join(" AND ");
@@ -416,8 +525,248 @@ pub async fn delete_table_row(
     driver.execute_query(&query).await
 }
 
+/// Insert a new row into a table
+#[tauri::command]
+pub async fn insert_table_row(
+    db_type: String,
+    host: Option<String>,
+    port: Option<i64>,
+    database: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    ssl: Option<bool>,
+    file_path: Option<String>,
+    schema: String,
+    table: String,
+    values: Vec<serde_json::Value>,
+) -> Result<QueryResult, String> {
+    if values.is_empty() {
+        return Err("No values provided".to_string());
+    }
+
+    let driver = create_driver(
+        &db_type, host, port, database, username, password, ssl, file_path,
+    )?;
+
+    // Build the INSERT query
+    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+        format!("\"{}\"", escape_sql_identifier(&table))
+    } else {
+        format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(&schema),
+            escape_sql_identifier(&table)
+        )
+    };
+
+    // Extract columns and values from the values array
+    // Each value should be an object with: column, value, isRawSql
+    let mut columns: Vec<String> = Vec::new();
+    let mut value_parts: Vec<String> = Vec::new();
+
+    for value_obj in values.iter() {
+        let value_map = value_obj
+            .as_object()
+            .ok_or("Each value must be an object")?;
+
+        let column = value_map
+            .get("column")
+            .and_then(|v| v.as_str())
+            .ok_or("Missing column name")?;
+        let value = value_map.get("value").ok_or("Missing value")?;
+        let is_raw_sql = value_map
+            .get("isRawSql")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        columns.push(format!("\"{}\"", escape_sql_identifier(column)));
+
+        let formatted_value = if is_raw_sql {
+            // For raw SQL (functions), validate against whitelist first
+            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
+
+            // Validate the raw SQL value against whitelist
+            validate_raw_sql_value(raw_value, &db_type)
+                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
+
+            // Use the value as-is after validation
+            raw_value.to_string()
+        } else {
+            // For literal values, format them properly
+            format_sql_value(value)
+        };
+
+        value_parts.push(formatted_value);
+    }
+
+    let columns_clause = columns.join(", ");
+    let values_clause = value_parts.join(", ");
+
+    let query = format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        table_ref, columns_clause, values_clause
+    );
+
+    driver.execute_query(&query).await
+}
+
+/// Whitelist of allowed SQL functions/values for raw SQL injection.
+/// This prevents SQL injection by only allowing known safe SQL functions.
+/// Must match the frontend whitelist in src/lib/sqlFunctions.ts
+pub fn get_allowed_sql_functions() -> std::collections::HashSet<&'static str> {
+    [
+        // PostgreSQL functions
+        "now()",
+        "current_timestamp",
+        "localtimestamp",
+        "current_date",
+        "now()::date",
+        "current_time",
+        "localtime",
+        "gen_random_uuid()",
+        "uuid_generate_v4()",
+        "DEFAULT",
+        "TRUE",
+        "FALSE",
+        "'{}'::json",
+        "'[]'::json",
+        "'{}'::jsonb",
+        "'[]'::jsonb",
+        // SQLite functions
+        "datetime('now')",
+        "datetime('now', 'localtime')",
+        "date('now')",
+        "date('now', 'localtime')",
+        "time('now')",
+        "time('now', 'localtime')",
+        "NULL",
+        "1",
+        "0",
+        // ClickHouse functions
+        "now64()",
+        "today()",
+        "yesterday()",
+        "generateUUIDv4()",
+        "true",
+        "false",
+        "'{}'",
+    ]
+    .iter()
+    .cloned()
+    .collect()
+}
+
+/// Validate that a raw SQL value is in the whitelist of allowed functions.
+/// This prevents SQL injection by only allowing known safe SQL functions.
+/// Returns Ok(()) if valid, Err(String) if invalid.
+pub fn validate_raw_sql_value(value: &str, _db_type: &str) -> Result<(), String> {
+    let trimmed = value.trim();
+
+    // Empty string is not allowed for raw SQL
+    if trimmed.is_empty() {
+        return Err("Raw SQL value cannot be empty".to_string());
+    }
+
+    let allowed = get_allowed_sql_functions();
+
+    // Check exact match first (case-sensitive)
+    if allowed.contains(trimmed) {
+        return Ok(());
+    }
+
+    // For case-insensitive matching (some databases are case-insensitive)
+    // But only for specific values that are safe to match case-insensitively
+    let trimmed_lower = trimmed.to_lowercase();
+    let case_insensitive_allowed = [
+        "true",
+        "false",
+        "null",
+        "default",
+        "now()",
+        "current_timestamp",
+        "localtimestamp",
+        "current_date",
+        "current_time",
+        "localtime",
+        "gen_random_uuid()",
+        "uuid_generate_v4()",
+        "datetime('now')",
+        "datetime('now', 'localtime')",
+        "date('now')",
+        "date('now', 'localtime')",
+        "time('now')",
+        "time('now', 'localtime')",
+        "now64()",
+        "today()",
+        "yesterday()",
+        "generateuuidv4()",
+    ];
+
+    for allowed_func in case_insensitive_allowed.iter() {
+        if trimmed_lower == *allowed_func {
+            return Ok(());
+        }
+    }
+
+    // Additional security check: reject anything with SQL keywords that could be used for injection
+    // This is a defense-in-depth measure even if the value doesn't match the whitelist
+    let dangerous_patterns = [
+        "drop",
+        "delete",
+        "truncate",
+        "alter",
+        "create",
+        "insert",
+        "update",
+        "exec",
+        "execute",
+        "union",
+        "select",
+        "from",
+        "where",
+        "having",
+        "grant",
+        "revoke",
+        "commit",
+        "rollback",
+        "begin",
+        "transaction",
+        ";",
+        "--",
+        "/*",
+        "*/",
+        "xp_",
+        "sp_",
+        "script",
+        "javascript",
+    ];
+
+    let value_lower = trimmed_lower.as_str();
+    for pattern in dangerous_patterns.iter() {
+        if value_lower.contains(pattern) {
+            return Err(format!(
+                "Raw SQL value contains potentially dangerous pattern: '{}'. Only whitelisted SQL functions are allowed.",
+                pattern
+            ));
+        }
+    }
+
+    // If it doesn't match the whitelist, reject it to be safe
+    // This is the primary security check - whitelist-only approach
+    Err(format!(
+        "Raw SQL value '{}' is not in the whitelist of allowed functions. Only predefined SQL functions are allowed for security.",
+        trimmed
+    ))
+}
+
+/// Escape a SQL identifier (table name, column name, schema name) by doubling any double quotes.
+/// This prevents SQL injection through malicious identifiers like: column" OR 1=1 --
+pub fn escape_sql_identifier(identifier: &str) -> String {
+    identifier.replace('"', "\"\"")
+}
+
 /// Format a JSON value for SQL insertion
-fn format_sql_value(value: &serde_json::Value) -> String {
+pub fn format_sql_value(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => {
