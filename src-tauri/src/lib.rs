@@ -10,7 +10,8 @@ use commands::connections::{
 };
 use commands::database::{
     delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
-    redis_set_key, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
+    redis_set_hash_key, redis_set_key, redis_set_list_key, redis_set_set_key, redis_set_zset_key,
+    redis_update_ttl, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
     unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
     update_table_row_with_raw_sql,
 };
@@ -73,6 +74,11 @@ pub fn run() {
             redis_get_key_details,
             redis_delete_key,
             redis_set_key,
+            redis_set_list_key,
+            redis_set_set_key,
+            redis_set_hash_key,
+            redis_set_zset_key,
+            redis_update_ttl,
             update_table_row,
             update_table_row_with_raw_sql,
             delete_table_row,

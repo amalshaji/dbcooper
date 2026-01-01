@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -113,6 +114,7 @@ import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
+import { RedisKeySheet } from "@/components/RedisKeySheet";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
@@ -271,6 +273,20 @@ export function ConnectionDetails() {
 	const [copiedToClipboard, setCopiedToClipboard] = useState(false);
 	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 	const [redisSearchTime, setRedisSearchTime] = useState<number | null>(null);
+	const [redisKeySheetOpen, setRedisKeySheetOpen] = useState(false);
+	const [redisKeySheetMode, setRedisKeySheetMode] = useState<"add" | "edit">("add");
+	const [savingRedisKey, setSavingRedisKey] = useState(false);
+
+	// Ref for Redis keys list virtualization
+	const redisKeysListRef = useRef<HTMLDivElement>(null);
+
+	// Virtualizer for Redis keys list
+	const redisKeysVirtualizer = useVirtualizer({
+		count: redisKeys?.length ?? 0,
+		getScrollElement: () => redisKeysListRef.current,
+		estimateSize: () => 48,
+		overscan: 10,
+	});
 
 	// Save dialog state (for query tabs)
 	const [saveQueryName, setSaveQueryName] = useState("");
@@ -2403,7 +2419,7 @@ export function ConnectionDetails() {
 		setRedisSearchTime(null);
 
 		try {
-			const result = await api.redis.searchKeys(connection, redisPattern, 100);
+			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100);
 			setRedisKeys(result.keys);
 			setRedisSearchTime(result.time_taken_ms ?? null);
 		} catch (error) {
@@ -2422,7 +2438,7 @@ export function ConnectionDetails() {
 		setRedisSheetOpen(true);
 
 		try {
-			const details = await api.redis.getKeyDetails(connection, key);
+			const details = await api.redis.getKeyDetails(connection.uuid, key);
 			setRedisKeyDetails(details);
 		} catch (error) {
 			console.error("Failed to get Redis key details:", error);
@@ -2438,7 +2454,7 @@ export function ConnectionDetails() {
 		if (!connection || !redisSelectedKey) return;
 
 		try {
-			await api.redis.deleteKey(connection, redisSelectedKey);
+			await api.redis.deleteKey(connection.uuid, redisSelectedKey);
 			toast.success("Key deleted successfully");
 			// Close sheet, refresh keys list, and clear selection
 			setRedisSheetOpen(false);
@@ -2458,6 +2474,70 @@ export function ConnectionDetails() {
 		setCopiedToClipboard(true);
 		toast.success("Copied to clipboard");
 		setTimeout(() => setCopiedToClipboard(false), 2000);
+	};
+
+	const handleRedisAddKey = () => {
+		setRedisKeySheetMode("add");
+		setRedisKeySheetOpen(true);
+	};
+
+	const handleRedisEditKey = () => {
+		setRedisKeySheetMode("edit");
+		setRedisKeySheetOpen(true);
+	};
+
+	const handleRedisSaveKey = async (data: {
+		key: string;
+		type: "string" | "list" | "set" | "hash" | "zset";
+		value: unknown;
+		ttl?: number;
+	}) => {
+		if (!connection) return;
+
+		setSavingRedisKey(true);
+		try {
+			switch (data.type) {
+				case "string":
+					await api.redis.setKey(connection.uuid, data.key, data.value as string, data.ttl);
+					break;
+				case "list":
+					await api.redis.setListKey(connection.uuid, data.key, data.value as string[], data.ttl);
+					break;
+				case "set":
+					await api.redis.setSetKey(connection.uuid, data.key, data.value as string[], data.ttl);
+					break;
+				case "hash":
+					await api.redis.setHashKey(
+						connection.uuid,
+						data.key,
+						data.value as Record<string, string>,
+						data.ttl,
+					);
+					break;
+				case "zset":
+					await api.redis.setZSetKey(
+						connection.uuid,
+						data.key,
+						data.value as Array<[string, number]>,
+						data.ttl,
+					);
+					break;
+			}
+
+			toast.success(`Key "${data.key}" ${redisKeySheetMode === "add" ? "created" : "updated"} successfully`);
+			setRedisKeySheetOpen(false);
+			handleRedisSearch();
+			if (redisKeySheetMode === "edit") {
+				setRedisSheetOpen(false);
+				setRedisSelectedKey(null);
+				setRedisKeyDetails(null);
+			}
+		} catch (error) {
+			console.error("Failed to save Redis key:", error);
+			toast.error(`Failed to ${redisKeySheetMode === "add" ? "create" : "update"} key`);
+		} finally {
+			setSavingRedisKey(false);
+		}
 	};
 
 	const renderRedisView = () => (
@@ -2482,6 +2562,10 @@ export function ConnectionDetails() {
 							{loadingRedisKeys ? <Spinner /> : null}
 							Search Keys
 						</Button>
+						<Button onClick={handleRedisAddKey} variant="default">
+							<Plus className="w-4 h-4" />
+							Add Key
+						</Button>
 					</div>
 					{redisKeys !== null && (
 						<div className="mt-2 text-sm text-muted-foreground">
@@ -2499,27 +2583,46 @@ export function ConnectionDetails() {
 				<CardHeader className="pb-3">
 					<CardTitle className="text-base">Keys</CardTitle>
 				</CardHeader>
-				<CardContent className="flex-1 overflow-y-auto p-0">
+				<CardContent className="flex-1 overflow-y-auto p-0" ref={redisKeysListRef}>
 					{loadingRedisKeys ? (
 						<div className="flex items-center justify-center py-8">
 							<Spinner />
 						</div>
 					) : redisKeys && redisKeys.length > 0 ? (
-						<div className="divide-y">
-							{redisKeys.map((keyInfo, index) => (
-								<button
-									key={index}
-									type="button"
-									onClick={() => handleRedisKeySelect(keyInfo.key)}
-									className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors"
-								>
-									<div className="flex items-center gap-3">
-										<span className="font-mono text-sm truncate flex-1">
-											{keyInfo.key}
-										</span>
+						<div
+							style={{
+								height: `${redisKeysVirtualizer.getTotalSize()}px`,
+								position: "relative",
+							}}
+						>
+							{redisKeysVirtualizer.getVirtualItems().map((virtualItem) => {
+								const keyInfo = redisKeys[virtualItem.index];
+								return (
+									<div
+										key={virtualItem.key}
+										data-index={virtualItem.index}
+										ref={redisKeysVirtualizer.measureElement}
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											width: "100%",
+											height: `${virtualItem.size}px`,
+											transform: `translateY(${virtualItem.start}px)`,
+										}}
+									>
+										<button
+											type="button"
+											onClick={() => handleRedisKeySelect(keyInfo.key)}
+											className="w-full h-full text-left px-4 hover:bg-muted/50 transition-colors border-b flex items-center"
+										>
+											<span className="font-mono text-sm truncate flex-1">
+												{keyInfo.key}
+											</span>
+										</button>
 									</div>
-								</button>
-							))}
+								);
+							})}
 						</div>
 					) : redisKeys && redisKeys.length === 0 ? (
 						<div className="text-center py-12 text-muted-foreground">
@@ -2536,14 +2639,17 @@ export function ConnectionDetails() {
 			{/* Key Details Sheet */}
 			<Sheet open={redisSheetOpen} onOpenChange={setRedisSheetOpen}>
 				<SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-					<div className="px-6">
+					<div className="">
 						{loadingRedisDetails ? (
 							<>
 								<SheetHeader>
 									<SheetTitle>Key Details</SheetTitle>
-									<SheetDescription>Loading key details...</SheetDescription>
+									<SheetDescription className="flex items-center gap-2">
+										<Spinner />
+										Loading key details
+									</SheetDescription>
 								</SheetHeader>
-								<div className="mt-6 space-y-6">
+								<div className="mt-2 space-y-6 px-4">
 									{/* Metadata skeleton */}
 									<div>
 										<h3 className="text-sm font-medium mb-3">Metadata</h3>
@@ -2594,7 +2700,7 @@ export function ConnectionDetails() {
 										Viewing details for Redis key
 									</SheetDescription>
 								</SheetHeader>
-								<div className="mt-6 space-y-6">
+								<div className="mt-2 space-y-6 px-4">
 									{/* Key metadata */}
 									<div>
 										<h3 className="text-sm font-medium mb-3">Metadata</h3>
@@ -2689,6 +2795,12 @@ export function ConnectionDetails() {
 									{/* Actions */}
 									<div className="flex gap-2 pt-4 border-t">
 										<Button
+											variant="default"
+											onClick={handleRedisEditKey}
+										>
+											Edit Key
+										</Button>
+										<Button
 											variant="destructive"
 											onClick={() => setShowDeleteDialog(true)}
 										>
@@ -2736,6 +2848,16 @@ export function ConnectionDetails() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
+
+			{/* Add/Edit Key Sheet */}
+			<RedisKeySheet
+				open={redisKeySheetOpen}
+				onOpenChange={setRedisKeySheetOpen}
+				mode={redisKeySheetMode}
+				keyDetails={redisKeySheetMode === "edit" ? redisKeyDetails : null}
+				onSave={handleRedisSaveKey}
+				saving={savingRedisKey}
+			/>
 		</div>
 	);
 

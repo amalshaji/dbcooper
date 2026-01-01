@@ -551,6 +551,152 @@ impl RedisDriver {
             Err(e) => Err(self.handle_connection_error(&e, "set_key")),
         }
     }
+
+    /// Set a list key value
+    pub async fn set_list_key(
+        &self,
+        key: &str,
+        values: &[String],
+        ttl: Option<i64>,
+    ) -> Result<(), String> {
+        let mut conn = self.get_connection_with_retry().await?;
+
+        // Delete existing key if it exists
+        let _: i64 = conn.del(key).await.unwrap_or(0);
+
+        // Push all values
+        if !values.is_empty() {
+            conn.rpush::<&str, &[String], i64>(key, values)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_list_key"))?;
+        }
+
+        // Set TTL if provided
+        if let Some(expiry) = ttl {
+            conn.expire::<&str, i64>(key, expiry)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_list_key (expire)"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Set a set key value
+    pub async fn set_set_key(
+        &self,
+        key: &str,
+        values: &[String],
+        ttl: Option<i64>,
+    ) -> Result<(), String> {
+        let mut conn = self.get_connection_with_retry().await?;
+
+        // Delete existing key if it exists
+        let _: i64 = conn.del(key).await.unwrap_or(0);
+
+        // Add all values
+        if !values.is_empty() {
+            conn.sadd::<&str, &[String], i64>(key, values)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_set_key"))?;
+        }
+
+        // Set TTL if provided
+        if let Some(expiry) = ttl {
+            conn.expire::<&str, i64>(key, expiry)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_set_key (expire)"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Set a hash key value
+    pub async fn set_hash_key(
+        &self,
+        key: &str,
+        fields: &std::collections::HashMap<String, String>,
+        ttl: Option<i64>,
+    ) -> Result<(), String> {
+        let mut conn = self.get_connection_with_retry().await?;
+
+        // Delete existing key if it exists
+        let _: i64 = conn.del(key).await.unwrap_or(0);
+
+        // Set all hash fields using HMSET command
+        if !fields.is_empty() {
+            let mut cmd = redis::cmd("HMSET");
+            cmd.arg(key);
+            for (field, value) in fields {
+                cmd.arg(field);
+                cmd.arg(value);
+            }
+            let _: String = cmd.query_async(&mut conn)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_hash_key"))?;
+        }
+
+        // Set TTL if provided
+        if let Some(expiry) = ttl {
+            conn.expire::<&str, i64>(key, expiry)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_hash_key (expire)"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Set a sorted set key value
+    pub async fn set_zset_key(
+        &self,
+        key: &str,
+        members: &[(String, f64)],
+        ttl: Option<i64>,
+    ) -> Result<(), String> {
+        let mut conn = self.get_connection_with_retry().await?;
+
+        // Delete existing key if it exists
+        let _: i64 = conn.del(key).await.unwrap_or(0);
+
+        // Add all members with scores using ZADD command
+        if !members.is_empty() {
+            let mut cmd = redis::cmd("ZADD");
+            cmd.arg(key);
+            for (member, score) in members {
+                cmd.arg(*score);
+                cmd.arg(member);
+            }
+            let _: i64 = cmd.query_async(&mut conn)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_zset_key"))?;
+        }
+
+        // Set TTL if provided
+        if let Some(expiry) = ttl {
+            conn.expire::<&str, i64>(key, expiry)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "set_zset_key (expire)"))?;
+        }
+
+        Ok(())
+    }
+
+    /// Update TTL for a key
+    pub async fn update_ttl(&self, key: &str, ttl: Option<i64>) -> Result<(), String> {
+        let mut conn = self.get_connection_with_retry().await?;
+
+        if let Some(expiry) = ttl {
+            conn.expire::<&str, i64>(key, expiry)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "update_ttl"))?;
+        } else {
+            // Remove expiration (make key persistent)
+            conn.persist::<&str, i64>(key)
+                .await
+                .map_err(|e| self.handle_connection_error(&e, "update_ttl (persist)"))?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Redis driver with SSH tunnel support
