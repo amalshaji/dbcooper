@@ -109,12 +109,12 @@ pub async fn test_connection(
         ssl,
     );
 
-    // Use a 15 second timeout for connection (longer for SSH tunnel overhead)
+    // Use a 10 second timeout for connection (longer for SSH tunnel overhead)
     match tokio::time::timeout(
         std::time::Duration::from_secs(15),
         PgPoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .acquire_timeout(std::time::Duration::from_secs(8))
             .connect(&conn_str),
     )
     .await
@@ -139,7 +139,7 @@ pub async fn test_connection(
         }),
         Err(_) => Ok(TestConnectionResult {
             success: false,
-            message: "Connection timed out after 15 seconds".to_string(),
+            message: "Connection timed out after 10 seconds".to_string(),
         }),
     }
 }
