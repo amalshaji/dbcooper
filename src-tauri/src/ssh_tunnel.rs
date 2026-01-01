@@ -1,4 +1,4 @@
-use async_ssh2_lite::{AsyncSession, TokioTcpStream};
+use async_ssh2_lite::{AsyncSession, SessionConfiguration, TokioTcpStream};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -34,8 +34,14 @@ impl SshTunnel {
             .map_err(|e| format!("Failed to connect to SSH server: {}", e))?;
 
         println!("[SSH] TCP connection established, creating session");
-        let mut session = AsyncSession::new(stream, None)
+        // Configure keep-alive to prevent connection timeout during idle periods
+        // Send keep-alive every 15 seconds
+        let mut config = SessionConfiguration::new();
+        config.set_keepalive(true, 15);
+
+        let mut session = AsyncSession::new(stream, Some(config))
             .map_err(|e| format!("Failed to create SSH session: {}", e))?;
+        println!("[SSH] Keep-alive configured (interval: 15s)");
 
         println!("[SSH] Performing handshake");
         session

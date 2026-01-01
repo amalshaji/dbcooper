@@ -130,11 +130,13 @@ function ContentHeader({
 	navigate,
 	connectionStatus,
 	onReconnect,
+	onStatusChange,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
 	connectionStatus: "connected" | "disconnected";
 	onReconnect: () => Promise<void>;
+	onStatusChange: (status: "connected" | "disconnected") => void;
 }) {
 	const { state } = useSidebar();
 	const isCollapsed = state === "collapsed";
@@ -163,6 +165,7 @@ function ContentHeader({
 					connectionUuid={connection.uuid}
 					initialStatus={connectionStatus}
 					onReconnect={onReconnect}
+					onStatusChange={onStatusChange}
 				/>
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
@@ -181,11 +184,13 @@ function RedisContentHeader({
 	navigate,
 	connectionStatus,
 	onReconnect,
+	onStatusChange,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
 	connectionStatus: "connected" | "disconnected";
 	onReconnect: () => Promise<void>;
+	onStatusChange: (status: "connected" | "disconnected") => void;
 }) {
 	return (
 		<header
@@ -212,6 +217,7 @@ function RedisContentHeader({
 					connectionUuid={connection.uuid}
 					initialStatus={connectionStatus}
 					onReconnect={onReconnect}
+					onStatusChange={onStatusChange}
 				/>
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
@@ -2685,6 +2691,7 @@ export function ConnectionDetails() {
 					navigate={navigate}
 					connectionStatus={connectionStatus}
 					onReconnect={fetchSchemaOverviewData}
+					onStatusChange={setConnectionStatus}
 				/>
 
 				<div className="flex-1 p-4 min-w-0 overflow-auto">
@@ -2989,6 +2996,7 @@ export function ConnectionDetails() {
 					navigate={navigate}
 					connectionStatus={connectionStatus}
 					onReconnect={fetchSchemaOverviewData}
+					onStatusChange={setConnectionStatus}
 				/>
 
 				<TabBar
