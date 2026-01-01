@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
 import {
 	type Tab,
@@ -101,6 +102,7 @@ import {
 	Check,
 	Copy,
 	Plus,
+	PaintBrush,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -2045,6 +2047,37 @@ export function ConnectionDetails() {
 										size="sm"
 										variant="outline"
 										onClick={() => {
+											try {
+												const formatted = formatSQL(tab.query, {
+													language:
+														connection?.db_type === "sqlite"
+															? "sqlite"
+															: connection?.db_type === "clickhouse"
+																? "sql"
+																: "postgresql",
+													tabWidth: 2,
+													keywordCase: "upper",
+												});
+												handleQueryChange(formatted);
+												toast.success("SQL formatted");
+											} catch (error) {
+												toast.error("Failed to format SQL", {
+													description:
+														error instanceof Error
+															? error.message
+															: "Unknown error",
+												});
+											}
+										}}
+										disabled={!tab.query.trim()}
+									>
+										<PaintBrush className="w-4 h-4" />
+										Beautify
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => {
 											// Pre-populate name if this is an existing saved query
 											if (tab.savedQueryName) {
 												setSaveQueryName(tab.savedQueryName);
@@ -2053,7 +2086,7 @@ export function ConnectionDetails() {
 										}}
 										disabled={!tab.query.trim()}
 									>
-										<FloppyDisk className="w-4 h-4 mr-2" />
+										<FloppyDisk className="w-4 h-4" />
 										Save Query
 									</Button>
 									<div className="flex">
