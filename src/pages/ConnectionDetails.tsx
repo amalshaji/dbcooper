@@ -1055,7 +1055,9 @@ export function ConnectionDetails() {
 	}, []);
 
 	const handleSaveRow = useCallback(
-		async (updates: Record<string, unknown>) => {
+		async (
+			updates: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) => {
 			if (
 				!connection ||
 				!activeTab ||
@@ -1081,8 +1083,8 @@ export function ConnectionDetails() {
 			setSavingRow(true);
 
 			try {
-				const result = await api.database.updateTableRow(
-					connection,
+				const result = await api.pool.updateTableRow(
+					connection.uuid,
 					schema,
 					tableName,
 					primaryKeyColumns,
@@ -1137,8 +1139,8 @@ export function ConnectionDetails() {
 		setDeletingRow(true);
 
 		try {
-			const result = await api.database.deleteTableRow(
-				connection,
+			const result = await api.pool.deleteTableRow(
+				connection.uuid,
 				schema,
 				tableName,
 				primaryKeyColumns,
@@ -1180,8 +1182,8 @@ export function ConnectionDetails() {
 			setInsertingRow(true);
 
 			try {
-				const result = await api.database.insertTableRow(
-					connection,
+				const result = await api.pool.insertTableRow(
+					connection.uuid,
 					schema,
 					tableName,
 					values,

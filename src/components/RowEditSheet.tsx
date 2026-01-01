@@ -32,7 +32,9 @@ interface RowEditSheetProps {
 	row: Record<string, unknown> | null;
 	columns: TableColumn[];
 	dbType: DbType;
-	onSave: (updates: Record<string, unknown>) => Promise<void>;
+	onSave: (
+		updates: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+	) => Promise<void>;
 	onDelete: () => Promise<void>;
 	saving?: boolean;
 	deleting?: boolean;

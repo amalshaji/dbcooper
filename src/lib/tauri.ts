@@ -324,11 +324,13 @@ export const api = {
 			table: string,
 			primaryKeyColumns: string[],
 			primaryKeyValues: unknown[],
-			updates: Record<string, unknown> | Array<{
-				column: string;
-				value: unknown;
-				isRawSql: boolean;
-			}>,
+			updates:
+				| Record<string, unknown>
+				| Array<{
+						column: string;
+						value: unknown;
+						isRawSql: boolean;
+				  }>,
 		) => {
 			// Convert array format to map format for backward compatibility
 			if (Array.isArray(updates)) {
@@ -337,7 +339,7 @@ export const api = {
 					if (update.isRawSql && typeof update.value === "string") {
 						if (!isSqlFunction(update.value)) {
 							throw new Error(
-								`Invalid raw SQL value: "${update.value}". Only whitelisted SQL functions are allowed for security.`
+								`Invalid raw SQL value: "${update.value}". Only whitelisted SQL functions are allowed for security.`,
 							);
 						}
 					}
@@ -413,7 +415,7 @@ export const api = {
 				if (value.isRawSql && typeof value.value === "string") {
 					if (!isSqlFunction(value.value)) {
 						throw new Error(
-							`Invalid raw SQL value: "${value.value}". Only whitelisted SQL functions are allowed for security.`
+							`Invalid raw SQL value: "${value.value}". Only whitelisted SQL functions are allowed for security.`,
 						);
 					}
 				}
@@ -579,6 +581,51 @@ export const api = {
 					indexes: IndexInfo[];
 				}[];
 			}>("pool_get_schema_overview", { uuid }),
+
+		updateTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			primaryKeyColumns: string[],
+			primaryKeyValues: unknown[],
+			updates: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) =>
+			invoke<QueryResult>("pool_update_table_row", {
+				uuid,
+				schema,
+				table,
+				primaryKeyColumns,
+				primaryKeyValues,
+				updates,
+			}),
+
+		deleteTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			primaryKeyColumns: string[],
+			primaryKeyValues: unknown[],
+		) =>
+			invoke<QueryResult>("pool_delete_table_row", {
+				uuid,
+				schema,
+				table,
+				primaryKeyColumns,
+				primaryKeyValues,
+			}),
+
+		insertTableRow: (
+			uuid: string,
+			schema: string,
+			table: string,
+			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
+		) =>
+			invoke<QueryResult>("pool_insert_table_row", {
+				uuid,
+				schema,
+				table,
+				values,
+			}),
 	},
 
 	ai: {

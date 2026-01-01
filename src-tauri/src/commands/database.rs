@@ -613,7 +613,7 @@ pub async fn insert_table_row(
 /// Whitelist of allowed SQL functions/values for raw SQL injection.
 /// This prevents SQL injection by only allowing known safe SQL functions.
 /// Must match the frontend whitelist in src/lib/sqlFunctions.ts
-fn get_allowed_sql_functions() -> std::collections::HashSet<&'static str> {
+pub fn get_allowed_sql_functions() -> std::collections::HashSet<&'static str> {
     [
         // PostgreSQL functions
         "now()",
@@ -659,7 +659,7 @@ fn get_allowed_sql_functions() -> std::collections::HashSet<&'static str> {
 /// Validate that a raw SQL value is in the whitelist of allowed functions.
 /// This prevents SQL injection by only allowing known safe SQL functions.
 /// Returns Ok(()) if valid, Err(String) if invalid.
-fn validate_raw_sql_value(value: &str, _db_type: &str) -> Result<(), String> {
+pub fn validate_raw_sql_value(value: &str, _db_type: &str) -> Result<(), String> {
     let trimmed = value.trim();
 
     // Empty string is not allowed for raw SQL
@@ -761,12 +761,12 @@ fn validate_raw_sql_value(value: &str, _db_type: &str) -> Result<(), String> {
 
 /// Escape a SQL identifier (table name, column name, schema name) by doubling any double quotes.
 /// This prevents SQL injection through malicious identifiers like: column" OR 1=1 --
-fn escape_sql_identifier(identifier: &str) -> String {
+pub fn escape_sql_identifier(identifier: &str) -> String {
     identifier.replace('"', "\"\"")
 }
 
 /// Format a JSON value for SQL insertion
-fn format_sql_value(value: &serde_json::Value) -> String {
+pub fn format_sql_value(value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "NULL".to_string(),
         serde_json::Value::Bool(b) => {
