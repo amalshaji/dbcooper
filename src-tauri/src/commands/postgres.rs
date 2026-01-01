@@ -111,7 +111,7 @@ pub async fn test_connection(
 
     // Use a 15 second timeout for connection (longer for SSH tunnel overhead)
     match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(15),
         PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(5))
