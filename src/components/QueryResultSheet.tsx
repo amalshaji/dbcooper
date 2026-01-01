@@ -163,7 +163,7 @@ export function QueryResultSheet({
 					<div className="relative">
 						<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
 						<Input
-							placeholder="Search columns..."
+							placeholder="Search columns"
 							value={columnSearch}
 							onChange={(e) => setColumnSearch(e.target.value)}
 							className="pl-8"
