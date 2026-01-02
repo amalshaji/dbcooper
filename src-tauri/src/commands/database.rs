@@ -11,9 +11,12 @@ use crate::database::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
-    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
+    Connection, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
+    TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
+use sqlx::SqlitePool;
+use tauri::State;
 
 /// Creates the appropriate database driver based on the db_type, with optional SSH tunnel
 async fn create_driver_with_ssh(
@@ -801,56 +804,88 @@ pub fn format_sql_value(value: &serde_json::Value) -> String {
 // Redis-specific commands
 // ============================================================================
 
+/// Retrieves Redis configuration and connection details from the database using the connection UUID.
+///
+/// This helper function queries the SQLite database to fetch connection details for a given UUID,
+/// then constructs a `RedisConfig` object with the connection parameters. It returns both the
+/// configuration object and the connection record for use by Redis driver operations.
+///
+/// # Parameters
+/// * `sqlite_pool` - Reference to the SQLite connection pool
+/// * `uuid` - The unique identifier of the connection to retrieve
+///
+/// # Returns
+/// A tuple containing:
+/// * `RedisConfig` - The Redis connection configuration object
+/// * `Connection` - The database connection record with all connection details
+///
+/// # Errors
+/// Returns an error string if the connection is not found or if database queries fail
+async fn get_redis_config_from_uuid(
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+) -> Result<(RedisConfig, Connection), String> {
+    let conn: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(uuid)
+        .fetch_one(sqlite_pool)
+        .await
+        .map_err(|e| format!("Failed to get connection: {}", e))?;
+
+    let db = if conn.database.is_empty() {
+        None
+    } else {
+        conn.database.parse::<i64>().ok()
+    };
+
+    let config = RedisConfig {
+        host: conn.host.clone(),
+        port: conn.port,
+        password: if conn.password.is_empty() {
+            None
+        } else {
+            Some(conn.password.clone())
+        },
+        db,
+        tls: conn.ssl == 1,
+    };
+
+    Ok((config, conn))
+}
+
 /// Search for Redis keys matching a pattern
 #[tauri::command]
 pub async fn redis_search_keys(
-    host: String,
-    port: i64,
-    password: Option<String>,
-    db: Option<i64>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
     pattern: String,
     limit: i64,
-    ssh_enabled: Option<bool>,
-    ssh_host: Option<String>,
-    ssh_port: Option<i64>,
-    ssh_user: Option<String>,
-    ssh_password: Option<String>,
-    ssh_key_path: Option<String>,
-    ssh_use_key: Option<bool>,
 ) -> Result<RedisKeyListResponse, String> {
-    let config = RedisConfig {
-        host,
-        port,
-        password,
-        db,
-        tls: false,
-    };
+    let (config, conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
     let driver = RedisDriver::new(config.clone());
 
-    if ssh_enabled.unwrap_or(false) {
-        let ssh_host_val = ssh_host.unwrap_or_default();
-        let ssh_port_val = ssh_port.unwrap_or(22) as u16;
-        let ssh_user_val = ssh_user.unwrap_or_default();
-        let ssh_password_val = ssh_password.unwrap_or_default();
-        let ssh_key_path_val = ssh_key_path.unwrap_or_default();
-        let ssh_use_key_val = ssh_use_key.unwrap_or(false);
+    if conn.ssh_enabled == 1 {
+        let ssh_port_val = if conn.ssh_port > 0 {
+            conn.ssh_port as u16
+        } else {
+            22
+        };
 
         let (_driver, tunnel) = RedisDriver::with_ssh_tunnel(
             config,
-            &ssh_host_val,
+            &conn.ssh_host,
             ssh_port_val,
-            &ssh_user_val,
-            if ssh_password_val.is_empty() {
+            &conn.ssh_user,
+            if conn.ssh_password.is_empty() {
                 None
             } else {
-                Some(&ssh_password_val)
+                Some(&conn.ssh_password)
             },
-            if ssh_key_path_val.is_empty() {
+            if conn.ssh_key_path.is_empty() {
                 None
             } else {
-                Some(&ssh_key_path_val)
+                Some(&conn.ssh_key_path)
             },
-            ssh_use_key_val,
+            conn.ssh_use_key == 1,
         )
         .await?;
 
@@ -865,52 +900,36 @@ pub async fn redis_search_keys(
 /// Get detailed information about a specific Redis key
 #[tauri::command]
 pub async fn redis_get_key_details(
-    host: String,
-    port: i64,
-    password: Option<String>,
-    db: Option<i64>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
     key: String,
-    ssh_enabled: Option<bool>,
-    ssh_host: Option<String>,
-    ssh_port: Option<i64>,
-    ssh_user: Option<String>,
-    ssh_password: Option<String>,
-    ssh_key_path: Option<String>,
-    ssh_use_key: Option<bool>,
 ) -> Result<RedisKeyDetails, String> {
-    let config = RedisConfig {
-        host,
-        port,
-        password,
-        db,
-        tls: false,
-    };
+    let (config, conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
     let driver = RedisDriver::new(config.clone());
 
-    if ssh_enabled.unwrap_or(false) {
-        let ssh_host_val = ssh_host.unwrap_or_default();
-        let ssh_port_val = ssh_port.unwrap_or(22) as u16;
-        let ssh_user_val = ssh_user.unwrap_or_default();
-        let ssh_password_val = ssh_password.unwrap_or_default();
-        let ssh_key_path_val = ssh_key_path.unwrap_or_default();
-        let ssh_use_key_val = ssh_use_key.unwrap_or(false);
+    if conn.ssh_enabled == 1 {
+        let ssh_port_val = if conn.ssh_port > 0 {
+            conn.ssh_port as u16
+        } else {
+            22
+        };
 
         let (_driver, tunnel) = RedisDriver::with_ssh_tunnel(
             config,
-            &ssh_host_val,
+            &conn.ssh_host,
             ssh_port_val,
-            &ssh_user_val,
-            if ssh_password_val.is_empty() {
+            &conn.ssh_user,
+            if conn.ssh_password.is_empty() {
                 None
             } else {
-                Some(&ssh_password_val)
+                Some(&conn.ssh_password)
             },
-            if ssh_key_path_val.is_empty() {
+            if conn.ssh_key_path.is_empty() {
                 None
             } else {
-                Some(&ssh_key_path_val)
+                Some(&conn.ssh_key_path)
             },
-            ssh_use_key_val,
+            conn.ssh_use_key == 1,
         )
         .await?;
 
@@ -923,19 +942,11 @@ pub async fn redis_get_key_details(
 /// Delete a Redis key
 #[tauri::command]
 pub async fn redis_delete_key(
-    host: String,
-    port: i64,
-    password: Option<String>,
-    db: Option<i64>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
     key: String,
 ) -> Result<bool, String> {
-    let config = RedisConfig {
-        host,
-        port,
-        password,
-        db,
-        tls: false,
-    };
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
     let driver = RedisDriver::new(config);
     driver.delete_key(&key).await
 }
@@ -943,23 +954,84 @@ pub async fn redis_delete_key(
 /// Set a Redis key value (for string types)
 #[tauri::command]
 pub async fn redis_set_key(
-    host: String,
-    port: i64,
-    password: Option<String>,
-    db: Option<i64>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
     key: String,
     value: String,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    let config = RedisConfig {
-        host,
-        port,
-        password,
-        db,
-        tls: false,
-    };
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
     let driver = RedisDriver::new(config);
     driver.set_key(&key, &value, ttl).await
+}
+
+/// Set a Redis list key value
+#[tauri::command]
+pub async fn redis_set_list_key(
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    key: String,
+    values: Vec<String>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
+    let driver = RedisDriver::new(config);
+    driver.set_list_key(&key, &values, ttl).await
+}
+
+/// Set a Redis set key value
+#[tauri::command]
+pub async fn redis_set_set_key(
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    key: String,
+    values: Vec<String>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
+    let driver = RedisDriver::new(config);
+    driver.set_set_key(&key, &values, ttl).await
+}
+
+/// Set a Redis hash key value
+#[tauri::command]
+pub async fn redis_set_hash_key(
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    key: String,
+    fields: std::collections::HashMap<String, String>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
+    let driver = RedisDriver::new(config);
+    driver.set_hash_key(&key, &fields, ttl).await
+}
+
+/// Set a Redis sorted set key value
+#[tauri::command]
+pub async fn redis_set_zset_key(
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    key: String,
+    members: Vec<(String, f64)>,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
+    let driver = RedisDriver::new(config);
+    driver.set_zset_key(&key, &members, ttl).await
+}
+
+/// Update TTL for a Redis key
+#[tauri::command]
+pub async fn redis_update_ttl(
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    key: String,
+    ttl: Option<i64>,
+) -> Result<(), String> {
+    let (config, _conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
+    let driver = RedisDriver::new(config);
+    driver.update_ttl(&key, ttl).await
 }
 
 /// Get schema overview with all tables and their structures

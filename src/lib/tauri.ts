@@ -444,64 +444,101 @@ export const api = {
 	// Redis-specific API
 	redis: {
 		searchKeys: (
-			connection: Connection,
+			connectionUuid: string,
 			pattern: string,
 			limit: number = 100,
 		) =>
 			invoke<RedisKeyListResponse>("redis_search_keys", {
-				host: connection.host,
-				port: connection.port,
-				password: connection.password || undefined,
-				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				uuid: connectionUuid,
 				pattern,
 				limit,
-				ssh_enabled: connection.ssh_enabled === 1,
-				ssh_host: connection.ssh_host || undefined,
-				ssh_port: connection.ssh_port || undefined,
-				ssh_user: connection.ssh_user || undefined,
-				ssh_password: connection.ssh_password || undefined,
-				ssh_key_path: connection.ssh_key_path || undefined,
-				ssh_use_key: connection.ssh_use_key === 1,
 			}),
 
-		getKeyDetails: (connection: Connection, key: string) =>
+		getKeyDetails: (connectionUuid: string, key: string) =>
 			invoke<RedisKeyDetails>("redis_get_key_details", {
-				host: connection.host,
-				port: connection.port,
-				password: connection.password || undefined,
-				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				uuid: connectionUuid,
 				key,
-				ssh_enabled: connection.ssh_enabled === 1,
-				ssh_host: connection.ssh_host || undefined,
-				ssh_port: connection.ssh_port || undefined,
-				ssh_user: connection.ssh_user || undefined,
-				ssh_password: connection.ssh_password || undefined,
-				ssh_key_path: connection.ssh_key_path || undefined,
-				ssh_use_key: connection.ssh_use_key === 1,
 			}),
 
-		deleteKey: (connection: Connection, key: string) =>
+		deleteKey: (connectionUuid: string, key: string) =>
 			invoke<boolean>("redis_delete_key", {
-				host: connection.host,
-				port: connection.port,
-				password: connection.password || undefined,
-				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				uuid: connectionUuid,
 				key,
 			}),
 
 		setKey: (
-			connection: Connection,
+			connectionUuid: string,
 			key: string,
 			value: string,
 			ttl?: number,
 		) =>
 			invoke<void>("redis_set_key", {
-				host: connection.host,
-				port: connection.port,
-				password: connection.password || undefined,
-				db: connection.database ? parseInt(connection.database, 10) : undefined,
+				uuid: connectionUuid,
 				key,
 				value,
+				ttl,
+			}),
+
+		setListKey: (
+			connectionUuid: string,
+			key: string,
+			values: string[],
+			ttl?: number,
+		) =>
+			invoke<void>("redis_set_list_key", {
+				uuid: connectionUuid,
+				key,
+				values,
+				ttl,
+			}),
+
+		setSetKey: (
+			connectionUuid: string,
+			key: string,
+			values: string[],
+			ttl?: number,
+		) =>
+			invoke<void>("redis_set_set_key", {
+				uuid: connectionUuid,
+				key,
+				values,
+				ttl,
+			}),
+
+		setHashKey: (
+			connectionUuid: string,
+			key: string,
+			fields: Record<string, string>,
+			ttl?: number,
+		) =>
+			invoke<void>("redis_set_hash_key", {
+				uuid: connectionUuid,
+				key,
+				fields,
+				ttl,
+			}),
+
+		setZSetKey: (
+			connectionUuid: string,
+			key: string,
+			members: Array<[string, number]>,
+			ttl?: number,
+		) =>
+			invoke<void>("redis_set_zset_key", {
+				uuid: connectionUuid,
+				key,
+				members,
+				ttl,
+			}),
+
+		updateTTL: (
+			connectionUuid: string,
+			key: string,
+			ttl?: number,
+		) =>
+			invoke<void>("redis_update_ttl", {
+				uuid: connectionUuid,
+				key,
 				ttl,
 			}),
 	},
