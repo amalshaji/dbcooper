@@ -107,10 +107,10 @@ export function Settings() {
 			{/* Titlebar region */}
 			<header
 				onMouseDown={handleDragStart}
-				className="h-10 shrink-0 flex items-center gap-2 px-4 pl-20 border-b bg-background"
+				className="h-12 shrink-0 flex items-center gap-2 px-4 pl-24 border-b bg-background select-none"
 			>
 				<Button variant="ghost" onClick={() => navigate("/")}>
-					<ArrowLeft className="mr-2 h-4 w-4" />
+					<ArrowLeft className="h-4 w-4" />
 					Back
 				</Button>
 			</header>

@@ -148,7 +148,7 @@ function ContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 ${
+			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 select-none ${
 				isCollapsed ? "pl-20" : ""
 			}`}
 		>
@@ -199,7 +199,7 @@ function RedisContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20"
+			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
 		>
 			<div className="flex items-center gap-2 flex-1">
 				<Button
@@ -2798,7 +2798,7 @@ export function ConnectionDetails() {
 		<SidebarProvider>
 			<Sidebar>
 				<SidebarHeader
-					className="border-b p-4 pt-10"
+					className="border-b p-4 pt-10 select-none"
 					onMouseDown={handleDragStart}
 				>
 					<div className="flex items-center justify-between gap-2">

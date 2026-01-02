@@ -215,9 +215,9 @@ export function Connections() {
 			{/* Titlebar region */}
 			<header
 				onMouseDown={handleDragStart}
-				className="h-12 shrink-0 flex items-center justify-between gap-2 px-4 pl-20 border-b bg-background/80 backdrop-blur-sm"
+				className="h-12 shrink-0 flex items-center justify-between gap-2 px-4 pl-20 border-b bg-background/80 backdrop-blur-sm select-none"
 			>
-				<div className="flex items-center gap-2">
+				<div className="flex items-center gap-2 pl-4">
 					<h1 className="text-sm font-medium text-foreground">Connections</h1>
 					<Badge variant="secondary" className="text-xs">
 						{connections.length}
@@ -238,7 +238,7 @@ export function Connections() {
 					<button
 						type="button"
 						onClick={() => navigate("/settings")}
-						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
+						className="inline-flex hover:cursor-pointer items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
 						title="Settings"
 					>
 						<Gear className="w-4 h-4" />
