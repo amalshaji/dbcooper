@@ -151,7 +151,7 @@ function ContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className={`flex h-10 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 select-none ${
+			className={`flex h-12 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 select-none ${
 				isCollapsed ? "pl-20" : ""
 			}`}
 		>
@@ -202,9 +202,9 @@ function RedisContentHeader({
 	return (
 		<header
 			onMouseDown={handleDragStart}
-			className="flex h-10 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
+			className="flex h-12 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
 		>
-			<div className="flex items-center gap-2 flex-1">
+			<div className="flex items-center gap-2 flex-1 ml-4">
 				<Button
 					variant="ghost"
 					size="sm"
