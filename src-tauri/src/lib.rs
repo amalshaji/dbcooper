@@ -1,6 +1,6 @@
-mod commands;
-mod database;
-mod db;
+pub mod commands;
+pub mod database;
+pub mod db;
 mod ssh_tunnel;
 
 use commands::ai::{generate_sql, select_tables_for_query};

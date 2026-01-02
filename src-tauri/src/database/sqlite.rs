@@ -4,12 +4,12 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
 use super::{DatabaseDriver, SqliteConfig};
+use crate::database::queries::sqlite::{
+    COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
+};
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
     TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
-};
-use crate::database::queries::sqlite::{
-    COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ impl SqliteDriver {
     }
 
     fn connection_string(&self) -> String {
-        format!("sqlite:{}", self.config.file_path)
+        format!("sqlite:{}?mode=rwc", self.config.file_path)
     }
 
     async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
@@ -56,7 +56,15 @@ impl SqliteDriver {
                     .try_get::<Vec<u8>, _>(i)
                     .map(|v| json!(format!("[{} bytes]", v.len())))
                     .unwrap_or(Value::Null),
-                "NULL" => Value::Null,
+                // NULL type can mean either an actual NULL value or an expression result like COUNT(*)
+                // Try to extract as various types before giving up
+                "NULL" => row
+                    .try_get::<i64, _>(i)
+                    .map(|v| json!(v))
+                    .or_else(|_| row.try_get::<f64, _>(i).map(|v| json!(v)))
+                    .or_else(|_| row.try_get::<String, _>(i).map(|v| json!(v)))
+                    .unwrap_or(Value::Null),
+
                 "BOOLEAN" | "BOOL" => row
                     .try_get::<bool, _>(i)
                     .map(|v| json!(v))
@@ -69,10 +77,23 @@ impl SqliteDriver {
                     .or_else(|_| row.try_get::<f64, _>(i).map(|v| json!(v.to_string())))
                     .or_else(|_| row.try_get::<i64, _>(i).map(|v| json!(v.to_string())))
                     .unwrap_or(Value::Null),
-                _ => row
-                    .try_get::<String, _>(i)
-                    .map(|v| json!(v))
-                    .unwrap_or_else(|_| json!(format!("<{}>", type_name))),
+                _ => {
+                    // For unknown types (like COUNT(*) which returns NULL type),
+                    // try extracting as different types in order of likelihood
+                    let int_result = row.try_get::<i64, _>(i);
+                    eprintln!(
+                        "DEBUG: fallback type={}, col={}, int_try={:?}",
+                        type_name,
+                        col.name(),
+                        int_result
+                    );
+                    int_result
+                        .map(|v| json!(v))
+                        .or_else(|_| row.try_get::<f64, _>(i).map(|v| json!(v)))
+                        .or_else(|_| row.try_get::<String, _>(i).map(|v| json!(v)))
+                        .or_else(|_| row.try_get::<bool, _>(i).map(|v| json!(v)))
+                        .unwrap_or(Value::Null)
+                }
             };
             obj.insert(col.name().to_string(), value);
         }
@@ -388,8 +409,9 @@ impl DatabaseDriver for SqliteDriver {
             let column_name: String = row.try_get("column_name").map_err(|e| e.to_string())?;
             let references_table: String =
                 row.try_get("references_table").map_err(|e| e.to_string())?;
-            let references_column: String =
-                row.try_get("references_column").map_err(|e| e.to_string())?;
+            let references_column: String = row
+                .try_get("references_column")
+                .map_err(|e| e.to_string())?;
 
             if let Some(table) = tables_map.get_mut(&table_name) {
                 table.foreign_keys.push(ForeignKeyInfo {
@@ -426,7 +448,10 @@ impl DatabaseDriver for SqliteDriver {
         }
 
         for ((table_name, index_name), index_info) in index_map {
-            let index_info_query = format!("SELECT name as column_name FROM pragma_index_info('{}') ORDER BY seqno", index_name);
+            let index_info_query = format!(
+                "SELECT name as column_name FROM pragma_index_info('{}') ORDER BY seqno",
+                index_name
+            );
             let index_cols = sqlx::query(&index_info_query)
                 .fetch_all(&pool)
                 .await
