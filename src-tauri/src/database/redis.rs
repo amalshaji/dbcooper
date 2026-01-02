@@ -235,10 +235,18 @@ impl RedisDriver {
 impl DatabaseDriver for RedisDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_connection_with_retry().await {
-            Ok(_conn) => Ok(TestConnectionResult {
-                success: true,
-                message: "Connection successful!".to_string(),
-            }),
+            Ok(mut conn) => {
+                match redis::cmd("PING").query_async::<String>(&mut conn).await {
+                    Ok(_) => Ok(TestConnectionResult {
+                        success: true,
+                        message: "Connection successful!".to_string(),
+                    }),
+                    Err(e) => Ok(TestConnectionResult {
+                        success: false,
+                        message: format!("Redis PING failed: {}", e),
+                    }),
+                }
+            }
             Err(e) => Ok(TestConnectionResult {
                 success: false,
                 message: format!("Connection failed: {}", e),

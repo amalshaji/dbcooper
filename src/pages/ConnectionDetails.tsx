@@ -454,8 +454,24 @@ export function ConnectionDetails() {
 
 		const loadData = async () => {
 			if (connection.type === "redis") {
-				// Redis doesn't have schema - connection will be verified when user searches for keys
-				setLoadingPhase("complete");
+				try {
+					const connectResult = await api.pool.connect(uuid!);
+					if (connectResult.status === "connected") {
+						setConnectionStatus("connected");
+					} else {
+						setConnectionStatus("disconnected");
+						toast.error("Connection failed", {
+							description: connectResult.error || "Connection failed",
+						});
+					}
+				} catch (error) {
+					setConnectionStatus("disconnected");
+					toast.error("Connection failed", {
+						description: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					setLoadingPhase("complete");
+				}
 			} else {
 				try {
 					const connectResult = await api.pool.connect(uuid!);
