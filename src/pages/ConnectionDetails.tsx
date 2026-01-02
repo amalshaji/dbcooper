@@ -453,47 +453,28 @@ export function ConnectionDetails() {
 		hasStartedLoading.current = true;
 
 		const loadData = async () => {
-			if (connection.type === "redis") {
-				try {
-					const connectResult = await api.pool.connect(uuid!);
-					if (connectResult.status === "connected") {
-						setConnectionStatus("connected");
-					} else {
-						setConnectionStatus("disconnected");
-						toast.error("Connection failed", {
-							description: connectResult.error || "Connection failed",
-						});
-					}
-				} catch (error) {
-					setConnectionStatus("disconnected");
-					toast.error("Connection failed", {
-						description: error instanceof Error ? error.message : String(error),
-					});
-				} finally {
-					setLoadingPhase("complete");
-				}
-			} else {
-				try {
-					const connectResult = await api.pool.connect(uuid!);
+			try {
+				const connectResult = await api.pool.connect(uuid!);
 
-					if (connectResult.status === "connected") {
-						setConnectionStatus("connected");
+				if (connectResult.status === "connected") {
+					setConnectionStatus("connected");
+					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
 						await fetchSchemaOverviewData();
-					} else {
-						setConnectionStatus("disconnected");
-						toast.error("Connection failed", {
-							description: connectResult.error || "Connection failed",
-						});
 					}
-				} catch (error) {
+				} else {
 					setConnectionStatus("disconnected");
 					toast.error("Connection failed", {
-						description: error instanceof Error ? error.message : String(error),
+						description: connectResult.error || "Connection failed",
 					});
-				} finally {
-					setLoadingPhase("complete");
 				}
+			} catch (error) {
+				setConnectionStatus("disconnected");
+				toast.error("Connection failed", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+			} finally {
+				setLoadingPhase("complete");
 			}
 		};
 
