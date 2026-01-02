@@ -6,11 +6,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, PostgresConfig};
+use crate::database::queries::postgres::SCHEMA_OVERVIEW_QUERY;
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
     TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
-use crate::database::queries::postgres::SCHEMA_OVERVIEW_QUERY;
 
 pub struct PostgresDriver {
     config: PostgresConfig,
@@ -44,7 +44,7 @@ impl PostgresDriver {
 
     async fn create_pool(&self) -> Result<sqlx::PgPool, String> {
         let conn_str = self.build_connection_string();
-        
+
         // Use a 15 second timeout for connection (longer for SSH tunnel overhead)
         match tokio::time::timeout(
             std::time::Duration::from_secs(15),
@@ -52,7 +52,7 @@ impl PostgresDriver {
                 .max_connections(5)
                 .acquire_timeout(std::time::Duration::from_secs(30))
                 .idle_timeout(std::time::Duration::from_secs(600))
-                .test_before_acquire(true)
+                .test_before_acquire(false)
                 .connect(&conn_str),
         )
         .await
@@ -526,7 +526,8 @@ impl DatabaseDriver for PostgresDriver {
             let columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
                 .map_err(|e| format!("Failed to parse columns: {}", e))?;
 
-            let foreign_keys_json: Value = row.try_get("foreign_keys").map_err(|e| e.to_string())?;
+            let foreign_keys_json: Value =
+                row.try_get("foreign_keys").map_err(|e| e.to_string())?;
             let foreign_keys: Vec<ForeignKeyInfo> = serde_json::from_value(foreign_keys_json)
                 .map_err(|e| format!("Failed to parse foreign_keys: {}", e))?;
 
