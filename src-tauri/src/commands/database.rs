@@ -804,7 +804,23 @@ pub fn format_sql_value(value: &serde_json::Value) -> String {
 // Redis-specific commands
 // ============================================================================
 
-/// Helper function to get Redis connection config from UUID
+/// Retrieves Redis configuration and connection details from the database using the connection UUID.
+///
+/// This helper function queries the SQLite database to fetch connection details for a given UUID,
+/// then constructs a `RedisConfig` object with the connection parameters. It returns both the
+/// configuration object and the connection record for use by Redis driver operations.
+///
+/// # Parameters
+/// * `sqlite_pool` - Reference to the SQLite connection pool
+/// * `uuid` - The unique identifier of the connection to retrieve
+///
+/// # Returns
+/// A tuple containing:
+/// * `RedisConfig` - The Redis connection configuration object
+/// * `Connection` - The database connection record with all connection details
+///
+/// # Errors
+/// Returns an error string if the connection is not found or if database queries fail
 async fn get_redis_config_from_uuid(
     sqlite_pool: &SqlitePool,
     uuid: &str,

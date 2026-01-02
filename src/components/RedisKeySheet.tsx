@@ -100,6 +100,12 @@ export function RedisKeySheet({
 					} else {
 						setZsetMembers([]);
 					}
+				} else {
+					console.warn("Unexpected Redis key type in edit mode:", keyDetails.key_type);
+					setStringValue("");
+					setListValues([]);
+					setHashFields([]);
+					setZsetMembers([]);
 				}
 			} else {
 				// Reset for add mode
@@ -121,10 +127,18 @@ export function RedisKeySheet({
 	}, [open, mode, keyDetails]);
 
 	const handleAddListItem = () => {
-		if (newListItem.trim()) {
-			setListValues([...listValues, newListItem.trim()]);
-			setNewListItem("");
+		const value = newListItem.trim();
+		if (!value) {
+			return;
 		}
+
+		if (keyType === "set" && listValues.includes(value)) {
+			toast.error("This set already contains that value");
+			return;
+		}
+
+		setListValues([...listValues, value]);
+		setNewListItem("");
 	};
 
 	const handleRemoveListItem = (index: number) => {
@@ -132,11 +146,19 @@ export function RedisKeySheet({
 	};
 
 	const handleAddHashField = () => {
-		if (newHashKey.trim()) {
-			setHashFields([...hashFields, { key: newHashKey.trim(), value: newHashValue }]);
-			setNewHashKey("");
-			setNewHashValue("");
+		const trimmedKey = newHashKey.trim();
+		if (!trimmedKey) {
+			return;
 		}
+
+		if (hashFields.some((field) => field.key === trimmedKey)) {
+			toast.error("This hash field key already exists");
+			return;
+		}
+
+		setHashFields([...hashFields, { key: trimmedKey, value: newHashValue }]);
+		setNewHashKey("");
+		setNewHashValue("");
 	};
 
 	const handleRemoveHashField = (index: number) => {
@@ -144,18 +166,26 @@ export function RedisKeySheet({
 	};
 
 	const handleUpdateHashField = (index: number, field: "key" | "value", value: string) => {
-		const updated = [...hashFields];
-		updated[index] = { ...updated[index], [field]: value };
-		setHashFields(updated);
+		const updatedHashFields = [...hashFields];
+		updatedHashFields[index] = { ...updatedHashFields[index], [field]: value };
+		setHashFields(updatedHashFields);
 	};
 
 	const handleAddZsetMember = () => {
-		if (newZsetMember.trim()) {
-			const score = parseFloat(newZsetScore) || 0;
-			setZsetMembers([...zsetMembers, { member: newZsetMember.trim(), score }]);
-			setNewZsetMember("");
-			setNewZsetScore("");
+		const trimmedMember = newZsetMember.trim();
+		if (!trimmedMember) {
+			return;
 		}
+
+		if (zsetMembers.some((item) => item.member === trimmedMember)) {
+			toast.error("Sorted set member already exists. Members must be unique");
+			return;
+		}
+
+		const score = parseFloat(newZsetScore) || 0;
+		setZsetMembers([...zsetMembers, { member: trimmedMember, score }]);
+		setNewZsetMember("");
+		setNewZsetScore("");
 	};
 
 	const handleRemoveZsetMember = (index: number) => {
@@ -167,9 +197,9 @@ export function RedisKeySheet({
 		field: "member" | "score",
 		value: string | number,
 	) => {
-		const updated = [...zsetMembers];
-		updated[index] = { ...updated[index], [field]: value };
-		setZsetMembers(updated);
+		const updatedZsetMembers = [...zsetMembers];
+		updatedZsetMembers[index] = { ...updatedZsetMembers[index], [field]: value };
+		setZsetMembers(updatedZsetMembers);
 	};
 
 	const handleSave = async () => {
@@ -181,8 +211,13 @@ export function RedisKeySheet({
 		let value: unknown;
 		const ttlValue = ttlEnabled && ttl.trim() ? parseInt(ttl, 10) : undefined;
 
-		if (ttlEnabled && ttl.trim() && (Number.isNaN(ttlValue) || ttlValue === undefined)) {
+		if (ttlEnabled && ttl.trim() && Number.isNaN(ttlValue)) {
 			toast.error("TTL must be a valid number");
+			return;
+		}
+
+		if (ttlEnabled && ttl.trim() && ttlValue !== undefined && ttlValue <= 0) {
+			toast.error("TTL must be a positive number");
 			return;
 		}
 
@@ -193,6 +228,10 @@ export function RedisKeySheet({
 					break;
 				case "list":
 				case "set":
+					if (listValues.length === 0) {
+						toast.error(`Cannot create a ${keyType} key with empty values`);
+						return;
+					}
 					value = listValues;
 					break;
 				case "hash": {
@@ -202,12 +241,25 @@ export function RedisKeySheet({
 							hash[field.key.trim()] = field.value;
 						}
 					}
+					if (Object.keys(hash).length === 0) {
+						toast.error("Cannot create a hash key with empty fields");
+						return;
+					}
 					value = hash;
 					break;
 				}
 				case "zset":
+					if (zsetMembers.length === 0) {
+						toast.error("Cannot create a sorted set with empty members");
+						return;
+					}
 					value = zsetMembers.map((m) => [m.member, m.score] as [string, number]);
 					break;
+				default: {
+					console.error("Unsupported Redis key type encountered in handleSave:", keyType);
+					toast.error("Unsupported key type. Please refresh the page and try again.");
+					return;
+				}
 			}
 
 			await onSave({
@@ -218,6 +270,9 @@ export function RedisKeySheet({
 			});
 		} catch (error) {
 			console.error("Failed to save Redis key:", error);
+			toast.error(
+				error instanceof Error ? error.message : "Failed to save Redis key",
+			);
 		}
 	};
 
@@ -247,9 +302,9 @@ export function RedisKeySheet({
 									<Input
 										value={item}
 										onChange={(e) => {
-											const updated = [...listValues];
-											updated[index] = e.target.value;
-											setListValues(updated);
+											const updatedListValues = [...listValues];
+											updatedListValues[index] = e.target.value;
+											setListValues(updatedListValues);
 										}}
 										className="flex-1 font-mono"
 									/>
@@ -396,6 +451,17 @@ export function RedisKeySheet({
 								</Button>
 							</div>
 						</div>
+					</div>
+				);
+
+			default:
+				console.warn("Unexpected Redis key type:", keyType);
+				return (
+					<div className="space-y-2">
+						<Label>Value</Label>
+						<p className="text-sm text-muted-foreground">
+							Unsupported key type: {keyType}
+						</p>
 					</div>
 				);
 		}

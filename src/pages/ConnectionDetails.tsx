@@ -2816,7 +2816,7 @@ export function ConnectionDetails() {
 								</div>
 							</>
 						) : (
-							<div className="flex items-center justify-center py-12 text-muted-foreground">
+							<div className="flex items-center justify-center py-12 px-4 text-muted-foreground">
 								Failed to load key details
 							</div>
 						)}

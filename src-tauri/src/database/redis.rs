@@ -6,8 +6,7 @@ use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
-    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -552,24 +551,43 @@ impl RedisDriver {
         }
     }
 
-    /// Set a list key value
+    /// Set a list key value.
+    ///
+    /// This method creates or replaces a Redis list key with the provided values.
+    /// The values array must not be empty - empty arrays will return an error to prevent
+    /// accidental key deletion.
+    ///
+    /// # Parameters
+    /// * `key` - The Redis key name
+    /// * `values` - Array of string values to store in the list (must not be empty)
+    /// * `ttl` - Optional time-to-live in seconds. If provided, sets expiration on the key
+    ///
+    /// # Behavior
+    /// - Deletes any existing key with the same name before creating the new list
+    /// - Uses RPUSH to add all values to the list
+    /// - Sets TTL if provided
+    ///
+    /// # Errors
+    /// Returns an error if the values array is empty or if Redis operations fail
     pub async fn set_list_key(
         &self,
         key: &str,
         values: &[String],
         ttl: Option<i64>,
     ) -> Result<(), String> {
+        if values.is_empty() {
+            return Err("Cannot create a list key with empty values array".to_string());
+        }
+
         let mut conn = self.get_connection_with_retry().await?;
 
         // Delete existing key if it exists
         let _: i64 = conn.del(key).await.unwrap_or(0);
 
         // Push all values
-        if !values.is_empty() {
-            conn.rpush::<&str, &[String], i64>(key, values)
-                .await
-                .map_err(|e| self.handle_connection_error(&e, "set_list_key"))?;
-        }
+        conn.rpush::<&str, &[String], i64>(key, values)
+            .await
+            .map_err(|e| self.handle_connection_error(&e, "set_list_key"))?;
 
         // Set TTL if provided
         if let Some(expiry) = ttl {
@@ -581,24 +599,43 @@ impl RedisDriver {
         Ok(())
     }
 
-    /// Set a set key value
+    /// Set a set key value.
+    ///
+    /// This method creates or replaces a Redis set key with the provided values.
+    /// The values array must not be empty - empty arrays will return an error to prevent
+    /// accidental key deletion.
+    ///
+    /// # Parameters
+    /// * `key` - The Redis key name
+    /// * `values` - Array of string values to store in the set (must not be empty)
+    /// * `ttl` - Optional time-to-live in seconds. If provided, sets expiration on the key
+    ///
+    /// # Behavior
+    /// - Deletes any existing key with the same name before creating the new set
+    /// - Uses SADD to add all values to the set (Redis automatically handles duplicates)
+    /// - Sets TTL if provided
+    ///
+    /// # Errors
+    /// Returns an error if the values array is empty or if Redis operations fail
     pub async fn set_set_key(
         &self,
         key: &str,
         values: &[String],
         ttl: Option<i64>,
     ) -> Result<(), String> {
+        if values.is_empty() {
+            return Err("Cannot create a set key with empty values array".to_string());
+        }
+
         let mut conn = self.get_connection_with_retry().await?;
 
         // Delete existing key if it exists
         let _: i64 = conn.del(key).await.unwrap_or(0);
 
         // Add all values
-        if !values.is_empty() {
-            conn.sadd::<&str, &[String], i64>(key, values)
-                .await
-                .map_err(|e| self.handle_connection_error(&e, "set_set_key"))?;
-        }
+        conn.sadd::<&str, &[String], i64>(key, values)
+            .await
+            .map_err(|e| self.handle_connection_error(&e, "set_set_key"))?;
 
         // Set TTL if provided
         if let Some(expiry) = ttl {
@@ -610,30 +647,50 @@ impl RedisDriver {
         Ok(())
     }
 
-    /// Set a hash key value
+    /// Set a hash key value.
+    ///
+    /// This method creates or replaces a Redis hash key with the provided field-value pairs.
+    /// The fields map must not be empty - empty maps will return an error to prevent
+    /// accidental key deletion.
+    ///
+    /// # Parameters
+    /// * `key` - The Redis key name
+    /// * `fields` - HashMap of field names to values (must not be empty)
+    /// * `ttl` - Optional time-to-live in seconds. If provided, sets expiration on the key
+    ///
+    /// # Behavior
+    /// - Deletes any existing key with the same name before creating the new hash
+    /// - Uses HMSET to set all field-value pairs atomically
+    /// - Sets TTL if provided
+    ///
+    /// # Errors
+    /// Returns an error if the fields map is empty or if Redis operations fail
     pub async fn set_hash_key(
         &self,
         key: &str,
         fields: &std::collections::HashMap<String, String>,
         ttl: Option<i64>,
     ) -> Result<(), String> {
+        if fields.is_empty() {
+            return Err("Cannot create a hash key with empty fields".to_string());
+        }
+
         let mut conn = self.get_connection_with_retry().await?;
 
         // Delete existing key if it exists
         let _: i64 = conn.del(key).await.unwrap_or(0);
 
         // Set all hash fields using HMSET command
-        if !fields.is_empty() {
-            let mut cmd = redis::cmd("HMSET");
-            cmd.arg(key);
-            for (field, value) in fields {
-                cmd.arg(field);
-                cmd.arg(value);
-            }
-            let _: String = cmd.query_async(&mut conn)
-                .await
-                .map_err(|e| self.handle_connection_error(&e, "set_hash_key"))?;
+        let mut cmd = redis::cmd("HMSET");
+        cmd.arg(key);
+        for (field, value) in fields {
+            cmd.arg(field);
+            cmd.arg(value);
         }
+        let _: String = cmd
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| self.handle_connection_error(&e, "set_hash_key"))?;
 
         // Set TTL if provided
         if let Some(expiry) = ttl {
@@ -645,30 +702,51 @@ impl RedisDriver {
         Ok(())
     }
 
-    /// Set a sorted set key value
+    /// Set a sorted set key value.
+    ///
+    /// This method creates or replaces a Redis sorted set (zset) key with the provided
+    /// member-score pairs. The members array must not be empty - empty arrays will return
+    /// an error to prevent accidental key deletion.
+    ///
+    /// # Parameters
+    /// * `key` - The Redis key name
+    /// * `members` - Array of tuples containing (member, score) pairs (must not be empty)
+    /// * `ttl` - Optional time-to-live in seconds. If provided, sets expiration on the key
+    ///
+    /// # Behavior
+    /// - Deletes any existing key with the same name before creating the new sorted set
+    /// - Uses ZADD to add all members with their scores
+    /// - If a member already exists, its score will be updated
+    /// - Sets TTL if provided
+    ///
+    /// # Errors
+    /// Returns an error if the members array is empty or if Redis operations fail
     pub async fn set_zset_key(
         &self,
         key: &str,
         members: &[(String, f64)],
         ttl: Option<i64>,
     ) -> Result<(), String> {
+        if members.is_empty() {
+            return Err("Cannot create a sorted set with empty members array".to_string());
+        }
+
         let mut conn = self.get_connection_with_retry().await?;
 
         // Delete existing key if it exists
         let _: i64 = conn.del(key).await.unwrap_or(0);
 
         // Add all members with scores using ZADD command
-        if !members.is_empty() {
-            let mut cmd = redis::cmd("ZADD");
-            cmd.arg(key);
-            for (member, score) in members {
-                cmd.arg(*score);
-                cmd.arg(member);
-            }
-            let _: i64 = cmd.query_async(&mut conn)
-                .await
-                .map_err(|e| self.handle_connection_error(&e, "set_zset_key"))?;
+        let mut cmd = redis::cmd("ZADD");
+        cmd.arg(key);
+        for (member, score) in members {
+            cmd.arg(*score);
+            cmd.arg(member);
         }
+        let _: i64 = cmd
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| self.handle_connection_error(&e, "set_zset_key"))?;
 
         // Set TTL if provided
         if let Some(expiry) = ttl {
