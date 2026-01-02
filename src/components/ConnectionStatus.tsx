@@ -94,7 +94,7 @@ export function ConnectionStatus({
 			}
 		};
 
-		const interval = setInterval(performHealthCheck, 30000);
+		const interval = setInterval(performHealthCheck, 5000);
 
 		return () => clearInterval(interval);
 	}, [connectionUuid, currentStatus, onStatusChange]);
