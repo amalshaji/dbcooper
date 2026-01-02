@@ -28,6 +28,7 @@ export function ConnectionStatus({
 	const [error, setError] = useState<string | null>(null);
 	const [currentStatus, setCurrentStatus] = useState<"connected" | "disconnected">(initialStatus);
 	const isMounted = useRef(true);
+	const isCheckingHealth = useRef(false);
 
 	const status: Status = isReconnecting ? "reconnecting" : currentStatus;
 
@@ -74,8 +75,9 @@ export function ConnectionStatus({
 		if (currentStatus !== "connected") return;
 
 		const performHealthCheck = async () => {
-			if (!isMounted.current) return;
+			if (!isMounted.current || isCheckingHealth.current) return;
 
+			isCheckingHealth.current = true;
 			try {
 				const result = await api.pool.healthCheck(connectionUuid);
 				if (isMounted.current) {
@@ -91,10 +93,12 @@ export function ConnectionStatus({
 					setError(err instanceof Error ? err.message : "Health check failed");
 					onStatusChange?.("disconnected");
 				}
+			} finally {
+				isCheckingHealth.current = false;
 			}
 		};
 
-		const interval = setInterval(performHealthCheck, 30000);
+		const interval = setInterval(performHealthCheck, 15000);
 
 		return () => clearInterval(interval);
 	}, [connectionUuid, currentStatus, onStatusChange]);
