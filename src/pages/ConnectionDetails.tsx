@@ -126,6 +126,7 @@ import {
 
 type LoadingPhase =
 	| "fetching-config"
+	| "establishing-ssh"
 	| "connecting"
 	| "loading-schema"
 	| "complete";
@@ -367,7 +368,12 @@ export function ConnectionDetails() {
 			try {
 				const data = await api.connections.getByUuid(uuid);
 				setConnection(data);
-				setLoadingPhase("connecting");
+				// For SSH connections, show the SSH tunnel phase first
+				if (data.ssh_enabled) {
+					setLoadingPhase("establishing-ssh");
+				} else {
+					setLoadingPhase("connecting");
+				}
 			} catch (error) {
 				console.error("Failed to fetch connection:", error);
 				navigate("/");
@@ -437,56 +443,49 @@ export function ConnectionDetails() {
 	}, [connection]);
 
 	useEffect(() => {
-		if (
+		const shouldStartLoading =
 			connection &&
-			loadingPhase === "connecting" &&
-			!hasStartedLoading.current
-		) {
-			hasStartedLoading.current = true;
+			(loadingPhase === "connecting" || loadingPhase === "establishing-ssh") &&
+			!hasStartedLoading.current;
 
-			const loadData = async () => {
-				if (connection.type === "redis") {
-					// Redis doesn't have schema - connection will be verified when user searches for keys
-					// Don't set connectionStatus here as we haven't actually tested the connection yet
-					setLoadingPhase("complete");
-				} else {
-					// For other DBs, explicitly test connection first
-					try {
-						const connectResult = await api.pool.connect(uuid!);
+		if (!shouldStartLoading) return;
 
-						if (connectResult.status === "connected") {
-							setConnectionStatus("connected");
-							// Connection successful, now load schema
-							setLoadingPhase("loading-schema");
-							await fetchSchemaOverviewData();
-						} else {
-							// Connection failed
-							setConnectionStatus("disconnected");
-							const errorMessage = connectResult.error || "Connection failed";
-							toast.error("Connection failed", {
-								description: errorMessage,
-							});
-						}
-					} catch (error) {
-						// Connection attempt failed (timeout, network error, etc.)
-						setConnectionStatus("disconnected");
-						const errorMessage =
-							error instanceof Error ? error.message : String(error);
-						toast.error("Connection failed", {
-							description: errorMessage,
-						});
-					} finally {
-						setLoadingPhase("complete");
-					}
-				}
-			};
+		hasStartedLoading.current = true;
 
-			loadData().catch((error) => {
-				console.error("Failed to load connection data:", error);
-				setConnectionStatus("disconnected");
+		const loadData = async () => {
+			if (connection.type === "redis") {
+				// Redis doesn't have schema - connection will be verified when user searches for keys
 				setLoadingPhase("complete");
-			});
-		}
+			} else {
+				try {
+					const connectResult = await api.pool.connect(uuid!);
+
+					if (connectResult.status === "connected") {
+						setConnectionStatus("connected");
+						setLoadingPhase("loading-schema");
+						await fetchSchemaOverviewData();
+					} else {
+						setConnectionStatus("disconnected");
+						toast.error("Connection failed", {
+							description: connectResult.error || "Connection failed",
+						});
+					}
+				} catch (error) {
+					setConnectionStatus("disconnected");
+					toast.error("Connection failed", {
+						description: error instanceof Error ? error.message : String(error),
+					});
+				} finally {
+					setLoadingPhase("complete");
+				}
+			}
+		};
+
+		loadData().catch((error) => {
+			console.error("Failed to load connection data:", error);
+			setConnectionStatus("disconnected");
+			setLoadingPhase("complete");
+		});
 		// Only depend on connection and loadingPhase, not the callbacks
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [connection, loadingPhase]);
@@ -1603,20 +1602,15 @@ export function ConnectionDetails() {
 		}
 	};
 
-	const loadingPhases: Array<{
-		phase: LoadingPhase;
-		label: string;
-	}> =
-		connection?.type === "redis"
-			? [
-					{ phase: "fetching-config", label: "Fetching connection details" },
-					{ phase: "connecting", label: "Establishing connection" },
-				]
-			: [
-					{ phase: "fetching-config", label: "Fetching connection details" },
-					{ phase: "connecting", label: "Establishing connection" },
-					{ phase: "loading-schema", label: "Loading schema and tables" },
-				];
+	const loadingPhases: Array<{ phase: LoadingPhase; label: string }> = [
+		{ phase: "fetching-config", label: "Fetching connection details" },
+		...(connection?.ssh_enabled
+			? [{ phase: "establishing-ssh" as LoadingPhase, label: "Establishing SSH tunnel and connecting" }]
+			: [{ phase: "connecting" as LoadingPhase, label: "Establishing connection" }]),
+		...(connection?.type !== "redis"
+			? [{ phase: "loading-schema" as LoadingPhase, label: "Loading schema and tables" }]
+			: []),
+	];
 
 	const getPhaseStatus = (phase: LoadingPhase) => {
 		const phaseIndex = loadingPhases.findIndex((p) => p.phase === phase);
