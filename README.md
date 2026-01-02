@@ -37,7 +37,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - [Bun](https://bun.sh/) - JavaScript runtime and package manager
 - [Rust](https://www.rust-lang.org/) - For Tauri backend
-- macOS (for building macOS apps)
+- macOS 26 (Tahoe) or later
 
 ### Setup
 
