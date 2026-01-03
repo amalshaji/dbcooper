@@ -1,10 +1,10 @@
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { FunctionCombobox } from "./FunctionCombobox";
 import { SqlFunctionBadge } from "./SqlFunctionBadge";
 import { NullButton } from "./NullButton";
 import { UuidButton } from "./UuidButton";
 import { isUuidColumn } from "@/lib/columnUtils";
+import { ExpandableText } from "@/components/ExpandableText";
 import type { FieldInputProps } from "./types";
 
 export function TextFieldInput({
@@ -27,11 +27,9 @@ export function TextFieldInput({
 
 	if (isReadonly) {
 		return (
-			<Input
-				type="text"
+			<ExpandableText
 				value={stringValue}
-				disabled
-				className="flex-1"
+				isNull={isNull}
 			/>
 		);
 	}

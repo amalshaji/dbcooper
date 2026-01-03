@@ -1,5 +1,6 @@
 import { Textarea } from "@/components/ui/textarea";
 import { NullButton } from "./NullButton";
+import { ExpandableText } from "@/components/ExpandableText";
 import type { FieldInputProps } from "./types";
 
 export function JsonFieldInput({
@@ -16,6 +17,16 @@ export function JsonFieldInput({
 				? ""
 				: String(value);
 
+	if (isReadonly) {
+		return (
+			<ExpandableText
+				value={stringValue}
+				isNull={isNull}
+				isJson={true}
+			/>
+		);
+	}
+
 	return (
 		<div className="space-y-1">
 			<Textarea
@@ -30,15 +41,12 @@ export function JsonFieldInput({
 				}}
 				placeholder={isNull ? "NULL" : ""}
 				className="font-mono text-xs min-h-[80px]"
-				disabled={isReadonly}
 			/>
-			{!isReadonly && (
-				<NullButton
-					isNull={isNull}
-					nullable={column.nullable}
-					onToggle={() => onValueChange(isNull ? {} : null, false)}
-				/>
-			)}
+			<NullButton
+				isNull={isNull}
+				nullable={column.nullable}
+				onToggle={() => onValueChange(isNull ? {} : null, false)}
+			/>
 		</div>
 	);
 }

@@ -115,6 +115,7 @@ import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { RedisKeySheet } from "@/components/RedisKeySheet";
+import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
@@ -2776,11 +2777,10 @@ export function ConnectionDetails() {
 												)}
 											</Button>
 										</div>
-										<div className="bg-muted rounded-md p-4">
-											<pre className="text-sm overflow-x-auto whitespace-pre-wrap break-all">
-												{JSON.stringify(redisKeyDetails.value, null, 2)}
-											</pre>
-										</div>
+										<ExpandableText
+											value={JSON.stringify(redisKeyDetails.value, null, 2)}
+											isJson={typeof redisKeyDetails.value === "object"}
+										/>
 									</div>
 
 									{/* Actions */}
