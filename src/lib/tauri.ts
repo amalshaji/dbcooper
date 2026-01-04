@@ -125,6 +125,8 @@ export interface RedisKeyListResponse {
 	keys: RedisKeyInfo[];
 	total: number;
 	time_taken_ms?: number;
+	cursor: number;
+	scan_complete: boolean;
 }
 
 export interface RedisKeyDetails {
@@ -447,11 +449,13 @@ export const api = {
 			connectionUuid: string,
 			pattern: string,
 			limit: number = 100,
+			cursor: number = 0,
 		) =>
 			invoke<RedisKeyListResponse>("redis_search_keys", {
 				uuid: connectionUuid,
 				pattern,
 				limit,
+				cursor,
 			}),
 
 		getKeyDetails: (connectionUuid: string, key: string) =>

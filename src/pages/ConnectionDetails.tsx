@@ -20,6 +20,7 @@ import {
 import type { DatabaseTable } from "@/types/table";
 import type { SavedQuery } from "@/types/savedQuery";
 import { api, type Connection } from "@/lib/tauri";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
@@ -277,6 +278,13 @@ export function ConnectionDetails() {
 	const [redisKeySheetOpen, setRedisKeySheetOpen] = useState(false);
 	const [redisKeySheetMode, setRedisKeySheetMode] = useState<"add" | "edit">("add");
 	const [savingRedisKey, setSavingRedisKey] = useState(false);
+	const [redisScanProgress, setRedisScanProgress] = useState<{
+		iteration: number;
+		maxIterations: number;
+		keysFound: number;
+	} | null>(null);
+	const [redisScanCursor, setRedisScanCursor] = useState<number>(0);
+	const [redisScanComplete, setRedisScanComplete] = useState<boolean>(true);
 
 	// Ref for Redis keys list virtualization
 	const redisKeysListRef = useRef<HTMLDivElement>(null);
@@ -288,6 +296,36 @@ export function ConnectionDetails() {
 		estimateSize: () => 48,
 		overscan: 10,
 	});
+
+	// Listen for Redis scan progress events
+	useEffect(() => {
+		if (!uuid) return;
+
+		const setupListener = async () => {
+			const unlisten = await listen<{
+				uuid: string;
+				iteration: number;
+				max_iterations: number;
+				keys_found: number;
+			}>("redis-scan-progress", (event) => {
+				if (event.payload.uuid === uuid) {
+					setRedisScanProgress({
+						iteration: event.payload.iteration,
+						maxIterations: event.payload.max_iterations,
+						keysFound: event.payload.keys_found,
+					});
+				}
+			});
+
+			return unlisten;
+		};
+
+		const unlistenPromise = setupListener();
+
+		return () => {
+			unlistenPromise.then((unlisten) => unlisten());
+		};
+	}, [uuid]);
 
 	// Save dialog state (for query tabs)
 	const [saveQueryName, setSaveQueryName] = useState("");
@@ -2408,16 +2446,43 @@ export function ConnectionDetails() {
 		setRedisSelectedKey(null);
 		setRedisKeyDetails(null);
 		setRedisSearchTime(null);
+		setRedisScanProgress(null);
+		setRedisScanCursor(0);
+		setRedisScanComplete(true);
+		setRedisKeys(null);
 
 		try {
-			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100);
+			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, 0);
 			setRedisKeys(result.keys);
 			setRedisSearchTime(result.time_taken_ms ?? null);
+			setRedisScanCursor(result.cursor);
+			setRedisScanComplete(result.scan_complete);
 		} catch (error) {
 			console.error("Failed to search Redis keys:", error);
 			toast.error("Failed to search keys");
 		} finally {
 			setLoadingRedisKeys(false);
+			setRedisScanProgress(null);
+		}
+	};
+
+	const handleRedisScanMore = async () => {
+		if (!connection || redisScanComplete) return;
+		setLoadingRedisKeys(true);
+		setRedisScanProgress(null);
+
+		try {
+			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, redisScanCursor);
+			setRedisKeys((prev) => [...(prev || []), ...result.keys]);
+			setRedisSearchTime((prev) => (prev ?? 0) + (result.time_taken_ms ?? 0));
+			setRedisScanCursor(result.cursor);
+			setRedisScanComplete(result.scan_complete);
+		} catch (error) {
+			console.error("Failed to scan more Redis keys:", error);
+			toast.error("Failed to scan more keys");
+		} finally {
+			setLoadingRedisKeys(false);
+			setRedisScanProgress(null);
 		}
 	};
 
@@ -2576,8 +2641,18 @@ export function ConnectionDetails() {
 				</CardHeader>
 				<CardContent className="flex-1 overflow-y-auto p-0" ref={redisKeysListRef}>
 					{loadingRedisKeys ? (
-						<div className="flex items-center justify-center py-8">
+						<div className="flex flex-col items-center justify-center py-8 gap-2">
 							<Spinner />
+							{redisScanProgress && (
+								<div className="text-sm text-muted-foreground">
+									Scanning... {redisScanProgress.iteration}/{redisScanProgress.maxIterations} iterations
+									{redisScanProgress.keysFound > 0 && (
+										<span className="ml-1">
+											({redisScanProgress.keysFound} key{redisScanProgress.keysFound !== 1 ? "s" : ""} found)
+										</span>
+									)}
+								</div>
+							)}
 						</div>
 					) : redisKeys && redisKeys.length > 0 ? (
 						<div
@@ -2618,6 +2693,13 @@ export function ConnectionDetails() {
 					) : redisKeys && redisKeys.length === 0 ? (
 						<div className="text-center py-12 text-muted-foreground">
 							No keys found matching pattern "{redisPattern}"
+							{!redisScanComplete && (
+								<div className="mt-4">
+									<Button onClick={handleRedisScanMore} variant="outline" size="sm">
+										Scan More Keys
+									</Button>
+								</div>
+							)}
 						</div>
 					) : (
 						<div className="text-center py-12 text-muted-foreground">
@@ -2625,6 +2707,16 @@ export function ConnectionDetails() {
 						</div>
 					)}
 				</CardContent>
+				{!redisScanComplete && redisKeys && redisKeys.length > 0 && !loadingRedisKeys && (
+					<div className="border-t p-3 flex items-center justify-center gap-2">
+						<span className="text-sm text-muted-foreground">
+							Scan incomplete
+						</span>
+						<Button onClick={handleRedisScanMore} variant="outline" size="sm">
+							Scan More Keys
+						</Button>
+					</div>
+				)}
 			</Card>
 
 			{/* Key Details Sheet */}
