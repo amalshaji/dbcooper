@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 
 const DEFAULT_TRUNCATE_LENGTH = 200;
+const ESTIMATED_CHARS_PER_LINE = 80;
 
 interface ExpandableTextProps {
 	value: string;
@@ -23,55 +24,47 @@ export function ExpandableText({
 }: ExpandableTextProps) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	const { displayValue, truncatedValue, isLong, remainingChars, remainingLines } =
+	const { truncatedValue, isLong, remainingChars, remainingLines } =
 		useMemo(() => {
-			const displayValue = value;
-			const isLong = displayValue.length > truncateLength;
+			const isLong = value.length > truncateLength;
 			const shouldTruncate = isLong && !isExpanded;
 
-			let truncatedValue = displayValue;
+			const calculateRemaining = () => {
+				const nextNewline = value.indexOf('\n', truncateLength);
+				const truncateAt = nextNewline !== -1 ? nextNewline : truncateLength;
+				const remainingText = value.substring(truncateAt);
+				const remainingChars = remainingText.length;
+				const newlineCount = (remainingText.match(/\n/g) || []).length;
+				// When truncating at a newline, the remaining text starts with that newline,
+				// so newlineCount represents the actual number of lines remaining
+				const remainingLines = newlineCount > 0
+					? newlineCount
+					: Math.max(1, Math.ceil(remainingChars / ESTIMATED_CHARS_PER_LINE));
+				return { truncateAt, remainingChars, remainingLines };
+			};
+
+			let truncatedValue = value;
 			let remainingChars = 0;
 			let remainingLines = 0;
 
-			if (shouldTruncate) {
-				// Find the next newline after truncateLength, or use truncateLength if no newline
-				const nextNewline = displayValue.indexOf('\n', truncateLength);
-				const truncateAt = nextNewline !== -1 ? nextNewline : truncateLength;
-				
-				truncatedValue = displayValue.substring(0, truncateAt);
-				const remainingText = displayValue.substring(truncateAt);
-				remainingChars = remainingText.length;
-				const newlineCount = (remainingText.match(/\n/g) || []).length;
-				if (newlineCount > 0) {
-					remainingLines = newlineCount;
-				} else {
-					remainingLines = Math.max(1, Math.ceil(remainingChars / 80));
-				}
-			} else if (isLong && isExpanded) {
-				// Calculate what would be hidden if collapsed (for the button label)
-				const nextNewline = displayValue.indexOf('\n', truncateLength);
-				const truncateAt = nextNewline !== -1 ? nextNewline : truncateLength;
-				
-				const remainingText = displayValue.substring(truncateAt);
-				remainingChars = remainingText.length;
-				const newlineCount = (remainingText.match(/\n/g) || []).length;
-				if (newlineCount > 0) {
-					remainingLines = newlineCount;
-				} else {
-					remainingLines = Math.max(1, Math.ceil(remainingChars / 80));
+			if (shouldTruncate || (isLong && isExpanded)) {
+				const calculated = calculateRemaining();
+				remainingChars = calculated.remainingChars;
+				remainingLines = calculated.remainingLines;
+				if (shouldTruncate) {
+					truncatedValue = value.substring(0, calculated.truncateAt);
 				}
 			}
 
 			return {
-				displayValue,
-				truncatedValue: isExpanded ? displayValue : truncatedValue,
+				truncatedValue: isExpanded ? value : truncatedValue,
 				isLong,
 				remainingChars,
 				remainingLines,
 			};
 		}, [value, truncateLength, isExpanded]);
 
-	const useTextarea = isJson || displayValue.length > truncateLength;
+	const useTextarea = isJson || isLong;
 
 	return (
 		<div className="space-y-2">
