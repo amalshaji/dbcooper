@@ -283,7 +283,7 @@ export function ConnectionDetails() {
 		maxIterations: number;
 		keysFound: number;
 	} | null>(null);
-	const [redisScanCursor, setRedisScanCursor] = useState<number>(0);
+	const [redisScanCursor, setRedisScanCursor] = useState<number | null>(null);
 	const [redisScanComplete, setRedisScanComplete] = useState<boolean>(true);
 
 	// Ref for Redis keys list virtualization
@@ -301,6 +301,9 @@ export function ConnectionDetails() {
 	useEffect(() => {
 		if (!uuid) return;
 
+		let isMounted = true;
+		let unlistenFn: (() => void) | null = null;
+
 		const setupListener = async () => {
 			const unlisten = await listen<{
 				uuid: string;
@@ -317,13 +320,18 @@ export function ConnectionDetails() {
 				}
 			});
 
-			return unlisten;
+			if (isMounted) {
+				unlistenFn = unlisten;
+			} else {
+				unlisten();
+			}
 		};
 
-		const unlistenPromise = setupListener();
+		setupListener();
 
 		return () => {
-			unlistenPromise.then((unlisten) => unlisten());
+			isMounted = false;
+			unlistenFn?.();
 		};
 	}, [uuid]);
 
@@ -2447,9 +2455,8 @@ export function ConnectionDetails() {
 		setRedisKeyDetails(null);
 		setRedisSearchTime(null);
 		setRedisScanProgress(null);
-		setRedisScanCursor(0);
+		setRedisScanCursor(null);
 		setRedisScanComplete(true);
-		setRedisKeys(null);
 
 		try {
 			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, 0);
@@ -2467,14 +2474,20 @@ export function ConnectionDetails() {
 	};
 
 	const handleRedisScanMore = async () => {
-		if (!connection || redisScanComplete) return;
+		if (!connection || redisScanComplete || redisScanCursor == null) return;
 		setLoadingRedisKeys(true);
 		setRedisScanProgress(null);
 
 		try {
 			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, redisScanCursor);
 			setRedisKeys((prev) => [...(prev || []), ...result.keys]);
-			setRedisSearchTime((prev) => (prev ?? 0) + (result.time_taken_ms ?? 0));
+			setRedisSearchTime((prev) => {
+				const current = result.time_taken_ms;
+				if (prev == null || current == null) {
+					return null;
+				}
+				return prev + current;
+			});
 			setRedisScanCursor(result.cursor);
 			setRedisScanComplete(result.scan_complete);
 		} catch (error) {

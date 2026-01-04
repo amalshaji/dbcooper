@@ -373,8 +373,28 @@ impl DatabaseDriver for RedisDriver {
 }
 
 impl RedisDriver {
-    /// Search for keys matching a pattern using SCAN (non-blocking)
-    /// Returns only key names for fast initial loading - metadata is fetched on demand via get_key_details
+    /// Search for keys matching a pattern using the Redis `SCAN` command (non-blocking).
+    ///
+    /// This performs an incremental scan of the keyspace:
+    /// - The scan starts from `start_cursor` (use `0` to start a new scan).
+    /// - On each iteration, a batch of keys matching `pattern` is fetched.
+    /// - The function stops when:
+    ///   - the Redis cursor wraps to `0` (the full SCAN cycle has completed), or
+    ///   - the requested `limit` of keys has been collected, or
+    ///   - an internal `max_iterations` threshold is reached (to avoid scanning the entire keyspace in one call).
+    ///
+    /// Only key names are returned for fast initial loading; metadata such as type, TTL, and size
+    /// is fetched lazily via [`get_key_details`].
+    ///
+    /// Progress reporting:
+    /// - `progress_callback` is invoked after each SCAN iteration with:
+    ///   - the current iteration number,
+    ///   - the maximum number of iterations allowed in a single call,
+    ///   - the total number of keys collected so far.
+    ///
+    /// The returned [`RedisKeyListResponse`] includes:
+    /// - `cursor`: the next cursor to use for continuing the scan (or `0` if the scan has completed).
+    /// - `scan_complete`: `true` if the underlying SCAN cycle has finished (cursor is `0`), `false` otherwise.
     pub async fn search_keys<F>(
         &self,
         pattern: &str,
@@ -855,8 +875,22 @@ impl RedisDriver {
         Ok((driver, tunnel))
     }
 
-    /// Search keys through SSH tunnel using SCAN (non-blocking)
-    /// Returns only key names for fast initial loading - metadata is fetched on demand
+    /// Search keys through an SSH tunnel using the Redis `SCAN` command (non-blocking).
+    ///
+    /// This method performs an incremental scan of the keyspace and may not complete
+    /// in a single call, depending on the configured iteration limits. It returns
+    /// only key names for fast initial loading; any detailed key metadata should be
+    /// fetched on demand using separate calls.
+    ///
+    /// # Parameters
+    ///
+    /// - `tunnel`: Established `SshTunnel` to the Redis instance.
+    /// - `pattern`: Glob-style pattern (e.g., `user:*`) used with `SCAN MATCH` to filter keys.
+    /// - `limit`: Maximum number of keys to return in this call.
+    /// - `start_cursor`: Cursor position from which to resume scanning. Use `0` to
+    ///   start a new scan; use the cursor returned from a previous call to continue.
+    /// - `progress_callback`: Callback invoked periodically to report progress. It
+    ///   receives: `(current_iteration, max_iterations, keys_found_so_far)`.
     pub async fn search_keys_with_tunnel<F>(
         &self,
         tunnel: &SshTunnel,
