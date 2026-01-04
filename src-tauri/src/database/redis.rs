@@ -37,6 +37,8 @@ pub struct RedisKeyListResponse {
     pub keys: Vec<RedisKeyInfo>,
     pub total: i64,
     pub time_taken_ms: Option<u128>,
+    pub cursor: u64,
+    pub scan_complete: bool,
 }
 
 pub struct RedisDriver {
@@ -371,21 +373,48 @@ impl DatabaseDriver for RedisDriver {
 }
 
 impl RedisDriver {
-    /// Search for keys matching a pattern using SCAN (non-blocking)
-    /// Returns only key names for fast initial loading - metadata is fetched on demand via get_key_details
-    pub async fn search_keys(
+    /// Search for keys matching a pattern using the Redis `SCAN` command (non-blocking).
+    ///
+    /// This performs an incremental scan of the keyspace:
+    /// - The scan starts from `start_cursor` (use `0` to start a new scan).
+    /// - On each iteration, a batch of keys matching `pattern` is fetched.
+    /// - The function stops when:
+    ///   - the Redis cursor wraps to `0` (the full SCAN cycle has completed), or
+    ///   - the requested `limit` of keys has been collected, or
+    ///   - an internal `max_iterations` threshold is reached (to avoid scanning the entire keyspace in one call).
+    ///
+    /// Only key names are returned for fast initial loading; metadata such as type, TTL, and size
+    /// is fetched lazily via [`get_key_details`].
+    ///
+    /// Progress reporting:
+    /// - `progress_callback` is invoked after each SCAN iteration with:
+    ///   - the current iteration number,
+    ///   - the maximum number of iterations allowed in a single call,
+    ///   - the total number of keys collected so far.
+    ///
+    /// The returned [`RedisKeyListResponse`] includes:
+    /// - `cursor`: the next cursor to use for continuing the scan (or `0` if the scan has completed).
+    /// - `scan_complete`: `true` if the underlying SCAN cycle has finished (cursor is `0`), `false` otherwise.
+    pub async fn search_keys<F>(
         &self,
         pattern: &str,
         limit: i64,
-    ) -> Result<RedisKeyListResponse, String> {
+        start_cursor: u64,
+        progress_callback: F,
+    ) -> Result<RedisKeyListResponse, String>
+    where
+        F: Fn(u32, u32, usize),
+    {
         let start_time = std::time::Instant::now();
         let mut conn = self.get_connection_with_retry().await?;
 
         // Use SCAN instead of KEYS for better performance on large keyspaces
         // SCAN is non-blocking and iterates incrementally
         let mut keys: Vec<String> = Vec::new();
-        let mut cursor: u64 = 0;
+        let mut cursor: u64 = start_cursor;
         let count_per_scan = 100; // Number of keys to scan per iteration
+        let max_iterations: u32 = 100; // Max iterations to prevent scanning entire keyspace
+        let mut iterations: u32 = 0;
 
         loop {
             match redis::cmd("SCAN")
@@ -400,9 +429,13 @@ impl RedisDriver {
                 Ok((new_cursor, batch)) => {
                     keys.extend(batch);
                     cursor = new_cursor;
+                    iterations += 1;
 
-                    // Stop if we've reached the limit or completed the scan
-                    if cursor == 0 || keys.len() >= limit as usize {
+                    // Emit progress
+                    progress_callback(iterations, max_iterations, keys.len());
+
+                    // Stop if we've reached the limit, completed the scan, or hit max iterations
+                    if cursor == 0 || keys.len() >= limit as usize || iterations >= max_iterations {
                         break;
                     }
                 }
@@ -411,6 +444,8 @@ impl RedisDriver {
                 }
             }
         }
+
+        let scan_complete = cursor == 0;
 
         // Apply limit and create key infos with placeholder values
         // Actual metadata (type, ttl, size) is fetched lazily via get_key_details
@@ -429,6 +464,8 @@ impl RedisDriver {
             total: key_infos.len() as i64,
             keys: key_infos,
             time_taken_ms: Some(start_time.elapsed().as_millis()),
+            cursor,
+            scan_complete,
         })
     }
 
@@ -838,14 +875,33 @@ impl RedisDriver {
         Ok((driver, tunnel))
     }
 
-    /// Search keys through SSH tunnel using SCAN (non-blocking)
-    /// Returns only key names for fast initial loading - metadata is fetched on demand
-    pub async fn search_keys_with_tunnel(
+    /// Search keys through an SSH tunnel using the Redis `SCAN` command (non-blocking).
+    ///
+    /// This method performs an incremental scan of the keyspace and may not complete
+    /// in a single call, depending on the configured iteration limits. It returns
+    /// only key names for fast initial loading; any detailed key metadata should be
+    /// fetched on demand using separate calls.
+    ///
+    /// # Parameters
+    ///
+    /// - `tunnel`: Established `SshTunnel` to the Redis instance.
+    /// - `pattern`: Glob-style pattern (e.g., `user:*`) used with `SCAN MATCH` to filter keys.
+    /// - `limit`: Maximum number of keys to return in this call.
+    /// - `start_cursor`: Cursor position from which to resume scanning. Use `0` to
+    ///   start a new scan; use the cursor returned from a previous call to continue.
+    /// - `progress_callback`: Callback invoked periodically to report progress. It
+    ///   receives: `(current_iteration, max_iterations, keys_found_so_far)`.
+    pub async fn search_keys_with_tunnel<F>(
         &self,
         tunnel: &SshTunnel,
         pattern: &str,
         limit: i64,
-    ) -> Result<RedisKeyListResponse, String> {
+        start_cursor: u64,
+        progress_callback: F,
+    ) -> Result<RedisKeyListResponse, String>
+    where
+        F: Fn(u32, u32, usize),
+    {
         let start_time = std::time::Instant::now();
         let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
 
@@ -859,8 +915,10 @@ impl RedisDriver {
 
         // Use SCAN instead of KEYS for better performance on large keyspaces
         let mut keys: Vec<String> = Vec::new();
-        let mut cursor: u64 = 0;
+        let mut cursor: u64 = start_cursor;
         let count_per_scan = 100;
+        let max_iterations: u32 = 100;
+        let mut iterations: u32 = 0;
 
         loop {
             let (new_cursor, batch): (u64, Vec<String>) = redis::cmd("SCAN")
@@ -875,11 +933,17 @@ impl RedisDriver {
 
             keys.extend(batch);
             cursor = new_cursor;
+            iterations += 1;
 
-            if cursor == 0 || keys.len() >= limit as usize {
+            // Emit progress
+            progress_callback(iterations, max_iterations, keys.len());
+
+            if cursor == 0 || keys.len() >= limit as usize || iterations >= max_iterations {
                 break;
             }
         }
+
+        let scan_complete = cursor == 0;
 
         // Apply limit and create key infos with placeholder values
         // Actual metadata is fetched lazily via get_key_details_with_tunnel
@@ -898,6 +962,8 @@ impl RedisDriver {
             total: key_infos.len() as i64,
             keys: key_infos,
             time_taken_ms: Some(start_time.elapsed().as_millis()),
+            cursor,
+            scan_complete,
         })
     }
 

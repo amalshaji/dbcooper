@@ -15,8 +15,17 @@ use crate::db::models::{
     TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
+use serde::Serialize;
 use sqlx::SqlitePool;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+
+#[derive(Clone, Serialize)]
+pub struct RedisScanProgressPayload {
+    pub uuid: String,
+    pub iteration: u32,
+    pub max_iterations: u32,
+    pub keys_found: usize,
+}
 
 /// Creates the appropriate database driver based on the db_type, with optional SSH tunnel
 async fn create_driver_with_ssh(
@@ -855,13 +864,34 @@ async fn get_redis_config_from_uuid(
 /// Search for Redis keys matching a pattern
 #[tauri::command]
 pub async fn redis_search_keys(
+    app: AppHandle,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     pattern: String,
     limit: i64,
+    cursor: u64,
 ) -> Result<RedisKeyListResponse, String> {
     let (config, conn) = get_redis_config_from_uuid(sqlite_pool.inner(), &uuid).await?;
     let driver = RedisDriver::new(config.clone());
+
+    let progress_callback = {
+        let app = app.clone();
+        let uuid = uuid.clone();
+        move |iteration: u32, max_iterations: u32, keys_found: usize| {
+            println!("[Redis] Scan progress: iteration={}, max={}, keys_found={}", iteration, max_iterations, keys_found);
+            if let Err(e) = app.emit(
+                "redis-scan-progress",
+                RedisScanProgressPayload {
+                    uuid: uuid.clone(),
+                    iteration,
+                    max_iterations,
+                    keys_found,
+                },
+            ) {
+                println!("[Redis] Failed to emit progress: {}", e);
+            }
+        }
+    };
 
     if conn.ssh_enabled == 1 {
         let ssh_port_val = if conn.ssh_port > 0 {
@@ -890,10 +920,10 @@ pub async fn redis_search_keys(
         .await?;
 
         driver
-            .search_keys_with_tunnel(&tunnel, &pattern, limit)
+            .search_keys_with_tunnel(&tunnel, &pattern, limit, cursor, progress_callback)
             .await
     } else {
-        driver.search_keys(&pattern, limit).await
+        driver.search_keys(&pattern, limit, cursor, progress_callback).await
     }
 }
 
