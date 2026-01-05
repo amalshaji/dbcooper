@@ -9,7 +9,7 @@ A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Taur
 
 Download the latest `.dmg` from [Releases](https://github.com/amalshaji/dbcooper/releases).
 
-**macOS users:** After installing, you'll need to bypass Gatekeeper since the app isn't notarized:
+**macOS users:** After installing (**before opening the app the first time**), bypass Gatekeeper since the app isn't notarized:
 ```bash
 xattr -cr /Applications/DBcooper.app
 ```

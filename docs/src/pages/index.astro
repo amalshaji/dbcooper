@@ -1,12 +1,13 @@
 ---
-import '../styles/global.css';
-import { DatabaseIcons } from '../components/DatabaseIcons';
-import { ScreenshotCarousel } from '../components/ScreenshotCarousel';
-import { ThemeSwitcher } from '../components/ThemeSwitcher';
-import { DownloadButton } from '../components/DownloadButton';
-import { Features } from '../components/Features';
-import { FAQ } from '../components/FAQ';
-import SEO from '../components/SEO.astro';
+/* biome-ignore-all lint/correctness/noUnusedImports: Astro template component usage isn't detected */
+import "../styles/global.css";
+import { DatabaseIcons } from "../components/DatabaseIcons";
+import { DownloadButton } from "../components/DownloadButton";
+import { FAQ } from "../components/FAQ";
+import { Features } from "../components/Features";
+import { ScreenshotCarousel } from "../components/ScreenshotCarousel";
+import SEO from "../components/SEO.astro";
+import { ThemeSwitcher } from "../components/ThemeSwitcher";
 ---
 
 <html lang="en" class="scroll-smooth">
@@ -55,6 +56,11 @@ import SEO from '../components/SEO.astro';
 						<DatabaseIcons client:load />
 					</div>
 					<DownloadButton client:load />
+					<div class="mt-3 text-xs text-neutral-500 dark:text-neutral-400">
+						<span class="font-medium text-neutral-700 dark:text-neutral-300">macOS:</span> after
+						installing (before first launch), run
+						<code class="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800">xattr -cr /Applications/DBcooper.app</code>
+					</div>
 				</div>
 
 				<!-- Screenshots Carousel -->
