@@ -1623,7 +1623,7 @@ export function ConnectionDetails() {
 								<span>{displayValue}</span>
 								<button
 									type="button"
-									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity cursor-pointer"
 									onClick={(e) => {
 										e.stopPropagation();
 										handleOpenTableDataWithFilter(
