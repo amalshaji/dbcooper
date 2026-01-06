@@ -83,10 +83,7 @@ export function CommandPalette({
 		activeTab.results &&
 		activeTab.results.length > 0;
 	const hasFilter =
-		isTableDataTab &&
-		activeTab &&
-		"filter" in activeTab &&
-		activeTab.filter;
+		isTableDataTab && activeTab && "filter" in activeTab && activeTab.filter;
 
 	useEffect(() => {
 		const down = (e: KeyboardEvent) => {
@@ -98,11 +95,16 @@ export function CommandPalette({
 				e.preventDefault();
 				onOpenChange(false);
 			}
+			// Cmd+, to open Settings
+			if (e.key === "," && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				onOpenSettings();
+			}
 		};
 
 		document.addEventListener("keydown", down);
 		return () => document.removeEventListener("keydown", down);
-	}, [open, onOpenChange]);
+	}, [open, onOpenChange, onOpenSettings]);
 
 	return (
 		<CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -119,9 +121,7 @@ export function CommandPalette({
 					>
 						<ArrowLeft className="w-4 h-4" />
 						<span>Go Back</span>
-						<CommandShortcut>
-							{getShortcutKey("Cmd+Backspace")}
-						</CommandShortcut>
+						<CommandShortcut>{getShortcutKey("Cmd+Backspace")}</CommandShortcut>
 					</CommandItem>
 					<CommandItem
 						onSelect={() => {
@@ -264,9 +264,7 @@ export function CommandPalette({
 						>
 							<Graph className="w-4 h-4" />
 							<span>Schema Visualizer</span>
-							<CommandShortcut>
-								{getShortcutKey("Cmd+Shift+V")}
-							</CommandShortcut>
+							<CommandShortcut>{getShortcutKey("Cmd+Shift+V")}</CommandShortcut>
 						</CommandItem>
 					</CommandGroup>
 				)}

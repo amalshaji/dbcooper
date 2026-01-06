@@ -188,8 +188,19 @@ impl DatabaseDriver for SqliteDriver {
         let order_clause = sort_column
             .as_ref()
             .map(|col| {
-                let dir = sort_direction.as_deref().unwrap_or("asc");
-                format!(" ORDER BY \"{}\" {}", col, dir.to_uppercase())
+                // Validate sort_direction to prevent SQL injection
+                let dir = match sort_direction
+                    .as_deref()
+                    .map(|s| s.to_lowercase())
+                    .as_deref()
+                {
+                    Some("asc") => "ASC",
+                    Some("desc") => "DESC",
+                    _ => "ASC", // Default to ASC for invalid/missing values
+                };
+                // Escape double quotes in column name to prevent SQL injection
+                let escaped_col = col.replace('"', "\"\"");
+                format!(" ORDER BY \"{}\" {}", escaped_col, dir)
             })
             .unwrap_or_default();
 

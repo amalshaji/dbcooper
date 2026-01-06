@@ -111,7 +111,7 @@ export function DataTable<TData>({
 
 	const paddingTop =
 		shouldVirtualizeRows && virtualRows.length > 0
-			? virtualRows[0]?.start ?? 0
+			? (virtualRows[0]?.start ?? 0)
 			: 0;
 	const paddingBottom =
 		shouldVirtualizeRows && virtualRows.length > 0
@@ -119,7 +119,7 @@ export function DataTable<TData>({
 			: 0;
 	const paddingLeft =
 		shouldVirtualizeColumns && virtualColumns.length > 0
-			? virtualColumns[0]?.start ?? 0
+			? (virtualColumns[0]?.start ?? 0)
 			: 0;
 	const paddingRight =
 		shouldVirtualizeColumns && virtualColumns.length > 0
@@ -129,10 +129,14 @@ export function DataTable<TData>({
 	const measureRowElement = useCallback(
 		(node: HTMLTableRowElement | null) => {
 			if (shouldVirtualizeRows && node) {
-				rowVirtualizer.measureElement(node);
+				// Get the index from the data-index attribute to properly measure this specific row
+				const index = node.getAttribute("data-index");
+				if (index !== null) {
+					rowVirtualizer.measureElement(node);
+				}
 			}
 		},
-		[shouldVirtualizeRows, rowVirtualizer]
+		[shouldVirtualizeRows, rowVirtualizer],
 	);
 
 	const handleHeaderClick = useCallback(
@@ -149,7 +153,7 @@ export function DataTable<TData>({
 				onSortChange({ column: columnId, direction: "asc" });
 			}
 		},
-		[sortable, sort, onSortChange]
+		[sortable, sort, onSortChange],
 	);
 
 	const renderCell = useCallback(
@@ -171,7 +175,7 @@ export function DataTable<TData>({
 				</td>
 			);
 		},
-		[]
+		[],
 	);
 
 	const renderTableBody = () => {
@@ -209,7 +213,7 @@ export function DataTable<TData>({
 								<td style={{ width: paddingLeft, minWidth: paddingLeft }} />
 							)}
 							{virtualColumns.map((virtualColumn) =>
-								renderCell(row, virtualColumn.index)
+								renderCell(row, virtualColumn.index),
 							)}
 							{paddingRight > 0 && (
 								<td style={{ width: paddingRight, minWidth: paddingRight }} />
@@ -293,7 +297,9 @@ export function DataTable<TData>({
 												maxWidth: MAX_COLUMN_WIDTH,
 											}}
 											className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
-												sortable ? "cursor-pointer hover:bg-muted/50 select-none" : ""
+												sortable
+													? "cursor-pointer hover:bg-muted/50 select-none"
+													: ""
 											}`}
 											onClick={() => handleHeaderClick(columnId)}
 										>
@@ -303,7 +309,7 @@ export function DataTable<TData>({
 														? null
 														: flexRender(
 																header.column.columnDef.header,
-																header.getContext()
+																header.getContext(),
 															)}
 												</span>
 												{getSortIcon(columnId)}
