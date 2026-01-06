@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useMemo, useCallback } from "react";
 import {
 	flexRender,
 	getCoreRowModel,
@@ -19,6 +19,10 @@ interface DataTableProps<TData> {
 	virtualize?: boolean;
 	estimatedRowHeight?: number;
 }
+
+const COLUMN_WIDTH = 180;
+const MIN_COLUMN_WIDTH = 100;
+const MAX_COLUMN_WIDTH = 400;
 
 export function DataTable<TData>({
 	data,
@@ -42,23 +46,104 @@ export function DataTable<TData>({
 	});
 
 	const { rows } = table.getRowModel();
+	const headerGroups = table.getHeaderGroups();
+	const visibleColumns = headerGroups[0]?.headers ?? [];
+
+	const shouldVirtualizeColumns = visibleColumns.length > 20;
+	const shouldVirtualizeRows = virtualize && rows.length > 50;
 
 	const rowVirtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => containerRef.current,
 		estimateSize: () => estimatedRowHeight,
 		overscan: 10,
+		enabled: shouldVirtualizeRows,
 	});
 
-	const virtualRows = rowVirtualizer.getVirtualItems();
-	const totalSize = rowVirtualizer.getTotalSize();
+	const columnVirtualizer = useVirtualizer({
+		horizontal: true,
+		count: visibleColumns.length,
+		getScrollElement: () => containerRef.current,
+		estimateSize: () => COLUMN_WIDTH,
+		overscan: 3,
+		enabled: shouldVirtualizeColumns,
+	});
 
-	// Calculate padding for virtual scrolling
-	const paddingTop = virtualRows.length > 0 ? (virtualRows[0]?.start ?? 0) : 0;
-	const paddingBottom =
-		virtualRows.length > 0
-			? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+	const virtualRows = shouldVirtualizeRows
+		? rowVirtualizer.getVirtualItems()
+		: rows.map((_, index) => ({
+				index,
+				start: index * estimatedRowHeight,
+				end: (index + 1) * estimatedRowHeight,
+				size: estimatedRowHeight,
+				key: index,
+			}));
+
+	const virtualColumns = shouldVirtualizeColumns
+		? columnVirtualizer.getVirtualItems()
+		: visibleColumns.map((_, index) => ({
+				index,
+				start: index * COLUMN_WIDTH,
+				end: (index + 1) * COLUMN_WIDTH,
+				size: COLUMN_WIDTH,
+				key: index,
+			}));
+
+	const totalRowHeight = shouldVirtualizeRows
+		? rowVirtualizer.getTotalSize()
+		: rows.length * estimatedRowHeight;
+
+	const totalColumnWidth = shouldVirtualizeColumns
+		? columnVirtualizer.getTotalSize()
+		: visibleColumns.length * COLUMN_WIDTH;
+
+	const paddingTop =
+		shouldVirtualizeRows && virtualRows.length > 0
+			? virtualRows[0]?.start ?? 0
 			: 0;
+	const paddingBottom =
+		shouldVirtualizeRows && virtualRows.length > 0
+			? totalRowHeight - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+			: 0;
+	const paddingLeft =
+		shouldVirtualizeColumns && virtualColumns.length > 0
+			? virtualColumns[0]?.start ?? 0
+			: 0;
+	const paddingRight =
+		shouldVirtualizeColumns && virtualColumns.length > 0
+			? totalColumnWidth - (virtualColumns[virtualColumns.length - 1]?.end ?? 0)
+			: 0;
+
+	const measureRowElement = useCallback(
+		(node: HTMLTableRowElement | null) => {
+			if (shouldVirtualizeRows && node) {
+				rowVirtualizer.measureElement(node);
+			}
+		},
+		[shouldVirtualizeRows, rowVirtualizer]
+	);
+
+	const renderCell = useCallback(
+		(row: (typeof rows)[number], columnIndex: number) => {
+			const cell = row.getVisibleCells()[columnIndex];
+			if (!cell) return null;
+
+			return (
+				<td
+					key={cell.id}
+					style={{
+						width: COLUMN_WIDTH,
+						minWidth: MIN_COLUMN_WIDTH,
+						maxWidth: MAX_COLUMN_WIDTH,
+					}}
+					className="p-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border"
+				>
+					{flexRender(cell.column.columnDef.cell, cell.getContext())}
+				</td>
+			);
+		},
+		[]
+	);
 
 	const renderTableBody = () => {
 		if (!rows.length) {
@@ -71,65 +156,59 @@ export function DataTable<TData>({
 			);
 		}
 
-		if (virtualize) {
-			return (
-				<>
-					{paddingTop > 0 && (
-						<tr>
-							<td style={{ height: `${paddingTop}px` }} />
+		return (
+			<>
+				{paddingTop > 0 && (
+					<tr style={{ height: paddingTop }}>
+						<td />
+					</tr>
+				)}
+				{virtualRows.map((virtualRow) => {
+					const row = rows[virtualRow.index];
+					return (
+						<tr
+							key={row.id}
+							data-index={virtualRow.index}
+							ref={measureRowElement}
+							data-state={row.getIsSelected() && "selected"}
+							className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
+								onRowClick ? "cursor-pointer" : ""
+							}`}
+							onClick={() => onRowClick?.(row.original)}
+						>
+							{paddingLeft > 0 && (
+								<td style={{ width: paddingLeft, minWidth: paddingLeft }} />
+							)}
+							{virtualColumns.map((virtualColumn) =>
+								renderCell(row, virtualColumn.index)
+							)}
+							{paddingRight > 0 && (
+								<td style={{ width: paddingRight, minWidth: paddingRight }} />
+							)}
 						</tr>
-					)}
-					{virtualRows.map((virtualRow) => {
-						const row = rows[virtualRow.index];
-						return (
-							<tr
-								key={row.id}
-								data-index={virtualRow.index}
-								ref={(node) => rowVirtualizer.measureElement(node)}
-								data-state={row.getIsSelected() && "selected"}
-								className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
-									onRowClick ? "cursor-pointer" : ""
-								}`}
-								onClick={() => onRowClick?.(row.original)}
-							>
-								{row.getVisibleCells().map((cell) => (
-									<td
-										key={cell.id}
-										className="p-3 align-middle whitespace-nowrap max-w-[400px] overflow-hidden text-ellipsis"
-									>
-										{flexRender(cell.column.columnDef.cell, cell.getContext())}
-									</td>
-								))}
-							</tr>
-						);
-					})}
-					{paddingBottom > 0 && (
-						<tr>
-							<td style={{ height: `${paddingBottom}px` }} />
-						</tr>
-					)}
-				</>
-			);
-		}
-
-		// Non-virtualized rendering (original behavior)
-		return rows.map((row) => (
-			<tr
-				key={row.id}
-				data-state={row.getIsSelected() && "selected"}
-				className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
-					onRowClick ? "cursor-pointer" : ""
-				}`}
-				onClick={() => onRowClick?.(row.original)}
-			>
-				{row.getVisibleCells().map((cell) => (
-					<td key={cell.id} className="p-3 align-middle whitespace-nowrap max-w-[400px] overflow-hidden text-ellipsis">
-						{flexRender(cell.column.columnDef.cell, cell.getContext())}
-					</td>
-				))}
-			</tr>
-		));
+					);
+				})}
+				{paddingBottom > 0 && (
+					<tr style={{ height: paddingBottom }}>
+						<td />
+					</tr>
+				)}
+			</>
+		);
 	};
+
+	const tableWidth = useMemo(() => {
+		if (shouldVirtualizeColumns) {
+			return totalColumnWidth + paddingLeft + paddingRight;
+		}
+		return Math.max(visibleColumns.length * COLUMN_WIDTH, 100);
+	}, [
+		shouldVirtualizeColumns,
+		totalColumnWidth,
+		paddingLeft,
+		paddingRight,
+		visibleColumns.length,
+	]);
 
 	return (
 		<div className="flex flex-col h-full w-full min-w-0">
@@ -137,23 +216,51 @@ export function DataTable<TData>({
 				ref={containerRef}
 				className="rounded-md border overflow-auto w-full h-full"
 			>
-				<table className="w-full caption-bottom text-xs">
+				<table
+					className="caption-bottom text-xs border-collapse"
+					style={{
+						width: tableWidth,
+						minWidth: "100%",
+						tableLayout: "fixed",
+					}}
+				>
 					<thead className="sticky top-0 bg-background z-10 shadow-sm">
-						{table.getHeaderGroups().map((headerGroup) => (
+						{headerGroups.map((headerGroup) => (
 							<tr key={headerGroup.id} className="border-b">
-								{headerGroup.headers.map((header) => (
+								{paddingLeft > 0 && (
 									<th
-										key={header.id}
-										className="text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background"
-									>
-										{header.isPlaceholder
-											? null
-											: flexRender(
-													header.column.columnDef.header,
-													header.getContext(),
-												)}
-									</th>
-								))}
+										style={{ width: paddingLeft, minWidth: paddingLeft }}
+										className="bg-background"
+									/>
+								)}
+								{virtualColumns.map((virtualColumn) => {
+									const header = headerGroup.headers[virtualColumn.index];
+									if (!header) return null;
+									return (
+										<th
+											key={header.id}
+											style={{
+												width: COLUMN_WIDTH,
+												minWidth: MIN_COLUMN_WIDTH,
+												maxWidth: MAX_COLUMN_WIDTH,
+											}}
+											className="text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border"
+										>
+											{header.isPlaceholder
+												? null
+												: flexRender(
+														header.column.columnDef.header,
+														header.getContext()
+													)}
+										</th>
+									);
+								})}
+								{paddingRight > 0 && (
+									<th
+										style={{ width: paddingRight, minWidth: paddingRight }}
+										className="bg-background"
+									/>
+								)}
 							</tr>
 						))}
 					</thead>
