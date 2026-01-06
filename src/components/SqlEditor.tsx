@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useState, useRef } from "react";
 import CodeMirror from "@uiw/react-codemirror";
-import { sql } from "@codemirror/lang-sql";
+import { sql, type SQLConfig } from "@codemirror/lang-sql";
 import { rosePineDawn, barf } from "thememirror";
 import { keymap } from "@codemirror/view";
 import { EditorView } from "@codemirror/view";
@@ -131,15 +131,35 @@ export function SqlEditor({
 		[onCursorActivity],
 	);
 
+	const sqlSchema = useMemo(() => {
+		const schema: SQLConfig["schema"] = {};
+		for (const table of tables) {
+			const fullName = `${table.schema}.${table.name}`;
+			const columns = table.columns?.map((col) => col.name) ?? [];
+			schema[fullName] = columns;
+			schema[table.name] = columns;
+		}
+		return schema;
+	}, [tables]);
+
+	const sqlExtension = useMemo(
+		() =>
+			sql({
+				upperCaseKeywords: true,
+				schema: sqlSchema,
+			}),
+		[sqlSchema],
+	);
+
 	const extensions = useMemo(
 		() => [
 			runQueryKeymap,
-			sql({ upperCaseKeywords: true }),
+			sqlExtension,
 			fontTheme,
 			EditorView.lineWrapping,
 			cursorExtension,
 		],
-		[runQueryKeymap, fontTheme, cursorExtension],
+		[runQueryKeymap, sqlExtension, fontTheme, cursorExtension],
 	);
 
 	const handleGenerate = () => {
