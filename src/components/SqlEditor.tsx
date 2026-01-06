@@ -134,7 +134,7 @@ export function SqlEditor({
 	const extensions = useMemo(
 		() => [
 			runQueryKeymap,
-			sql(),
+			sql({ upperCaseKeywords: true }),
 			fontTheme,
 			EditorView.lineWrapping,
 			cursorExtension,
