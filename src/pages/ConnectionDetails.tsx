@@ -589,6 +589,8 @@ export function ConnectionDetails() {
 					tab.currentPage,
 					100,
 					tab.filter || undefined,
+					tab.sort?.column,
+					tab.sort?.direction,
 				);
 
 				updateTab<TableDataTab>(tab.id, { data, loading: false });
@@ -906,6 +908,16 @@ export function ConnectionDetails() {
 		});
 		fetchTableData({ ...tab, filter: "", currentPage: 1 });
 	}, [activeTab, updateTab, fetchTableData]);
+
+	const handleSortChange = useCallback(
+		(sort: { column: string; direction: "asc" | "desc" } | null) => {
+			if (!activeTab || activeTab.type !== "table-data") return;
+			const tab = activeTab as TableDataTab;
+			updateTab<TableDataTab>(tab.id, { sort, currentPage: 1 });
+			fetchTableData({ ...tab, sort, currentPage: 1 });
+		},
+		[activeTab, updateTab, fetchTableData],
+	);
 
 	const handleRunQueryForTable = (tableName: string) => {
 		const [schema, table] = tableName.split(".");
@@ -1863,6 +1875,9 @@ export function ConnectionDetails() {
 							onPageChange={handlePageChange}
 							onRowClick={handleRowClick}
 							virtualize={tab.data.data.length > 100}
+							sortable
+							sort={tab.sort}
+							onSortChange={handleSortChange}
 						/>
 					</div>
 				) : (

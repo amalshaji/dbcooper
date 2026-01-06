@@ -164,6 +164,8 @@ impl DatabaseDriver for ClickhouseDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let offset = (page - 1) * limit;
         let where_clause = filter
@@ -171,6 +173,14 @@ impl DatabaseDriver for ClickhouseDriver {
             .map(|f| {
                 let normalized = Self::normalize_filter(f);
                 format!(" WHERE {}", normalized)
+            })
+            .unwrap_or_default();
+
+        let order_clause = sort_column
+            .as_ref()
+            .map(|col| {
+                let dir = sort_direction.as_deref().unwrap_or("asc");
+                format!(" ORDER BY `{}` {}", col, dir.to_uppercase())
             })
             .unwrap_or_default();
 
@@ -186,8 +196,8 @@ impl DatabaseDriver for ClickhouseDriver {
 
         // Get data
         let data_query = format!(
-            "SELECT * FROM `{}`{} LIMIT {} OFFSET {}",
-            table, where_clause, limit, offset
+            "SELECT * FROM `{}`{}{} LIMIT {} OFFSET {}",
+            table, where_clause, order_clause, limit, offset
         );
         let data = self.execute_query_json(&data_query).await?;
 

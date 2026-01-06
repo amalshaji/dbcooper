@@ -591,6 +591,8 @@ export const api = {
 			page: number,
 			limit: number,
 			filter?: string,
+			sortColumn?: string,
+			sortDirection?: "asc" | "desc",
 		) =>
 			invoke<TableDataResponse>("pool_get_table_data", {
 				uuid,
@@ -599,6 +601,8 @@ export const api = {
 				page,
 				limit,
 				filter,
+				sortColumn,
+				sortDirection,
 			}),
 
 		getTableStructure: (uuid: string, schema: string, table: string) =>

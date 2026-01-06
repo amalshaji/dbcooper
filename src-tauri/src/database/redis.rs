@@ -272,6 +272,8 @@ impl DatabaseDriver for RedisDriver {
         _page: i64,
         _limit: i64,
         _filter: Option<String>,
+        _sort_column: Option<String>,
+        _sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         // Not applicable for Redis - use search_keys instead
         Ok(TableDataResponse {

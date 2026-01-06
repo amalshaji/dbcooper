@@ -42,6 +42,11 @@ interface BaseTab {
 	title: string;
 }
 
+export interface SortConfig {
+	column: string;
+	direction: "asc" | "desc";
+}
+
 export interface TableDataTab extends BaseTab {
 	type: "table-data";
 	tableName: string;
@@ -52,6 +57,7 @@ export interface TableDataTab extends BaseTab {
 	filter: string;
 	foreignKeys: ForeignKeyInfo[];
 	columns: TableColumn[];
+	sort: SortConfig | null;
 }
 
 export interface TableStructureTab extends BaseTab {
@@ -119,6 +125,7 @@ export function createTableDataTab(tableName: string): TableDataTab {
 		filter: "",
 		foreignKeys: [],
 		columns: [],
+		sort: null,
 	};
 }
 

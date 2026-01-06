@@ -244,6 +244,8 @@ impl DatabaseDriver for PostgresDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let pool = self.get_pool_with_retry().await?;
 
@@ -261,6 +263,14 @@ impl DatabaseDriver for PostgresDriver {
                     .replace('\u{201D}', "\"") // Right double quotation mark "
                     .replace("\\'", "'"); // Backslash-escaped single quote
                 format!(" WHERE {}", normalized)
+            })
+            .unwrap_or_default();
+
+        let order_clause = sort_column
+            .as_ref()
+            .map(|col| {
+                let dir = sort_direction.as_deref().unwrap_or("asc");
+                format!(" ORDER BY \"{}\" {}", col, dir.to_uppercase())
             })
             .unwrap_or_default();
 
@@ -284,8 +294,8 @@ impl DatabaseDriver for PostgresDriver {
         let total = count_row.0;
 
         let data_query = format!(
-            "SELECT * FROM {}{} LIMIT {} OFFSET {}",
-            full_table_name, where_clause, limit, offset
+            "SELECT * FROM {}{}{} LIMIT {} OFFSET {}",
+            full_table_name, where_clause, order_clause, limit, offset
         );
 
         let rows = sqlx::query(&data_query)

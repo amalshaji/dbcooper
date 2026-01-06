@@ -7,6 +7,12 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
+import { CaretUp, CaretDown, CaretUpDown } from "@phosphor-icons/react";
+
+export interface SortState {
+	column: string;
+	direction: "asc" | "desc";
+}
 
 interface DataTableProps<TData> {
 	data: TData[];
@@ -18,6 +24,9 @@ interface DataTableProps<TData> {
 	hidePagination?: boolean;
 	virtualize?: boolean;
 	estimatedRowHeight?: number;
+	sortable?: boolean;
+	sort?: SortState | null;
+	onSortChange?: (sort: SortState | null) => void;
 }
 
 const COLUMN_WIDTH = 180;
@@ -34,6 +43,9 @@ export function DataTable<TData>({
 	hidePagination = false,
 	virtualize = false,
 	estimatedRowHeight = 41,
+	sortable = false,
+	sort = null,
+	onSortChange,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -123,6 +135,23 @@ export function DataTable<TData>({
 		[shouldVirtualizeRows, rowVirtualizer]
 	);
 
+	const handleHeaderClick = useCallback(
+		(columnId: string) => {
+			if (!sortable || !onSortChange) return;
+
+			if (sort?.column === columnId) {
+				if (sort.direction === "asc") {
+					onSortChange({ column: columnId, direction: "desc" });
+				} else {
+					onSortChange(null);
+				}
+			} else {
+				onSortChange({ column: columnId, direction: "asc" });
+			}
+		},
+		[sortable, sort, onSortChange]
+	);
+
 	const renderCell = useCallback(
 		(row: (typeof rows)[number], columnIndex: number) => {
 			const cell = row.getVisibleCells()[columnIndex];
@@ -210,6 +239,19 @@ export function DataTable<TData>({
 		visibleColumns.length,
 	]);
 
+	const getSortIcon = (columnId: string) => {
+		if (!sortable) return null;
+
+		if (sort?.column === columnId) {
+			return sort.direction === "asc" ? (
+				<CaretUp className="w-3.5 h-3.5 ml-1" />
+			) : (
+				<CaretDown className="w-3.5 h-3.5 ml-1" />
+			);
+		}
+		return <CaretUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
+	};
+
 	return (
 		<div className="flex flex-col h-full w-full min-w-0">
 			<div
@@ -236,6 +278,12 @@ export function DataTable<TData>({
 								{virtualColumns.map((virtualColumn) => {
 									const header = headerGroup.headers[virtualColumn.index];
 									if (!header) return null;
+									const columnDef = header.column.columnDef;
+									const columnId =
+										"accessorKey" in columnDef &&
+										typeof columnDef.accessorKey === "string"
+											? columnDef.accessorKey
+											: header.id;
 									return (
 										<th
 											key={header.id}
@@ -244,14 +292,22 @@ export function DataTable<TData>({
 												minWidth: MIN_COLUMN_WIDTH,
 												maxWidth: MAX_COLUMN_WIDTH,
 											}}
-											className="text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border"
+											className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
+												sortable ? "cursor-pointer hover:bg-muted/50 select-none" : ""
+											}`}
+											onClick={() => handleHeaderClick(columnId)}
 										>
-											{header.isPlaceholder
-												? null
-												: flexRender(
-														header.column.columnDef.header,
-														header.getContext()
-													)}
+											<div className="flex items-center">
+												<span className="truncate">
+													{header.isPlaceholder
+														? null
+														: flexRender(
+																header.column.columnDef.header,
+																header.getContext()
+															)}
+												</span>
+												{getSortIcon(columnId)}
+											</div>
 										</th>
 									);
 								})}

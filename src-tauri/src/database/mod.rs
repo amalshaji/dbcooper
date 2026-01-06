@@ -29,6 +29,8 @@ pub trait DatabaseDriver: Send + Sync {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String>;
 
     /// Get the structure of a table (columns, indexes, foreign keys)
