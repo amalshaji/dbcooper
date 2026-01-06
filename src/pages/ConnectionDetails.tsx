@@ -3236,8 +3236,10 @@ export function ConnectionDetails() {
 																					) {
 																						const queryTab =
 																							activeTab as QueryTab;
+																						const query = queryTab.query;
+																						const needsSpace = query.length > 0 && !query.endsWith(" ") && !query.endsWith("\n") && !query.endsWith("\t");
 																						handleQueryChange(
-																							queryTab.query + col.name,
+																							query + (needsSpace ? " " : "") + col.name,
 																						);
 																					}
 																				}}
