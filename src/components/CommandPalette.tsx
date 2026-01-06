@@ -20,6 +20,7 @@ import {
 	Graph,
 	Database,
 	X,
+	Gear,
 } from "@phosphor-icons/react";
 import type { Tab } from "@/types/tabTypes";
 
@@ -41,6 +42,7 @@ interface CommandPaletteProps {
 	onClearFilter: () => void;
 	onOpenSchemaVisualizer: () => void;
 	onSwitchSidebarTab: (tab: "tables" | "queries") => void;
+	onOpenSettings: () => void;
 	connectionType?: string;
 }
 
@@ -69,6 +71,7 @@ export function CommandPalette({
 	onClearFilter,
 	onOpenSchemaVisualizer,
 	onSwitchSidebarTab,
+	onOpenSettings,
 	connectionType,
 }: CommandPaletteProps) {
 	const isQueryTab = activeTab?.type === "query";
@@ -290,6 +293,21 @@ export function CommandPalette({
 						<Code className="w-4 h-4" />
 						<span>Queries Tab</span>
 						<CommandShortcut>{getShortcutKey("Cmd+2")}</CommandShortcut>
+					</CommandItem>
+				</CommandGroup>
+
+				<CommandSeparator />
+
+				<CommandGroup heading="Application">
+					<CommandItem
+						onSelect={() => {
+							onOpenSettings();
+							onOpenChange(false);
+						}}
+					>
+						<Gear className="w-4 h-4" />
+						<span>Settings</span>
+						<CommandShortcut>{getShortcutKey("Cmd+,")}</CommandShortcut>
 					</CommandItem>
 				</CommandGroup>
 			</CommandList>

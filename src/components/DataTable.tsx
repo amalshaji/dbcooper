@@ -95,7 +95,7 @@ export function DataTable<TData>({
 								{row.getVisibleCells().map((cell) => (
 									<td
 										key={cell.id}
-										className="p-3 align-middle whitespace-nowrap"
+										className="p-3 align-middle whitespace-nowrap max-w-[400px] overflow-hidden text-ellipsis"
 									>
 										{flexRender(cell.column.columnDef.cell, cell.getContext())}
 									</td>
@@ -123,7 +123,7 @@ export function DataTable<TData>({
 				onClick={() => onRowClick?.(row.original)}
 			>
 				{row.getVisibleCells().map((cell) => (
-					<td key={cell.id} className="p-3 align-middle whitespace-nowrap">
+					<td key={cell.id} className="p-3 align-middle whitespace-nowrap max-w-[400px] overflow-hidden text-ellipsis">
 						{flexRender(cell.column.columnDef.cell, cell.getContext())}
 					</td>
 				))}

@@ -105,6 +105,7 @@ import {
 	Copy,
 	Plus,
 	PaintBrush,
+	Gear,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -125,6 +126,7 @@ import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
 } from "@/lib/sqlParser";
+import { useSettings } from "@/contexts/SettingsContext";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -140,12 +142,14 @@ function ContentHeader({
 	connectionStatus,
 	onReconnect,
 	onStatusChange,
+	onOpenSettings,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
 	connectionStatus: "connected" | "disconnected";
 	onReconnect: () => Promise<void>;
 	onStatusChange: (status: "connected" | "disconnected") => void;
+	onOpenSettings: () => void;
 }) {
 	const { state } = useSidebar();
 	const isCollapsed = state === "collapsed";
@@ -182,6 +186,9 @@ function ContentHeader({
 				<Badge variant={connection.ssl ? "default" : "secondary"}>
 					SSL: {connection.ssl ? "Yes" : "No"}
 				</Badge>
+				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
+					<Gear className="w-4 h-4" />
+				</Button>
 			</div>
 		</header>
 	);
@@ -194,12 +201,14 @@ function RedisContentHeader({
 	connectionStatus,
 	onReconnect,
 	onStatusChange,
+	onOpenSettings,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
 	connectionStatus: "connected" | "disconnected";
 	onReconnect: () => Promise<void>;
 	onStatusChange: (status: "connected" | "disconnected") => void;
+	onOpenSettings: () => void;
 }) {
 	return (
 		<header
@@ -231,6 +240,9 @@ function RedisContentHeader({
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
 				</Badge>
+				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
+					<Gear className="w-4 h-4" />
+				</Button>
 			</div>
 		</header>
 	);
@@ -239,6 +251,7 @@ function RedisContentHeader({
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const navigate = useNavigate();
+	const { openSettings } = useSettings();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
@@ -790,6 +803,23 @@ export function ConnectionDetails() {
 		if (!uuid) return;
 		await fetchSchemaOverviewData();
 	}, [uuid, fetchSchemaOverviewData]);
+
+	const handleReconnect = useCallback(async () => {
+		if (!uuid) return;
+		const connectResult = await api.pool.connect(uuid);
+		if (connectResult.status === "connected") {
+			setConnectionStatus("connected");
+			toast.success("Reconnected successfully");
+			if (connection?.type !== "redis") {
+				await fetchSchemaOverviewData();
+			}
+		} else {
+			toast.error("Reconnection failed", {
+				description: connectResult.error || "Connection failed",
+			});
+			throw new Error(connectResult.error || "Connection failed");
+		}
+	}, [uuid, connection?.type, fetchSchemaOverviewData]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -1570,13 +1600,14 @@ export function ConnectionDetails() {
 					if (value === null)
 						return <span className="text-muted-foreground italic">null</span>;
 
-					const displayValue =
+					const rawValue =
 						typeof value === "object" ? JSON.stringify(value) : String(value);
+					const displayValue = rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
 
 					if (fkInfo && value !== null) {
 						const refTable = `${schema}.${fkInfo.references_table}`;
 						return (
-							<span className="group/fk flex items-center gap-1">
+							<span className="group/fk flex items-center gap-1" title={rawValue}>
 								<span>{displayValue}</span>
 								<button
 									type="button"
@@ -1597,7 +1628,7 @@ export function ConnectionDetails() {
 						);
 					}
 
-					return displayValue;
+					return <span title={rawValue}>{displayValue}</span>;
 				},
 			};
 		});
@@ -1624,8 +1655,9 @@ export function ConnectionDetails() {
 				const value = getValue();
 				if (value === null)
 					return <span className="text-muted-foreground italic">null</span>;
-				if (typeof value === "object") return JSON.stringify(value);
-				return String(value);
+				const rawValue = typeof value === "object" ? JSON.stringify(value) : String(value);
+				const displayValue = rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+				return <span title={rawValue}>{displayValue}</span>;
 			},
 		}));
 	}, [activeTab]);
@@ -3001,8 +3033,9 @@ export function ConnectionDetails() {
 					connection={connection}
 					navigate={navigate}
 					connectionStatus={connectionStatus}
-					onReconnect={fetchSchemaOverviewData}
+					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
+					onOpenSettings={openSettings}
 				/>
 
 				<div className="flex-1 p-4 min-w-0 overflow-auto">
@@ -3307,8 +3340,9 @@ export function ConnectionDetails() {
 					connection={connection}
 					navigate={navigate}
 					connectionStatus={connectionStatus}
-					onReconnect={fetchSchemaOverviewData}
+					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
+					onOpenSettings={openSettings}
 				/>
 
 				<TabBar
@@ -3431,6 +3465,7 @@ export function ConnectionDetails() {
 					onClearFilter={handleClearFilter}
 					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
 					onSwitchSidebarTab={setSidebarTab}
+					onOpenSettings={openSettings}
 					connectionType={connection.type}
 				/>
 			)}
