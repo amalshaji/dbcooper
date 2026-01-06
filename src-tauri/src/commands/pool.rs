@@ -225,11 +225,13 @@ pub async fn pool_get_table_data(
     page: i64,
     limit: i64,
     filter: Option<String>,
+    sort_column: Option<String>,
+    sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
     match pool_manager
-        .get_table_data(&uuid, &schema, &table, page, limit, filter.clone())
+        .get_table_data(&uuid, &schema, &table, page, limit, filter.clone(), sort_column.clone(), sort_direction.clone())
         .await
     {
         Ok(result) => Ok(result),
@@ -240,7 +242,7 @@ pub async fn pool_get_table_data(
             );
             reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
             pool_manager
-                .get_table_data(&uuid, &schema, &table, page, limit, filter)
+                .get_table_data(&uuid, &schema, &table, page, limit, filter, sort_column, sort_direction)
                 .await
         }
     }

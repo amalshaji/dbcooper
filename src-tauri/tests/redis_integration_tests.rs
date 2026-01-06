@@ -100,7 +100,7 @@ async fn test_list_tables_returns_keyspace() {
 async fn test_get_table_data_returns_empty() {
     let driver = create_test_driver();
 
-    let result = driver.get_table_data("redis", "keys", 1, 10, None).await;
+    let result = driver.get_table_data("redis", "keys", 1, 10, None, None, None).await;
     assert!(result.is_ok());
 
     let data = result.unwrap();

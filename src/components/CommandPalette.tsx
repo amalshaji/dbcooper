@@ -20,6 +20,7 @@ import {
 	Graph,
 	Database,
 	X,
+	Gear,
 } from "@phosphor-icons/react";
 import type { Tab } from "@/types/tabTypes";
 
@@ -41,6 +42,7 @@ interface CommandPaletteProps {
 	onClearFilter: () => void;
 	onOpenSchemaVisualizer: () => void;
 	onSwitchSidebarTab: (tab: "tables" | "queries") => void;
+	onOpenSettings: () => void;
 	connectionType?: string;
 }
 
@@ -69,6 +71,7 @@ export function CommandPalette({
 	onClearFilter,
 	onOpenSchemaVisualizer,
 	onSwitchSidebarTab,
+	onOpenSettings,
 	connectionType,
 }: CommandPaletteProps) {
 	const isQueryTab = activeTab?.type === "query";
@@ -80,10 +83,7 @@ export function CommandPalette({
 		activeTab.results &&
 		activeTab.results.length > 0;
 	const hasFilter =
-		isTableDataTab &&
-		activeTab &&
-		"filter" in activeTab &&
-		activeTab.filter;
+		isTableDataTab && activeTab && "filter" in activeTab && activeTab.filter;
 
 	useEffect(() => {
 		const down = (e: KeyboardEvent) => {
@@ -95,11 +95,16 @@ export function CommandPalette({
 				e.preventDefault();
 				onOpenChange(false);
 			}
+			// Cmd+, to open Settings
+			if (e.key === "," && (e.metaKey || e.ctrlKey)) {
+				e.preventDefault();
+				onOpenSettings();
+			}
 		};
 
 		document.addEventListener("keydown", down);
 		return () => document.removeEventListener("keydown", down);
-	}, [open, onOpenChange]);
+	}, [open, onOpenChange, onOpenSettings]);
 
 	return (
 		<CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -116,9 +121,7 @@ export function CommandPalette({
 					>
 						<ArrowLeft className="w-4 h-4" />
 						<span>Go Back</span>
-						<CommandShortcut>
-							{getShortcutKey("Cmd+Backspace")}
-						</CommandShortcut>
+						<CommandShortcut>{getShortcutKey("Cmd+Backspace")}</CommandShortcut>
 					</CommandItem>
 					<CommandItem
 						onSelect={() => {
@@ -261,9 +264,7 @@ export function CommandPalette({
 						>
 							<Graph className="w-4 h-4" />
 							<span>Schema Visualizer</span>
-							<CommandShortcut>
-								{getShortcutKey("Cmd+Shift+V")}
-							</CommandShortcut>
+							<CommandShortcut>{getShortcutKey("Cmd+Shift+V")}</CommandShortcut>
 						</CommandItem>
 					</CommandGroup>
 				)}
@@ -290,6 +291,21 @@ export function CommandPalette({
 						<Code className="w-4 h-4" />
 						<span>Queries Tab</span>
 						<CommandShortcut>{getShortcutKey("Cmd+2")}</CommandShortcut>
+					</CommandItem>
+				</CommandGroup>
+
+				<CommandSeparator />
+
+				<CommandGroup heading="Application">
+					<CommandItem
+						onSelect={() => {
+							onOpenSettings();
+							onOpenChange(false);
+						}}
+					>
+						<Gear className="w-4 h-4" />
+						<span>Settings</span>
+						<CommandShortcut>{getShortcutKey("Cmd+,")}</CommandShortcut>
 					</CommandItem>
 				</CommandGroup>
 			</CommandList>

@@ -225,6 +225,8 @@ async fn test_unified_get_table_data_sqlite() {
         1,
         10,
         None,
+        None,
+        None,
     )
     .await;
 
@@ -288,6 +290,8 @@ async fn test_unified_get_table_data_with_filter() {
         1,
         10,
         Some("age > 25".to_string()),
+        None,
+        None,
     )
     .await;
 

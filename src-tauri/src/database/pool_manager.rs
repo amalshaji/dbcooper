@@ -377,13 +377,15 @@ impl PoolManager {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let driver = self
             .get_cached(uuid)
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver
-            .get_table_data(schema, table, page, limit, filter)
+            .get_table_data(schema, table, page, limit, filter, sort_column, sort_direction)
             .await
     }
 

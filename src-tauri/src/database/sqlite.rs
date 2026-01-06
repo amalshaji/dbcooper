@@ -164,6 +164,8 @@ impl DatabaseDriver for SqliteDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let pool = self.get_pool().await?;
 
@@ -183,6 +185,25 @@ impl DatabaseDriver for SqliteDriver {
             })
             .unwrap_or_default();
 
+        let order_clause = sort_column
+            .as_ref()
+            .map(|col| {
+                // Validate sort_direction to prevent SQL injection
+                let dir = match sort_direction
+                    .as_deref()
+                    .map(|s| s.to_lowercase())
+                    .as_deref()
+                {
+                    Some("asc") => "ASC",
+                    Some("desc") => "DESC",
+                    _ => "ASC", // Default to ASC for invalid/missing values
+                };
+                // Escape double quotes in column name to prevent SQL injection
+                let escaped_col = col.replace('"', "\"\"");
+                format!(" ORDER BY \"{}\" {}", escaped_col, dir)
+            })
+            .unwrap_or_default();
+
         let count_query = format!(
             "SELECT COUNT(*) as count FROM \"{}\"{}",
             table, where_clause
@@ -194,8 +215,8 @@ impl DatabaseDriver for SqliteDriver {
         let total = count_row.0;
 
         let data_query = format!(
-            "SELECT * FROM \"{}\"{} LIMIT {} OFFSET {}",
-            table, where_clause, limit, offset
+            "SELECT * FROM \"{}\"{}{} LIMIT {} OFFSET {}",
+            table, where_clause, order_clause, limit, offset
         );
 
         let rows = sqlx::query(&data_query)

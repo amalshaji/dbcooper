@@ -131,7 +131,7 @@ async fn test_get_table_data_empty_table() {
         .expect("Failed to create test table");
 
     let result = driver
-        .get_table_data("default", &table_name, 1, 10, None)
+        .get_table_data("default", &table_name, 1, 10, None, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -168,7 +168,7 @@ async fn test_get_table_data_with_rows() {
         .unwrap();
 
     let result = driver
-        .get_table_data("default", &table_name, 1, 10, None)
+        .get_table_data("default", &table_name, 1, 10, None, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -207,7 +207,7 @@ async fn test_get_table_data_pagination() {
 
     // Get page 1 with limit 2
     let page1 = driver
-        .get_table_data("default", &table_name, 1, 2, None)
+        .get_table_data("default", &table_name, 1, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page1.data.len(), 2, "Page 1 should have 2 rows");
@@ -215,14 +215,14 @@ async fn test_get_table_data_pagination() {
 
     // Get page 2 with limit 2
     let page2 = driver
-        .get_table_data("default", &table_name, 2, 2, None)
+        .get_table_data("default", &table_name, 2, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page2.data.len(), 2, "Page 2 should have 2 rows");
 
     // Get page 3 with limit 2 (should have 1 row)
     let page3 = driver
-        .get_table_data("default", &table_name, 3, 2, None)
+        .get_table_data("default", &table_name, 3, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page3.data.len(), 1, "Page 3 should have 1 row");
@@ -254,7 +254,7 @@ async fn test_get_table_data_with_filter() {
         .unwrap();
 
     let result = driver
-        .get_table_data("default", &table_name, 1, 10, Some("age > 25".to_string()))
+        .get_table_data("default", &table_name, 1, 10, Some("age > 25".to_string()), None, None)
         .await;
     assert!(result.is_ok());
 

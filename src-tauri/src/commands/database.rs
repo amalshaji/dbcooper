@@ -266,12 +266,14 @@ pub async fn unified_get_table_data(
     page: i64,
     limit: i64,
     filter: Option<String>,
+    sort_column: Option<String>,
+    sort_direction: Option<String>,
 ) -> Result<TableDataResponse, String> {
     let driver = create_driver(
         &db_type, host, port, database, username, password, ssl, file_path,
     )?;
     driver
-        .get_table_data(&schema, &table, page, limit, filter)
+        .get_table_data(&schema, &table, page, limit, filter, sort_column, sort_direction)
         .await
 }
 
