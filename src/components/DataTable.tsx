@@ -257,10 +257,10 @@ export function DataTable<TData>({
 	};
 
 	return (
-		<div className="flex flex-col h-full w-full min-w-0">
+		<div className="flex flex-col max-h-full w-full min-w-0">
 			<div
 				ref={containerRef}
-				className="rounded-md border overflow-auto w-full h-full"
+				className="rounded-md border overflow-auto w-full"
 			>
 				<table
 					className="caption-bottom text-xs border-collapse"

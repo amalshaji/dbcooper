@@ -31,6 +31,12 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
@@ -291,104 +297,128 @@ export function Connections() {
 									const DbIcon = dbConfig.icon;
 
 									return (
-										<div
-											key={connection.id}
-											role="button"
-											tabIndex={0}
-											onClick={() =>
-												navigate(`/connections/${connection.uuid}`)
-											}
-											onKeyDown={(e) => {
-												if (e.key === "Enter" || e.key === " ") {
-													e.preventDefault();
-													navigate(`/connections/${connection.uuid}`);
-												}
-											}}
-											className={`group relative cursor-pointer rounded-lg border bg-card shadow-sm p-3 transition-all duration-200 hover:shadow-md hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50 ${dbConfig.borderColor}`}
-										>
-											{/* Gradient Background */}
-											<div
-												className={`absolute inset-0 rounded-lg bg-gradient-to-br ${dbConfig.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}
-											/>
+										<ContextMenu key={connection.id}>
+											<ContextMenuTrigger>
+												<div
+													role="button"
+													tabIndex={0}
+													onClick={() =>
+														navigate(`/connections/${connection.uuid}`)
+													}
+													onKeyDown={(e) => {
+														if (e.key === "Enter" || e.key === " ") {
+															e.preventDefault();
+															navigate(`/connections/${connection.uuid}`);
+														}
+													}}
+													className={`group relative cursor-pointer rounded-lg border bg-card shadow-sm p-3 transition-all duration-200 hover:shadow-md hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50 ${dbConfig.borderColor}`}
+												>
+													{/* Gradient Background */}
+													<div
+														className={`absolute inset-0 rounded-lg bg-gradient-to-br ${dbConfig.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}
+													/>
 
-											{/* Content */}
-											<div className="relative flex items-center gap-3">
-												{/* Database Icon */}
-												<div className="shrink-0 p-2 rounded-md bg-muted/50">
-													<DbIcon className="w-4 h-4" />
-												</div>
+													{/* Content */}
+													<div className="relative flex items-center gap-3">
+														{/* Database Icon */}
+														<div className="shrink-0 p-2 rounded-md bg-muted/50">
+															<DbIcon className="w-4 h-4" />
+														</div>
 
-												{/* Connection Info */}
-												<div className="flex-1 min-w-0">
-													<div className="flex items-center gap-2">
-														<h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors duration-200">
-															{connection.name}
-														</h3>
-														<Badge
-															variant="secondary"
-															className="capitalize text-[10px] px-1.5 py-0 shrink-0"
-														>
-															{connection.type || "postgres"}
-														</Badge>
-														{connection.ssl === 1 && (
-															<Lock
-																className="w-3 h-3 text-muted-foreground shrink-0"
-																weight="fill"
-															/>
-														)}
+														{/* Connection Info */}
+														<div className="flex-1 min-w-0">
+															<div className="flex items-center gap-2">
+																<h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors duration-200">
+																	{connection.name}
+																</h3>
+																<Badge
+																	variant="secondary"
+																	className="capitalize text-[10px] px-1.5 py-0 shrink-0"
+																>
+																	{connection.type || "postgres"}
+																</Badge>
+																{connection.ssl === 1 && (
+																	<Lock
+																		className="w-3 h-3 text-muted-foreground shrink-0"
+																		weight="fill"
+																	/>
+																)}
+															</div>
+															<p className="text-xs text-muted-foreground truncate mt-0.5">
+																{connection.type === "sqlite"
+																	? connection.file_path?.split("/").pop() ||
+																		"Local file"
+																	: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+															</p>
+														</div>
+
+														{/* Actions Menu */}
+														<DropdownMenu>
+															<DropdownMenuTrigger
+																onClick={(e) => e.stopPropagation()}
+																className="p-1.5 rounded-md hover:bg-muted/80 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+															>
+																<DotsThreeVertical
+																	className="w-4 h-4"
+																	weight="bold"
+																/>
+															</DropdownMenuTrigger>
+															<DropdownMenuContent align="end" side="bottom">
+																<DropdownMenuItem
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		handleEditConnection(connection);
+																	}}
+																>
+																	<PencilSimple className="w-4 h-4" />
+																	Edit
+																</DropdownMenuItem>
+																<DropdownMenuItem
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		handleDuplicateConnection(connection);
+																	}}
+																>
+																	<Copy className="w-4 h-4" />
+																	Duplicate
+																</DropdownMenuItem>
+																<DropdownMenuItem
+																	variant="destructive"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		handleDeleteClick(connection);
+																	}}
+																>
+																	<Trash className="w-4 h-4" />
+																	Delete
+																</DropdownMenuItem>
+															</DropdownMenuContent>
+														</DropdownMenu>
 													</div>
-													<p className="text-xs text-muted-foreground truncate mt-0.5">
-														{connection.type === "sqlite"
-															? connection.file_path?.split("/").pop() ||
-																"Local file"
-															: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
-													</p>
 												</div>
-
-												{/* Actions Menu */}
-												<DropdownMenu>
-													<DropdownMenuTrigger
-														onClick={(e) => e.stopPropagation()}
-														className="p-1.5 rounded-md hover:bg-muted/80 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-													>
-														<DotsThreeVertical
-															className="w-4 h-4"
-															weight="bold"
-														/>
-													</DropdownMenuTrigger>
-													<DropdownMenuContent align="end" side="bottom">
-														<DropdownMenuItem
-															onClick={(e) => {
-																e.stopPropagation();
-																handleEditConnection(connection);
-															}}
-														>
-															<PencilSimple className="w-4 h-4" />
-															Edit
-														</DropdownMenuItem>
-														<DropdownMenuItem
-															onClick={(e) => {
-																e.stopPropagation();
-																handleDuplicateConnection(connection);
-															}}
-														>
-															<Copy className="w-4 h-4" />
-															Duplicate
-														</DropdownMenuItem>
-														<DropdownMenuItem
-															variant="destructive"
-															onClick={(e) => {
-																e.stopPropagation();
-																handleDeleteClick(connection);
-															}}
-														>
-															<Trash className="w-4 h-4" />
-															Delete
-														</DropdownMenuItem>
-													</DropdownMenuContent>
-												</DropdownMenu>
-											</div>
-										</div>
+											</ContextMenuTrigger>
+											<ContextMenuContent>
+												<ContextMenuItem
+													onClick={() => handleEditConnection(connection)}
+												>
+													<PencilSimple className="w-4 h-4" />
+													Edit
+												</ContextMenuItem>
+												<ContextMenuItem
+													onClick={() => handleDuplicateConnection(connection)}
+												>
+													<Copy className="w-4 h-4" />
+													Duplicate
+												</ContextMenuItem>
+												<ContextMenuItem
+													variant="destructive"
+													onClick={() => handleDeleteClick(connection)}
+												>
+													<Trash className="w-4 h-4" />
+													Delete
+												</ContextMenuItem>
+											</ContextMenuContent>
+										</ContextMenu>
 									);
 								})}
 							</div>

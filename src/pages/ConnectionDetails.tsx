@@ -85,6 +85,12 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
 	Table,
 	ArrowLeft,
 	ArrowRight,
@@ -2469,7 +2475,7 @@ export function ConnectionDetails() {
 							<p className="text-sm text-destructive/80 mt-1">{tab.error}</p>
 						</div>
 					) : tab.results && tab.results.length > 0 ? (
-						<div className="h-[85vh]">
+						<div className="max-h-[85vh]">
 							<DataTable
 								data={tab.results}
 								columns={queryColumns}
@@ -3232,77 +3238,78 @@ export function ConnectionDetails() {
 												const cols = tableColumns[tableName] || [];
 
 												return (
-													<Collapsible
-														key={tableName}
-														open={isExpanded}
-														onOpenChange={() =>
-															handleToggleTableExpand(tableName)
-														}
-													>
-														<SidebarMenuItem>
-															<CollapsibleTrigger
-																render={
-																	<SidebarMenuButton className="w-full" />
+													<ContextMenu key={tableName}>
+														<ContextMenuTrigger>
+															<Collapsible
+																open={isExpanded}
+																onOpenChange={() =>
+																	handleToggleTableExpand(tableName)
 																}
 															>
-																<CaretRight
-																	className={`w-3 h-3 transition-transform ${
-																		isExpanded ? "rotate-90" : ""
-																	}`}
-																/>
-																<Table className="w-3 h-3" />
-																<span className="truncate text-xs">
-																	{table.name}
-																</span>
-																{table.type === "view" && (
-																	<Badge
-																		variant="secondary"
-																		className="ml-auto text-xs"
+																<SidebarMenuItem>
+																	<CollapsibleTrigger
+																		render={
+																			<SidebarMenuButton className="w-full" />
+																		}
 																	>
-																		View
-																	</Badge>
-																)}
-															</CollapsibleTrigger>
-															<DropdownMenu>
-																<DropdownMenuTrigger
-																	render={
-																		<button
-																			type="button"
-																			className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
-																			onClick={(e) => e.stopPropagation()}
+																		<CaretRight
+																			className={`w-3 h-3 transition-transform ${
+																				isExpanded ? "rotate-90" : ""
+																			}`}
 																		/>
-																	}
-																>
-																	<DotsThreeVertical className="w-3 h-3" />
-																</DropdownMenuTrigger>
-																<DropdownMenuContent align="end">
-																	<DropdownMenuItem
-																		onClick={() => {
-																			handleOpenTableData(tableName);
-																		}}
-																	>
-																		<Table className="w-4 h-4 mr-2" />
-																		View Data
-																	</DropdownMenuItem>
-																	<DropdownMenuItem
-																		onClick={() =>
-																			handleRunQueryForTable(tableName)
-																		}
-																	>
-																		<Code className="w-4 h-4 mr-2" />
-																		Run Query
-																	</DropdownMenuItem>
-																	<DropdownMenuItem
-																		onClick={() =>
-																			handleOpenTableStructure(tableName)
-																		}
-																	>
-																		<Columns className="w-4 h-4 mr-2" />
-																		View Structure
-																	</DropdownMenuItem>
-																</DropdownMenuContent>
-															</DropdownMenu>
-														</SidebarMenuItem>
+																		<Table className="w-3 h-3" />
+																		<span className="truncate text-xs">
+																			{table.name}
+																		</span>
+																		{table.type === "view" && (
+																			<Badge
+																				variant="secondary"
+																				className="ml-auto text-xs"
+																			>
+																				View
+																			</Badge>
+																		)}
+																	</CollapsibleTrigger>
+																	<DropdownMenu>
+																		<DropdownMenuTrigger
+																			render={
+																				<button
+																					type="button"
+																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
+																					onClick={(e) => e.stopPropagation()}
+																				/>
+																			}
+																		>
+																			<DotsThreeVertical className="w-3 h-3" />
+																		</DropdownMenuTrigger>
+																		<DropdownMenuContent align="end">
+																			<DropdownMenuItem
+																				onClick={() => {
+																					handleOpenTableData(tableName);
+																				}}
+																			>
+																				<Table className="w-4 h-4" />
+																				View Data
+																			</DropdownMenuItem>
+																			<DropdownMenuItem
+																				onClick={() =>
+																					handleRunQueryForTable(tableName)
+																				}
+																			>
+																				<Code className="w-4 h-4" />
+																				Run Query
+																			</DropdownMenuItem>
+																			<DropdownMenuItem
+																				onClick={() =>
+																					handleOpenTableStructure(tableName)
+																				}
+																			>
+																				<Columns className="w-4 h-4" />
+																				View Structure
+																			</DropdownMenuItem>
+																		</DropdownMenuContent>
+																	</DropdownMenu>
+																</SidebarMenuItem>
 														<CollapsibleContent>
 															<SidebarMenuSub>
 																{isLoading ? (
@@ -3369,7 +3376,35 @@ export function ConnectionDetails() {
 																)}
 															</SidebarMenuSub>
 														</CollapsibleContent>
-													</Collapsible>
+															</Collapsible>
+														</ContextMenuTrigger>
+														<ContextMenuContent>
+															<ContextMenuItem
+																onClick={() => {
+																	handleOpenTableData(tableName);
+																}}
+															>
+																<Table className="w-4 h-4" />
+																View Data
+															</ContextMenuItem>
+															<ContextMenuItem
+																onClick={() =>
+																	handleRunQueryForTable(tableName)
+																}
+															>
+																<Code className="w-4 h-4" />
+																Run Query
+															</ContextMenuItem>
+															<ContextMenuItem
+																onClick={() =>
+																	handleOpenTableStructure(tableName)
+																}
+															>
+																<Columns className="w-4 h-4" />
+																View Structure
+															</ContextMenuItem>
+														</ContextMenuContent>
+													</ContextMenu>
 												);
 											})}
 										</SidebarMenu>
@@ -3392,38 +3427,50 @@ export function ConnectionDetails() {
 									) : (
 										<SidebarMenu>
 											{savedQueries.map((query) => (
-												<SidebarMenuItem key={query.id} className="group/query">
-													<SidebarMenuButton
-														onClick={() => handleLoadQuery(query)}
-														className="pr-8"
-													>
-														<Code className="w-4 h-4" />
-														<span className="truncate flex-1">
-															{query.name}
-														</span>
-													</SidebarMenuButton>
-													<DropdownMenu>
-														<DropdownMenuTrigger
-															render={
-																<button
-																	type="button"
-																	className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/query:opacity-100 hover:bg-sidebar-accent"
-																	onClick={(e) => e.stopPropagation()}
-																/>
-															}
-														>
-															<DotsThreeVertical className="w-3 h-3" />
-														</DropdownMenuTrigger>
-														<DropdownMenuContent align="end">
-															<DropdownMenuItem
-																onClick={() => handleDeleteQuery(query)}
-																variant="destructive"
+												<ContextMenu key={query.id}>
+													<ContextMenuTrigger>
+														<SidebarMenuItem className="group/query">
+															<SidebarMenuButton
+																onClick={() => handleLoadQuery(query)}
+																className="pr-8"
 															>
-																Delete
-															</DropdownMenuItem>
-														</DropdownMenuContent>
-													</DropdownMenu>
-												</SidebarMenuItem>
+																<Code className="w-4 h-4" />
+																<span className="truncate flex-1">
+																	{query.name}
+																</span>
+															</SidebarMenuButton>
+															<DropdownMenu>
+																<DropdownMenuTrigger
+																	render={
+																		<button
+																			type="button"
+																			className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/query:opacity-100 hover:bg-sidebar-accent"
+																			onClick={(e) => e.stopPropagation()}
+																		/>
+																	}
+																>
+																	<DotsThreeVertical className="w-3 h-3" />
+																</DropdownMenuTrigger>
+																<DropdownMenuContent align="end">
+																	<DropdownMenuItem
+																		onClick={() => handleDeleteQuery(query)}
+																		variant="destructive"
+																	>
+																		Delete
+																	</DropdownMenuItem>
+																</DropdownMenuContent>
+															</DropdownMenu>
+														</SidebarMenuItem>
+													</ContextMenuTrigger>
+													<ContextMenuContent>
+														<ContextMenuItem
+															onClick={() => handleDeleteQuery(query)}
+															variant="destructive"
+														>
+															Delete
+														</ContextMenuItem>
+													</ContextMenuContent>
+												</ContextMenu>
 											))}
 										</SidebarMenu>
 									)}
