@@ -5,6 +5,7 @@ import { DatabaseIcons } from "../components/DatabaseIcons";
 import { DownloadButton } from "../components/DownloadButton";
 import { FAQ } from "../components/FAQ";
 import { Features } from "../components/Features";
+import { Testimonials } from "../components/Testimonials";
 import { ScreenshotCarousel } from "../components/ScreenshotCarousel";
 import SEO from "../components/SEO.astro";
 import { ThemeSwitcher } from "../components/ThemeSwitcher";
@@ -68,6 +69,9 @@ import { ThemeSwitcher } from "../components/ThemeSwitcher";
 					<ScreenshotCarousel client:only="react" />
 				</div>
 			</section>
+
+			<!-- Testimonials -->
+			<Testimonials client:load />
 
 			<!-- Features -->
 			<Features client:load />
