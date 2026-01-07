@@ -29,9 +29,9 @@ interface DataTableProps<TData> {
 	onSortChange?: (sort: SortState | null) => void;
 }
 
-const COLUMN_WIDTH = 180;
-const MIN_COLUMN_WIDTH = 100;
-const MAX_COLUMN_WIDTH = 400;
+const COLUMN_WIDTH = 150;
+const MIN_COLUMN_WIDTH = 80;
+const MAX_COLUMN_WIDTH = 300;
 
 export function DataTable<TData>({
 	data,

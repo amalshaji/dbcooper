@@ -1598,14 +1598,25 @@ export function ConnectionDetails() {
 		const firstRow = tab.data.data[0];
 		return Object.keys(firstRow).map((key) => {
 			const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
+			const columnInfo = tab.columns.find((col) => col.name === key);
 
 			return {
 				accessorKey: key,
 				header: () => (
-					<span className="flex items-center gap-1">
-						{key}
-						{fkInfo && (
-							<span className="text-[10px] text-muted-foreground">(FK)</span>
+					<span className="flex flex-col">
+						<span className="flex items-center gap-1">
+							{key}
+							{fkInfo && (
+								<span className="text-[10px] text-muted-foreground">(FK)</span>
+							)}
+						</span>
+						{columnInfo && (
+							<span
+								className="text-[10px] text-muted-foreground truncate max-w-[150px]"
+								title={columnInfo.type}
+							>
+								{columnInfo.type}
+							</span>
 						)}
 					</span>
 				),
