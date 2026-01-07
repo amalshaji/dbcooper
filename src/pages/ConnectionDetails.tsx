@@ -290,7 +290,9 @@ export function ConnectionDetails() {
 	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 	const [redisSearchTime, setRedisSearchTime] = useState<number | null>(null);
 	const [redisKeySheetOpen, setRedisKeySheetOpen] = useState(false);
-	const [redisKeySheetMode, setRedisKeySheetMode] = useState<"add" | "edit">("add");
+	const [redisKeySheetMode, setRedisKeySheetMode] = useState<"add" | "edit">(
+		"add",
+	);
 	const [savingRedisKey, setSavingRedisKey] = useState(false);
 	const [redisScanProgress, setRedisScanProgress] = useState<{
 		iteration: number;
@@ -1614,12 +1616,16 @@ export function ConnectionDetails() {
 
 					const rawValue =
 						typeof value === "object" ? JSON.stringify(value) : String(value);
-					const displayValue = rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+					const displayValue =
+						rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
 
 					if (fkInfo && value !== null) {
 						const refTable = `${schema}.${fkInfo.references_table}`;
 						return (
-							<span className="group/fk flex items-center gap-1" title={rawValue}>
+							<span
+								className="group/fk flex items-center gap-1"
+								title={rawValue}
+							>
 								<span>{displayValue}</span>
 								<button
 									type="button"
@@ -1667,8 +1673,10 @@ export function ConnectionDetails() {
 				const value = getValue();
 				if (value === null)
 					return <span className="text-muted-foreground italic">null</span>;
-				const rawValue = typeof value === "object" ? JSON.stringify(value) : String(value);
-				const displayValue = rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+				const rawValue =
+					typeof value === "object" ? JSON.stringify(value) : String(value);
+				const displayValue =
+					rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
 				return <span title={rawValue}>{displayValue}</span>;
 			},
 		}));
@@ -1693,10 +1701,25 @@ export function ConnectionDetails() {
 	const loadingPhases: Array<{ phase: LoadingPhase; label: string }> = [
 		{ phase: "fetching-config", label: "Fetching connection details" },
 		...(connection?.ssh_enabled
-			? [{ phase: "establishing-ssh" as LoadingPhase, label: "Establishing SSH tunnel and connecting" }]
-			: [{ phase: "connecting" as LoadingPhase, label: "Establishing connection" }]),
+			? [
+					{
+						phase: "establishing-ssh" as LoadingPhase,
+						label: "Establishing SSH tunnel and connecting",
+					},
+				]
+			: [
+					{
+						phase: "connecting" as LoadingPhase,
+						label: "Establishing connection",
+					},
+				]),
 		...(connection?.type !== "redis"
-			? [{ phase: "loading-schema" as LoadingPhase, label: "Loading schema and tables" }]
+			? [
+					{
+						phase: "loading-schema" as LoadingPhase,
+						label: "Loading schema and tables",
+					},
+				]
 			: []),
 	];
 
@@ -2295,6 +2318,10 @@ export function ConnectionDetails() {
 								);
 							} catch (error) {
 								console.error("AI generation error:", error);
+								toast.error("AI generation failed", {
+									description:
+										error instanceof Error ? error.message : String(error),
+								});
 							} finally {
 								setIsAiGenerating(false);
 							}
@@ -2401,7 +2428,7 @@ export function ConnectionDetails() {
 									}
 								}}
 							>
-								<DownloadSimple className="w-4 h-4 mr-2" />
+								<DownloadSimple className="w-4 h-4" />
 								Download CSV
 							</Button>
 						)}
@@ -2507,7 +2534,12 @@ export function ConnectionDetails() {
 		setRedisScanComplete(true);
 
 		try {
-			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, 0);
+			const result = await api.redis.searchKeys(
+				connection.uuid,
+				redisPattern,
+				100,
+				0,
+			);
 			setRedisKeys(result.keys);
 			setRedisSearchTime(result.time_taken_ms ?? null);
 			setRedisScanCursor(result.cursor);
@@ -2527,7 +2559,12 @@ export function ConnectionDetails() {
 		setRedisScanProgress(null);
 
 		try {
-			const result = await api.redis.searchKeys(connection.uuid, redisPattern, 100, redisScanCursor);
+			const result = await api.redis.searchKeys(
+				connection.uuid,
+				redisPattern,
+				100,
+				redisScanCursor,
+			);
 			setRedisKeys((prev) => [...(prev || []), ...result.keys]);
 			setRedisSearchTime((prev) => {
 				const current = result.time_taken_ms;
@@ -2615,13 +2652,28 @@ export function ConnectionDetails() {
 		try {
 			switch (data.type) {
 				case "string":
-					await api.redis.setKey(connection.uuid, data.key, data.value as string, data.ttl);
+					await api.redis.setKey(
+						connection.uuid,
+						data.key,
+						data.value as string,
+						data.ttl,
+					);
 					break;
 				case "list":
-					await api.redis.setListKey(connection.uuid, data.key, data.value as string[], data.ttl);
+					await api.redis.setListKey(
+						connection.uuid,
+						data.key,
+						data.value as string[],
+						data.ttl,
+					);
 					break;
 				case "set":
-					await api.redis.setSetKey(connection.uuid, data.key, data.value as string[], data.ttl);
+					await api.redis.setSetKey(
+						connection.uuid,
+						data.key,
+						data.value as string[],
+						data.ttl,
+					);
 					break;
 				case "hash":
 					await api.redis.setHashKey(
@@ -2641,7 +2693,9 @@ export function ConnectionDetails() {
 					break;
 			}
 
-			toast.success(`Key "${data.key}" ${redisKeySheetMode === "add" ? "created" : "updated"} successfully`);
+			toast.success(
+				`Key "${data.key}" ${redisKeySheetMode === "add" ? "created" : "updated"} successfully`,
+			);
 			setRedisKeySheetOpen(false);
 			handleRedisSearch();
 			if (redisKeySheetMode === "edit") {
@@ -2651,7 +2705,9 @@ export function ConnectionDetails() {
 			}
 		} catch (error) {
 			console.error("Failed to save Redis key:", error);
-			toast.error(`Failed to ${redisKeySheetMode === "add" ? "create" : "update"} key`);
+			toast.error(
+				`Failed to ${redisKeySheetMode === "add" ? "create" : "update"} key`,
+			);
 		} finally {
 			setSavingRedisKey(false);
 		}
@@ -2700,16 +2756,21 @@ export function ConnectionDetails() {
 				<CardHeader className="pb-3">
 					<CardTitle className="text-base">Keys</CardTitle>
 				</CardHeader>
-				<CardContent className="flex-1 overflow-y-auto p-0" ref={redisKeysListRef}>
+				<CardContent
+					className="flex-1 overflow-y-auto p-0"
+					ref={redisKeysListRef}
+				>
 					{loadingRedisKeys ? (
 						<div className="flex flex-col items-center justify-center py-8 gap-2">
 							<Spinner />
 							{redisScanProgress && (
 								<div className="text-sm text-muted-foreground">
-									Scanning... {redisScanProgress.iteration}/{redisScanProgress.maxIterations} iterations
+									Scanning... {redisScanProgress.iteration}/
+									{redisScanProgress.maxIterations} iterations
 									{redisScanProgress.keysFound > 0 && (
 										<span className="ml-1">
-											({redisScanProgress.keysFound} key{redisScanProgress.keysFound !== 1 ? "s" : ""} found)
+											({redisScanProgress.keysFound} key
+											{redisScanProgress.keysFound !== 1 ? "s" : ""} found)
 										</span>
 									)}
 								</div>
@@ -2756,7 +2817,11 @@ export function ConnectionDetails() {
 							No keys found matching pattern "{redisPattern}"
 							{!redisScanComplete && (
 								<div className="mt-4">
-									<Button onClick={handleRedisScanMore} variant="outline" size="sm">
+									<Button
+										onClick={handleRedisScanMore}
+										variant="outline"
+										size="sm"
+									>
 										Scan More Keys
 									</Button>
 								</div>
@@ -2768,16 +2833,19 @@ export function ConnectionDetails() {
 						</div>
 					)}
 				</CardContent>
-				{!redisScanComplete && redisKeys && redisKeys.length > 0 && !loadingRedisKeys && (
-					<div className="border-t p-3 flex items-center justify-center gap-2">
-						<span className="text-sm text-muted-foreground">
-							Scan incomplete
-						</span>
-						<Button onClick={handleRedisScanMore} variant="outline" size="sm">
-							Scan More Keys
-						</Button>
-					</div>
-				)}
+				{!redisScanComplete &&
+					redisKeys &&
+					redisKeys.length > 0 &&
+					!loadingRedisKeys && (
+						<div className="border-t p-3 flex items-center justify-center gap-2">
+							<span className="text-sm text-muted-foreground">
+								Scan incomplete
+							</span>
+							<Button onClick={handleRedisScanMore} variant="outline" size="sm">
+								Scan More Keys
+							</Button>
+						</div>
+					)}
 			</Card>
 
 			{/* Key Details Sheet */}
@@ -2937,10 +3005,7 @@ export function ConnectionDetails() {
 
 									{/* Actions */}
 									<div className="flex gap-2 pt-4 border-t">
-										<Button
-											variant="default"
-											onClick={handleRedisEditKey}
-										>
+										<Button variant="default" onClick={handleRedisEditKey}>
 											Edit Key
 										</Button>
 										<Button
@@ -3252,9 +3317,15 @@ export function ConnectionDetails() {
 																						const queryTab =
 																							activeTab as QueryTab;
 																						const query = queryTab.query;
-																						const needsSpace = query.length > 0 && !query.endsWith(" ") && !query.endsWith("\n") && !query.endsWith("\t");
+																						const needsSpace =
+																							query.length > 0 &&
+																							!query.endsWith(" ") &&
+																							!query.endsWith("\n") &&
+																							!query.endsWith("\t");
 																						handleQueryChange(
-																							query + (needsSpace ? " " : "") + col.name,
+																							query +
+																								(needsSpace ? " " : "") +
+																								col.name,
 																						);
 																					}
 																				}}
