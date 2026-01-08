@@ -28,6 +28,7 @@ use commands::queries::{
 };
 use commands::settings::{get_all_settings, get_setting, set_setting};
 use database::pool_manager::PoolManager;
+use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -37,6 +38,45 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .menu(|app_handle| {
+            // Create About metadata with descriptive information
+            // Note: macOS automatically uses the app icon from the bundle
+            let about_metadata = AboutMetadata {
+                name: Some("DBcooper".into()),
+                copyright: Some("© 2026 Amal Shaji. All rights reserved.".into()),
+                website: Some("https://dbcooper.amal.sh".into()),
+                website_label: Some("Visit Website".into()),
+                credits: Some(
+                    "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse."
+                        .into(),
+                ),
+                ..Default::default()
+            };
+
+            // Build minimal app submenu with descriptive About item
+            let app_submenu = Submenu::with_items(
+                app_handle,
+                "DBcooper",
+                true,
+                &[
+                    &PredefinedMenuItem::about(
+                        app_handle,
+                        Some("About DBcooper"),
+                        Some(about_metadata),
+                    )?,
+                    &PredefinedMenuItem::separator(app_handle)?,
+                    &PredefinedMenuItem::services(app_handle, Some("Services"))?,
+                    &PredefinedMenuItem::separator(app_handle)?,
+                    &PredefinedMenuItem::hide(app_handle, Some("Hide DBcooper"))?,
+                    &PredefinedMenuItem::hide_others(app_handle, Some("Hide Others"))?,
+                    &PredefinedMenuItem::show_all(app_handle, Some("Show All"))?,
+                    &PredefinedMenuItem::separator(app_handle)?,
+                    &PredefinedMenuItem::quit(app_handle, Some("Quit DBcooper"))?,
+                ],
+            )?;
+
+            Menu::with_items(app_handle, &[&app_submenu])
+        })
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()
