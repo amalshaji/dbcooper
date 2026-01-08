@@ -5,8 +5,8 @@ mod ssh_tunnel;
 
 use commands::ai::{generate_sql, select_tables_for_query};
 use commands::connections::{
-    create_connection, delete_connection, get_connection_by_uuid, get_connections,
-    update_connection,
+    create_connection, delete_connection, export_connection, get_connection_by_uuid,
+    get_connections, import_connections, update_connection,
 };
 use commands::database::{
     delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
@@ -99,6 +99,8 @@ pub fn run() {
             create_connection,
             update_connection,
             delete_connection,
+            export_connection,
+            import_connections,
             test_connection,
             list_tables,
             get_table_data,

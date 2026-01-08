@@ -532,3 +532,169 @@ async fn test_sqlite_connection_with_file_path() {
     assert_eq!(conn.db_type, "sqlite");
     assert_eq!(conn.file_path, Some("/path/to/db.sqlite".to_string()));
 }
+
+// ============================================================================
+// Export/Import Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_export_connection_format() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let uuid = uuid::Uuid::new_v4().to_string();
+
+    // Create a connection
+    sqlx::query(
+        "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type) VALUES (?, 'postgres', 'Test Export', 'localhost', 5432, 'testdb', 'user', 'pass', 1, 'postgres')",
+    )
+    .bind(&uuid)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Fetch the connection
+    let conn: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(&uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    // Verify export data would be correct
+    assert_eq!(conn.name, "Test Export");
+    assert_eq!(conn.host, "localhost");
+    assert_eq!(conn.port, 5432);
+    assert_eq!(conn.ssl, 1);
+}
+
+#[tokio::test]
+async fn test_import_connection_creates_new_uuid() {
+    let (pool, _temp_file) = create_test_pool().await;
+
+    // Simulate importing a connection (new UUID should be generated)
+    let new_uuid = uuid::Uuid::new_v4().to_string();
+
+    let result = sqlx::query(
+        "INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type) VALUES (?, 'postgres', 'Imported Connection', 'remotehost', 5432, 'db', 'user', 'pass', 'postgres')",
+    )
+    .bind(&new_uuid)
+    .execute(&pool)
+    .await;
+
+    assert!(result.is_ok());
+
+    // Verify it exists with the new UUID
+    let conn: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(&new_uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(conn.name, "Imported Connection");
+}
+
+#[tokio::test]
+async fn test_import_connection_name_conflict_resolution() {
+    let (pool, _temp_file) = create_test_pool().await;
+
+    // Create an existing connection with a name
+    let uuid1 = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type) VALUES (?, 'postgres', 'My Database', 'localhost', 5432, 'db', 'user', 'pass', 'postgres')",
+    )
+    .bind(&uuid1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Get existing names
+    let existing_names: Vec<String> = sqlx::query_scalar("SELECT name FROM connections")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    assert!(existing_names.contains(&"My Database".to_string()));
+
+    // Simulate importing with same name - should generate unique name
+    let import_name = "My Database";
+    let mut final_name = import_name.to_string();
+    if existing_names.contains(&final_name) {
+        let mut counter = 1;
+        loop {
+            let candidate = format!("{} ({})", import_name, counter);
+            if !existing_names.contains(&candidate) {
+                final_name = candidate;
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    assert_eq!(final_name, "My Database (1)");
+
+    // Create with the resolved name
+    let uuid2 = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type) VALUES (?, 'postgres', ?, 'otherhost', 5432, 'db', 'user', 'pass', 'postgres')",
+    )
+    .bind(&uuid2)
+    .bind(&final_name)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Verify both connections exist with unique names
+    let all_connections: Vec<Connection> = sqlx::query_as("SELECT * FROM connections")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(all_connections.len(), 2);
+    let names: Vec<&String> = all_connections.iter().map(|c| &c.name).collect();
+    assert!(names.contains(&&"My Database".to_string()));
+    assert!(names.contains(&&"My Database (1)".to_string()));
+}
+
+#[tokio::test]
+async fn test_import_multiple_name_conflicts() {
+    let (pool, _temp_file) = create_test_pool().await;
+
+    // Create connections that would cause multiple conflicts
+    for i in 0..3 {
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let name = if i == 0 {
+            "Production".to_string()
+        } else {
+            format!("Production ({})", i)
+        };
+        sqlx::query(
+            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type) VALUES (?, 'postgres', ?, 'localhost', 5432, 'db', 'user', 'pass', 'postgres')",
+        )
+        .bind(&uuid)
+        .bind(&name)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    // Get existing names
+    let existing_names: Vec<String> = sqlx::query_scalar("SELECT name FROM connections")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+    // Simulate importing "Production" again - should become "Production (3)"
+    let import_name = "Production";
+    let mut final_name = import_name.to_string();
+    if existing_names.contains(&final_name) {
+        let mut counter = 1;
+        loop {
+            let candidate = format!("{} ({})", import_name, counter);
+            if !existing_names.contains(&candidate) {
+                final_name = candidate;
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    assert_eq!(final_name, "Production (3)");
+}

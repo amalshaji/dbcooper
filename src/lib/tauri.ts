@@ -139,6 +139,33 @@ export interface RedisKeyDetails {
 	length?: number;
 }
 
+// Export/Import types
+export interface ExportedConnection {
+	type: string;
+	name: string;
+	host: string;
+	port: number;
+	database: string;
+	username: string;
+	password: string;
+	ssl: boolean;
+	db_type: string;
+	file_path: string | null;
+	ssh_enabled: boolean;
+	ssh_host: string;
+	ssh_port: number;
+	ssh_user: string;
+	ssh_password: string;
+	ssh_key_path: string;
+	ssh_use_key: boolean;
+}
+
+export interface ConnectionsExport {
+	version: number;
+	exported_at: string;
+	connections: ExportedConnection[];
+}
+
 export const api = {
 	connections: {
 		list: () => invoke<Connection[]>("get_connections"),
@@ -153,6 +180,12 @@ export const api = {
 			invoke<Connection>("update_connection", { id, data }),
 
 		delete: (id: number) => invoke<boolean>("delete_connection", { id }),
+
+		exportOne: (id: number) =>
+			invoke<ConnectionsExport>("export_connection", { id }),
+
+		importConnections: (data: ConnectionsExport) =>
+			invoke<number>("import_connections", { data }),
 	},
 
 	postgres: {
@@ -535,11 +568,7 @@ export const api = {
 				ttl,
 			}),
 
-		updateTTL: (
-			connectionUuid: string,
-			key: string,
-			ttl?: number,
-		) =>
+		updateTTL: (connectionUuid: string, key: string, ttl?: number) =>
 			invoke<void>("redis_update_ttl", {
 				uuid: connectionUuid,
 				key,

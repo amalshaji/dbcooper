@@ -24,6 +24,8 @@ import {
 	DotsThreeVertical,
 	Lock,
 	Copy,
+	Export,
+	UploadSimple,
 } from "@phosphor-icons/react";
 import {
 	DropdownMenu,
@@ -43,10 +45,18 @@ import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 
-import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
+import {
+	api,
+	type Connection,
+	type ConnectionFormData,
+	type ConnectionsExport,
+} from "@/lib/tauri";
 import { Spinner } from "@/components/ui/spinner";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { handleDragStart } from "@/lib/windowDrag";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { toast } from "sonner";
 
 // Database type icons and colors
 const getDbTypeConfig = (type: string) => {
@@ -203,6 +213,62 @@ export function Connections() {
 		}
 	};
 
+	const handleExportConnection = async (connection: Connection) => {
+		try {
+			const exportData = await api.connections.exportOne(connection.id);
+			const safeName = connection.name
+				.replace(/[^a-z0-9]/gi, "_")
+				.toLowerCase();
+			const filePath = await save({
+				defaultPath: `${safeName}.dbcooper`,
+				filters: [
+					{
+						name: "DBcooper Export",
+						extensions: ["dbcooper", "json"],
+					},
+				],
+			});
+
+			if (filePath) {
+				await writeTextFile(filePath, JSON.stringify(exportData, null, 2));
+				toast.success(`Exported "${connection.name}"`);
+			}
+		} catch (error) {
+			console.error("Failed to export connection:", error);
+			toast.error("Failed to export connection");
+		}
+	};
+
+	const handleImportConnections = async () => {
+		try {
+			const filePath = await open({
+				multiple: false,
+				filters: [
+					{
+						name: "DBcooper Export",
+						extensions: ["dbcooper", "json"],
+					},
+				],
+			});
+
+			if (filePath && typeof filePath === "string") {
+				const content = await readTextFile(filePath);
+				const importData: ConnectionsExport = JSON.parse(content);
+				const importedCount =
+					await api.connections.importConnections(importData);
+				await fetchConnections();
+				toast.success(
+					`Imported ${importedCount} connection${importedCount !== 1 ? "s" : ""}`,
+				);
+			}
+		} catch (error) {
+			console.error("Failed to import connections:", error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			toast.error(`Failed to import: ${errorMessage}`);
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className="flex items-center justify-center min-h-screen bg-background">
@@ -278,14 +344,25 @@ export function Connections() {
 										Click on a connection to explore
 									</p>
 								</div>
-								<Button
-									onClick={() => setIsFormOpen(true)}
-									size="sm"
-									className="gap-1.5 shadow-md shadow-primary/20 hover:shadow-primary/30 transition-shadow duration-300"
-								>
-									<Plus className="w-4 h-4" weight="bold" />
-									New
-								</Button>
+								<div className="flex items-center gap-2">
+									<Button
+										onClick={handleImportConnections}
+										size="sm"
+										variant="outline"
+										className="gap-1.5"
+									>
+										<UploadSimple className="w-4 h-4" />
+										Import
+									</Button>
+									<Button
+										onClick={() => setIsFormOpen(true)}
+										size="sm"
+										className="gap-1.5 shadow-md shadow-primary/20 hover:shadow-primary/30 transition-shadow duration-300"
+									>
+										<Plus className="w-4 h-4" weight="bold" />
+										New
+									</Button>
+								</div>
 							</div>
 
 							{/* Connection Cards - Compact List */}
@@ -383,6 +460,15 @@ export function Connections() {
 																	Duplicate
 																</DropdownMenuItem>
 																<DropdownMenuItem
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		handleExportConnection(connection);
+																	}}
+																>
+																	<Export className="w-4 h-4" />
+																	Export
+																</DropdownMenuItem>
+																<DropdownMenuItem
 																	variant="destructive"
 																	onClick={(e) => {
 																		e.stopPropagation();
@@ -409,6 +495,12 @@ export function Connections() {
 												>
 													<Copy className="w-4 h-4" />
 													Duplicate
+												</ContextMenuItem>
+												<ContextMenuItem
+													onClick={() => handleExportConnection(connection)}
+												>
+													<Export className="w-4 h-4" />
+													Export
 												</ContextMenuItem>
 												<ContextMenuItem
 													variant="destructive"
