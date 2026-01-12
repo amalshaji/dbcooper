@@ -2837,8 +2837,9 @@ export function ConnectionDetails() {
 							<Spinner />
 							{redisScanProgress && (
 								<div className="text-sm text-muted-foreground">
-									Scanning... {redisScanBaseCount + redisScanProgress.keysFound} keys
-									found ({redisScanProgress.iteration}/{redisScanProgress.maxIterations} iterations)
+									Scanning... {redisScanBaseCount + redisScanProgress.keysFound}{" "}
+									keys found ({redisScanProgress.iteration}/
+									{redisScanProgress.maxIterations} iterations)
 								</div>
 							)}
 						</div>
@@ -2868,8 +2869,9 @@ export function ConnectionDetails() {
 						<Spinner />
 						{redisScanProgress && (
 							<span className="text-sm text-muted-foreground">
-								Scanning... {redisScanBaseCount + redisScanProgress.keysFound} keys
-								found ({redisScanProgress.iteration}/{redisScanProgress.maxIterations} iterations)
+								Scanning... {redisScanBaseCount + redisScanProgress.keysFound}{" "}
+								keys found ({redisScanProgress.iteration}/
+								{redisScanProgress.maxIterations} iterations)
 							</span>
 						)}
 					</div>
@@ -3334,72 +3336,72 @@ export function ConnectionDetails() {
 																		</DropdownMenuContent>
 																	</DropdownMenu>
 																</SidebarMenuItem>
-														<CollapsibleContent>
-															<SidebarMenuSub>
-																{isLoading ? (
-																	<SidebarMenuSubItem>
-																		<SidebarMenuSubButton>
-																			<Spinner className="w-3 h-3" />
-																			<span className="text-muted-foreground">
-																				Loading...
-																			</span>
-																		</SidebarMenuSubButton>
-																	</SidebarMenuSubItem>
-																) : cols.length > 0 ? (
-																	cols.map((col) => (
-																		<SidebarMenuSubItem key={col.name}>
-																			<SidebarMenuSubButton
-																				className="group/col-item"
-																				onClick={() => {
-																					// If there's an active query tab, insert column name
-																					if (
-																						activeTab &&
-																						activeTab.type === "query"
-																					) {
-																						const queryTab =
-																							activeTab as QueryTab;
-																						const query = queryTab.query;
-																						const needsSpace =
-																							query.length > 0 &&
-																							!query.endsWith(" ") &&
-																							!query.endsWith("\n") &&
-																							!query.endsWith("\t");
-																						handleQueryChange(
-																							query +
-																								(needsSpace ? " " : "") +
-																								col.name,
-																						);
-																					}
-																				}}
-																			>
-																				<span className="font-mono text-xs truncate">
-																					{col.name}
-																				</span>
-																				<span className="text-muted-foreground group-hover/col-item:text-sidebar-accent-foreground text-xs ml-auto truncate max-w-[80px]">
-																					{col.type}
-																				</span>
-																				{col.primary_key && (
-																					<Badge
-																						variant="outline"
-																						className="text-[10px] px-1 py-0 ml-1"
+																<CollapsibleContent>
+																	<SidebarMenuSub>
+																		{isLoading ? (
+																			<SidebarMenuSubItem>
+																				<SidebarMenuSubButton>
+																					<Spinner className="w-3 h-3" />
+																					<span className="text-muted-foreground">
+																						Loading...
+																					</span>
+																				</SidebarMenuSubButton>
+																			</SidebarMenuSubItem>
+																		) : cols.length > 0 ? (
+																			cols.map((col) => (
+																				<SidebarMenuSubItem key={col.name}>
+																					<SidebarMenuSubButton
+																						className="group/col-item"
+																						onClick={() => {
+																							// If there's an active query tab, insert column name
+																							if (
+																								activeTab &&
+																								activeTab.type === "query"
+																							) {
+																								const queryTab =
+																									activeTab as QueryTab;
+																								const query = queryTab.query;
+																								const needsSpace =
+																									query.length > 0 &&
+																									!query.endsWith(" ") &&
+																									!query.endsWith("\n") &&
+																									!query.endsWith("\t");
+																								handleQueryChange(
+																									query +
+																										(needsSpace ? " " : "") +
+																										col.name,
+																								);
+																							}
+																						}}
 																					>
-																						PK
-																					</Badge>
-																				)}
-																			</SidebarMenuSubButton>
-																		</SidebarMenuSubItem>
-																	))
-																) : (
-																	<SidebarMenuSubItem>
-																		<SidebarMenuSubButton>
-																			<span className="text-muted-foreground text-xs">
-																				No columns
-																			</span>
-																		</SidebarMenuSubButton>
-																	</SidebarMenuSubItem>
-																)}
-															</SidebarMenuSub>
-														</CollapsibleContent>
+																						<span className="font-mono text-xs truncate">
+																							{col.name}
+																						</span>
+																						<span className="text-muted-foreground group-hover/col-item:text-sidebar-accent-foreground text-xs ml-auto truncate max-w-[80px]">
+																							{col.type}
+																						</span>
+																						{col.primary_key && (
+																							<Badge
+																								variant="outline"
+																								className="text-[10px] px-1 py-0 ml-1"
+																							>
+																								PK
+																							</Badge>
+																						)}
+																					</SidebarMenuSubButton>
+																				</SidebarMenuSubItem>
+																			))
+																		) : (
+																			<SidebarMenuSubItem>
+																				<SidebarMenuSubButton>
+																					<span className="text-muted-foreground text-xs">
+																						No columns
+																					</span>
+																				</SidebarMenuSubButton>
+																			</SidebarMenuSubItem>
+																		)}
+																	</SidebarMenuSub>
+																</CollapsibleContent>
 															</Collapsible>
 														</ContextMenuTrigger>
 														<ContextMenuContent>

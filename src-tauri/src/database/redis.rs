@@ -237,18 +237,16 @@ impl RedisDriver {
 impl DatabaseDriver for RedisDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_connection_with_retry().await {
-            Ok(mut conn) => {
-                match redis::cmd("PING").query_async::<String>(&mut conn).await {
-                    Ok(_) => Ok(TestConnectionResult {
-                        success: true,
-                        message: "Connection successful!".to_string(),
-                    }),
-                    Err(e) => Ok(TestConnectionResult {
-                        success: false,
-                        message: format!("Redis PING failed: {}", e),
-                    }),
-                }
-            }
+            Ok(mut conn) => match redis::cmd("PING").query_async::<String>(&mut conn).await {
+                Ok(_) => Ok(TestConnectionResult {
+                    success: true,
+                    message: "Connection successful!".to_string(),
+                }),
+                Err(e) => Ok(TestConnectionResult {
+                    success: false,
+                    message: format!("Redis PING failed: {}", e),
+                }),
+            },
             Err(e) => Ok(TestConnectionResult {
                 success: false,
                 message: format!("Connection failed: {}", e),
@@ -430,8 +428,13 @@ impl RedisDriver {
             {
                 Ok((new_cursor, batch)) => {
                     // Emit progress with the batch of keys found
-                    progress_callback(iterations + 1, max_iterations, keys.len() + batch.len(), &batch);
-                    
+                    progress_callback(
+                        iterations + 1,
+                        max_iterations,
+                        keys.len() + batch.len(),
+                        &batch,
+                    );
+
                     keys.extend(batch);
                     cursor = new_cursor;
                     iterations += 1;
@@ -934,8 +937,13 @@ impl RedisDriver {
                 .map_err(|e| format!("Failed to scan keys: {}", e))?;
 
             // Emit progress with the batch of keys found
-            progress_callback(iterations + 1, max_iterations, keys.len() + batch.len(), &batch);
-            
+            progress_callback(
+                iterations + 1,
+                max_iterations,
+                keys.len() + batch.len(),
+                &batch,
+            );
+
             keys.extend(batch);
             cursor = new_cursor;
             iterations += 1;

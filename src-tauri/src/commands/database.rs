@@ -274,7 +274,15 @@ pub async fn unified_get_table_data(
         &db_type, host, port, database, username, password, ssl, file_path,
     )?;
     driver
-        .get_table_data(&schema, &table, page, limit, filter, sort_column, sort_direction)
+        .get_table_data(
+            &schema,
+            &table,
+            page,
+            limit,
+            filter,
+            sort_column,
+            sort_direction,
+        )
         .await
 }
 
@@ -881,7 +889,10 @@ pub async fn redis_search_keys(
         let app = app.clone();
         let uuid = uuid.clone();
         move |iteration: u32, max_iterations: u32, keys_found: usize, batch: &[String]| {
-            println!("[Redis] Scan progress: iteration={}, max={}, keys_found={}", iteration, max_iterations, keys_found);
+            println!(
+                "[Redis] Scan progress: iteration={}, max={}, keys_found={}",
+                iteration, max_iterations, keys_found
+            );
             if let Err(e) = app.emit(
                 "redis-scan-progress",
                 RedisScanProgressPayload {
@@ -927,7 +938,9 @@ pub async fn redis_search_keys(
             .search_keys_with_tunnel(&tunnel, &pattern, limit, cursor, progress_callback)
             .await
     } else {
-        driver.search_keys(&pattern, limit, cursor, progress_callback).await
+        driver
+            .search_keys(&pattern, limit, cursor, progress_callback)
+            .await
     }
 }
 
