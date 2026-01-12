@@ -442,7 +442,7 @@ async fn test_search_keys() {
 
     // Search for keys matching the pattern
     let pattern = format!("{}:*", prefix);
-    let result = driver.search_keys(&pattern, 100, 0, |_, _, _| {}).await;
+    let result = driver.search_keys(&pattern, 100, 0, |_, _, _, _| {}).await;
     assert!(result.is_ok());
 
     let response = result.unwrap();
@@ -474,7 +474,7 @@ async fn test_search_keys_with_limit() {
 
     // Search with limit of 2
     let pattern = format!("{}:*", prefix);
-    let result = driver.search_keys(&pattern, 2, 0, |_, _, _| {}).await.unwrap();
+    let result = driver.search_keys(&pattern, 2, 0, |_, _, _, _| {}).await.unwrap();
     assert!(result.keys.len() <= 2, "Should respect limit");
 
     // Cleanup
@@ -488,7 +488,7 @@ async fn test_search_keys_no_match() {
     let driver = create_test_driver();
 
     let result = driver
-        .search_keys("nonexistent:pattern:*", 100, 0, |_, _, _| {})
+        .search_keys("nonexistent:pattern:*", 100, 0, |_, _, _, _| {})
         .await
         .unwrap();
     assert!(result.keys.is_empty(), "Should return empty for no matches");
