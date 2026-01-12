@@ -405,7 +405,7 @@ impl RedisDriver {
         progress_callback: F,
     ) -> Result<RedisKeyListResponse, String>
     where
-        F: Fn(u32, u32, usize),
+        F: Fn(u32, u32, usize, &[String]),
     {
         let start_time = std::time::Instant::now();
         let mut conn = self.get_connection_with_retry().await?;
@@ -429,12 +429,12 @@ impl RedisDriver {
                 .await
             {
                 Ok((new_cursor, batch)) => {
+                    // Emit progress with the batch of keys found
+                    progress_callback(iterations + 1, max_iterations, keys.len() + batch.len(), &batch);
+                    
                     keys.extend(batch);
                     cursor = new_cursor;
                     iterations += 1;
-
-                    // Emit progress
-                    progress_callback(iterations, max_iterations, keys.len());
 
                     // Stop if we've reached the limit, completed the scan, or hit max iterations
                     if cursor == 0 || keys.len() >= limit as usize || iterations >= max_iterations {
@@ -902,7 +902,7 @@ impl RedisDriver {
         progress_callback: F,
     ) -> Result<RedisKeyListResponse, String>
     where
-        F: Fn(u32, u32, usize),
+        F: Fn(u32, u32, usize, &[String]),
     {
         let start_time = std::time::Instant::now();
         let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
@@ -933,12 +933,12 @@ impl RedisDriver {
                 .await
                 .map_err(|e| format!("Failed to scan keys: {}", e))?;
 
+            // Emit progress with the batch of keys found
+            progress_callback(iterations + 1, max_iterations, keys.len() + batch.len(), &batch);
+            
             keys.extend(batch);
             cursor = new_cursor;
             iterations += 1;
-
-            // Emit progress
-            progress_callback(iterations, max_iterations, keys.len());
 
             if cursor == 0 || keys.len() >= limit as usize || iterations >= max_iterations {
                 break;

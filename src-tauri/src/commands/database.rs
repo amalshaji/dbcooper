@@ -25,6 +25,7 @@ pub struct RedisScanProgressPayload {
     pub iteration: u32,
     pub max_iterations: u32,
     pub keys_found: usize,
+    pub keys: Vec<String>,
 }
 
 /// Creates the appropriate database driver based on the db_type, with optional SSH tunnel
@@ -879,7 +880,7 @@ pub async fn redis_search_keys(
     let progress_callback = {
         let app = app.clone();
         let uuid = uuid.clone();
-        move |iteration: u32, max_iterations: u32, keys_found: usize| {
+        move |iteration: u32, max_iterations: u32, keys_found: usize, batch: &[String]| {
             println!("[Redis] Scan progress: iteration={}, max={}, keys_found={}", iteration, max_iterations, keys_found);
             if let Err(e) = app.emit(
                 "redis-scan-progress",
@@ -888,6 +889,7 @@ pub async fn redis_search_keys(
                     iteration,
                     max_iterations,
                     keys_found,
+                    keys: batch.to_vec(),
                 },
             ) {
                 println!("[Redis] Failed to emit progress: {}", e);
