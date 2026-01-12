@@ -75,7 +75,22 @@ pub fn run() {
                 ],
             )?;
 
-            Menu::with_items(app_handle, &[&app_submenu])
+            let edit_submenu = Submenu::with_items(
+                app_handle,
+                "Edit",
+                true,
+                &[
+                    &PredefinedMenuItem::undo(app_handle, Some("Undo"))?,
+                    &PredefinedMenuItem::redo(app_handle, Some("Redo"))?,
+                    &PredefinedMenuItem::separator(app_handle)?,
+                    &PredefinedMenuItem::cut(app_handle, Some("Cut"))?,
+                    &PredefinedMenuItem::copy(app_handle, Some("Copy"))?,
+                    &PredefinedMenuItem::paste(app_handle, Some("Paste"))?,
+                    &PredefinedMenuItem::select_all(app_handle, Some("Select All"))?,
+                ],
+            )?;
+
+            Menu::with_items(app_handle, &[&app_submenu, &edit_submenu])
         })
         .setup(|app| {
             #[cfg(desktop)]
