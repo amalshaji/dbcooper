@@ -45,6 +45,38 @@ impl ClickhouseDriver {
         Self { config }
     }
 
+    const MAX_CELL_LENGTH: usize = 500;
+
+    fn truncate_value(v: &Value) -> Value {
+        match v {
+            Value::String(s) if s.len() > Self::MAX_CELL_LENGTH => {
+                Value::String(format!("{}…", &s[..Self::MAX_CELL_LENGTH]))
+            }
+            Value::Array(_) | Value::Object(_) => {
+                let s = v.to_string();
+                if s.len() > Self::MAX_CELL_LENGTH {
+                    Value::String(format!("{}…", &s[..Self::MAX_CELL_LENGTH]))
+                } else {
+                    v.clone()
+                }
+            }
+            _ => v.clone(),
+        }
+    }
+
+    fn truncate_row(row: Value) -> Value {
+        match row {
+            Value::Object(map) => {
+                let truncated: serde_json::Map<String, Value> = map
+                    .into_iter()
+                    .map(|(k, v)| (k, Self::truncate_value(&v)))
+                    .collect();
+                Value::Object(truncated)
+            }
+            _ => row,
+        }
+    }
+
     fn build_url(&self) -> String {
         let scheme = if self.config.ssl { "https" } else { "http" };
         format!("{}://{}:{}", scheme, self.config.host, self.config.port)
@@ -210,13 +242,15 @@ impl DatabaseDriver for ClickhouseDriver {
             "SELECT * FROM `{}`{}{} LIMIT {} OFFSET {}",
             table, where_clause, order_clause, limit, offset
         );
-        let data = self.execute_query_json(&data_query).await?;
+        let raw_data = self.execute_query_json(&data_query).await?;
+        let data: Vec<Value> = raw_data.into_iter().map(Self::truncate_row).collect();
 
         Ok(TableDataResponse {
             data,
             total,
             page,
             limit,
+            is_estimated: false,
         })
     }
 

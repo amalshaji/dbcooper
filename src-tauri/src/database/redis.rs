@@ -279,6 +279,7 @@ impl DatabaseDriver for RedisDriver {
             total: 0,
             page: 1,
             limit: 100,
+            is_estimated: false,
         })
     }
 

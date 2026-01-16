@@ -130,6 +130,8 @@ pub struct TableDataResponse {
     pub total: i64,
     pub page: i64,
     pub limit: i64,
+    #[serde(default)]
+    pub is_estimated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

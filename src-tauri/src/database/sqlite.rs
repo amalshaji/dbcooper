@@ -22,6 +22,16 @@ impl SqliteDriver {
         Self { config }
     }
 
+    const MAX_CELL_LENGTH: usize = 500;
+
+    fn truncate_string(s: &str) -> String {
+        if s.len() > Self::MAX_CELL_LENGTH {
+            format!("{}…", &s[..Self::MAX_CELL_LENGTH])
+        } else {
+            s.to_string()
+        }
+    }
+
     fn connection_string(&self) -> String {
         format!("sqlite:{}?mode=rwc", self.config.file_path)
     }
@@ -36,6 +46,10 @@ impl SqliteDriver {
     }
 
     fn row_to_json(row: &sqlx::sqlite::SqliteRow) -> Value {
+        Self::row_to_json_with_truncate(row, true)
+    }
+
+    fn row_to_json_with_truncate(row: &sqlx::sqlite::SqliteRow, truncate: bool) -> Value {
         let mut obj = serde_json::Map::new();
         for (i, col) in row.columns().iter().enumerate() {
             let type_name = col.type_info().name().to_uppercase();
@@ -50,19 +64,31 @@ impl SqliteDriver {
                     .unwrap_or(Value::Null),
                 "TEXT" => row
                     .try_get::<String, _>(i)
-                    .map(|v| json!(v))
+                    .map(|v| {
+                        if truncate {
+                            json!(Self::truncate_string(&v))
+                        } else {
+                            json!(v)
+                        }
+                    })
                     .unwrap_or(Value::Null),
                 "BLOB" => row
                     .try_get::<Vec<u8>, _>(i)
                     .map(|v| json!(format!("[{} bytes]", v.len())))
                     .unwrap_or(Value::Null),
-                // NULL type can mean either an actual NULL value or an expression result like COUNT(*)
-                // Try to extract as various types before giving up
                 "NULL" => row
                     .try_get::<i64, _>(i)
                     .map(|v| json!(v))
                     .or_else(|_| row.try_get::<f64, _>(i).map(|v| json!(v)))
-                    .or_else(|_| row.try_get::<String, _>(i).map(|v| json!(v)))
+                    .or_else(|_| {
+                        row.try_get::<String, _>(i).map(|v| {
+                            if truncate {
+                                json!(Self::truncate_string(&v))
+                            } else {
+                                json!(v)
+                            }
+                        })
+                    })
                     .unwrap_or(Value::Null),
 
                 "BOOLEAN" | "BOOL" => row
@@ -70,7 +96,6 @@ impl SqliteDriver {
                     .map(|v| json!(v))
                     .or_else(|_| row.try_get::<i64, _>(i).map(|v| json!(v != 0)))
                     .unwrap_or(Value::Null),
-                // Handle datetime types - SQLite stores these as TEXT, REAL, or INTEGER
                 "DATETIME" | "DATE" | "TIME" | "TIMESTAMP" => row
                     .try_get::<String, _>(i)
                     .map(|v| json!(v))
@@ -78,19 +103,19 @@ impl SqliteDriver {
                     .or_else(|_| row.try_get::<i64, _>(i).map(|v| json!(v.to_string())))
                     .unwrap_or(Value::Null),
                 _ => {
-                    // For unknown types (like COUNT(*) which returns NULL type),
-                    // try extracting as different types in order of likelihood
                     let int_result = row.try_get::<i64, _>(i);
-                    eprintln!(
-                        "DEBUG: fallback type={}, col={}, int_try={:?}",
-                        type_name,
-                        col.name(),
-                        int_result
-                    );
                     int_result
                         .map(|v| json!(v))
                         .or_else(|_| row.try_get::<f64, _>(i).map(|v| json!(v)))
-                        .or_else(|_| row.try_get::<String, _>(i).map(|v| json!(v)))
+                        .or_else(|_| {
+                            row.try_get::<String, _>(i).map(|v| {
+                                if truncate {
+                                    json!(Self::truncate_string(&v))
+                                } else {
+                                    json!(v)
+                                }
+                            })
+                        })
                         .or_else(|_| row.try_get::<bool, _>(i).map(|v| json!(v)))
                         .unwrap_or(Value::Null)
                 }
@@ -233,6 +258,7 @@ impl DatabaseDriver for SqliteDriver {
             total,
             page,
             limit,
+            is_estimated: false,
         })
     }
 
@@ -345,7 +371,7 @@ impl DatabaseDriver for SqliteDriver {
         match sqlx::query(query).fetch_all(&pool).await {
             Ok(rows) => {
                 pool.close().await;
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                let data: Vec<Value> = rows.iter().map(|r| Self::row_to_json_with_truncate(r, false)).collect();
                 let row_count = data.len() as i64;
                 Ok(QueryResult {
                     data,

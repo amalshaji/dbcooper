@@ -656,6 +656,21 @@ export const api = {
 				}[];
 			}>("pool_get_schema_overview", { uuid }),
 
+		getRowData: (
+			uuid: string,
+			schema: string,
+			table: string,
+			primaryKeyColumns: string[],
+			primaryKeyValues: unknown[],
+		) =>
+			invoke<QueryResult>("pool_get_row_data", {
+				uuid,
+				schema,
+				table,
+				primaryKeyColumns,
+				primaryKeyValues,
+			}),
+
 		updateTableRow: (
 			uuid: string,
 			schema: string,

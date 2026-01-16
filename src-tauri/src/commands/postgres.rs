@@ -323,6 +323,7 @@ pub async fn get_table_data(
         total,
         page,
         limit,
+        is_estimated: false,
     })
 }
 

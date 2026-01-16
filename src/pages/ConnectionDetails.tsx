@@ -392,6 +392,7 @@ export function ConnectionDetails() {
 	const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(
 		null,
 	);
+	const [loadingRowData, setLoadingRowData] = useState(false);
 	const [savingRow, setSavingRow] = useState(false);
 	const [deletingRow, setDeletingRow] = useState(false);
 
@@ -1174,10 +1175,56 @@ export function ConnectionDetails() {
 	};
 
 	// Row editing handlers
-	const handleRowClick = useCallback((row: Record<string, unknown>) => {
-		setEditingRow(row);
-		setRowEditSheetOpen(true);
-	}, []);
+	const handleRowClick = useCallback(
+		async (row: Record<string, unknown>) => {
+			// Open sheet immediately with loading state
+			setRowEditSheetOpen(true);
+			setLoadingRowData(true);
+			setEditingRow(null);
+
+			if (!connection || !activeTab || activeTab.type !== "table-data") {
+				setEditingRow(row);
+				setLoadingRowData(false);
+				return;
+			}
+
+			const tab = activeTab as TableDataTab;
+			const [schema, tableName] = tab.tableName.split(".");
+			const primaryKeyColumns = tab.columns
+				.filter((col) => col.primary_key)
+				.map((col) => col.name);
+
+			if (primaryKeyColumns.length === 0) {
+				setEditingRow(row);
+				setLoadingRowData(false);
+				return;
+			}
+
+			const primaryKeyValues = primaryKeyColumns.map((col) => row[col]);
+
+			try {
+				const result = await api.pool.getRowData(
+					connection.uuid,
+					schema,
+					tableName,
+					primaryKeyColumns,
+					primaryKeyValues,
+				);
+
+				if (result.data && result.data.length > 0) {
+					setEditingRow(result.data[0] as Record<string, unknown>);
+				} else {
+					setEditingRow(row);
+				}
+			} catch (error) {
+				console.error("Failed to fetch full row data:", error);
+				setEditingRow(row);
+			} finally {
+				setLoadingRowData(false);
+			}
+		},
+		[connection, activeTab],
+	);
 
 	const handleSaveRow = useCallback(
 		async (
@@ -3577,6 +3624,7 @@ export function ConnectionDetails() {
 					onDelete={handleDeleteRow}
 					saving={savingRow}
 					deleting={deletingRow}
+					loading={loadingRowData}
 				/>
 			)}
 

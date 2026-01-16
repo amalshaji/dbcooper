@@ -322,6 +322,51 @@ pub async fn pool_get_schema_overview(
     }
 }
 
+/// Get a single row's full data by primary key (non-truncated for detail view)
+#[tauri::command]
+pub async fn pool_get_row_data(
+    pool_manager: State<'_, PoolManager>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    schema: String,
+    table: String,
+    primary_key_columns: Vec<String>,
+    primary_key_values: Vec<serde_json::Value>,
+) -> Result<crate::db::models::QueryResult, String> {
+    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
+        return Err("Primary key columns and values must match".to_string());
+    }
+
+    // Get db_type from connection
+    let conn: crate::db::models::Connection =
+        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+            .bind(&uuid)
+            .fetch_one(sqlite_pool.inner())
+            .await
+            .map_err(|e| format!("Failed to get connection: {}", e))?;
+
+    let db_type = &conn.db_type;
+
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    match pool_manager
+        .get_row_data(&uuid, &schema, &table, primary_key_columns.clone(), primary_key_values.clone(), db_type)
+        .await
+    {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            println!(
+                "[Pool] get_row_data failed: {}, retrying with fresh connection",
+                e
+            );
+            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+            pool_manager
+                .get_row_data(&uuid, &schema, &table, primary_key_columns, primary_key_values, db_type)
+                .await
+        }
+    }
+}
+
 // ============================================================================
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================

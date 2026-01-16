@@ -424,4 +424,58 @@ impl PoolManager {
 
         driver.get_schema_overview().await
     }
+
+    /// Get a single row's full data by primary key (non-truncated)
+    pub async fn get_row_data(
+        &self,
+        uuid: &str,
+        schema: &str,
+        table: &str,
+        primary_key_columns: Vec<String>,
+        primary_key_values: Vec<serde_json::Value>,
+        db_type: &str,
+    ) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+
+        // Build WHERE clause for primary key
+        let where_conditions: Vec<String> = primary_key_columns
+            .iter()
+            .zip(primary_key_values.iter())
+            .map(|(col, val)| {
+                let escaped_col = match db_type {
+                    "clickhouse" => format!("`{}`", col.replace('`', "``")),
+                    _ => format!("\"{}\"", col.replace('"', "\"\"")),
+                };
+                let value_str = match val {
+                    serde_json::Value::Null => "NULL".to_string(),
+                    serde_json::Value::String(s) => format!("'{}'", s.replace('\'', "''")),
+                    serde_json::Value::Number(n) => n.to_string(),
+                    serde_json::Value::Bool(b) => b.to_string(),
+                    _ => format!("'{}'", val.to_string().replace('\'', "''")),
+                };
+                if val.is_null() {
+                    format!("{} IS NULL", escaped_col)
+                } else {
+                    format!("{} = {}", escaped_col, value_str)
+                }
+            })
+            .collect();
+
+        let full_table_name = match db_type {
+            "clickhouse" => format!("`{}`", table),
+            "sqlite" => format!("\"{}\"", table),
+            _ => format!("\"{}\".\"{}\"", schema, table),
+        };
+
+        let query = format!(
+            "SELECT * FROM {} WHERE {} LIMIT 1",
+            full_table_name,
+            where_conditions.join(" AND ")
+        );
+
+        driver.execute_query(&query).await
+    }
 }

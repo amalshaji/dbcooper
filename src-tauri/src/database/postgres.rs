@@ -101,7 +101,35 @@ impl PostgresDriver {
         }
     }
 
+    const MAX_CELL_LENGTH: usize = 500;
+
+    fn truncate_string(s: &str) -> String {
+        if s.len() > Self::MAX_CELL_LENGTH {
+            format!("{}…", &s[..Self::MAX_CELL_LENGTH])
+        } else {
+            s.to_string()
+        }
+    }
+
+    fn truncate_json(v: &Value) -> Value {
+        let s = v.to_string();
+        if s.len() > Self::MAX_CELL_LENGTH {
+            json!(format!("{}…", &s[..Self::MAX_CELL_LENGTH]))
+        } else {
+            v.clone()
+        }
+    }
+
     fn row_to_json(row: &sqlx::postgres::PgRow) -> Value {
+        Self::row_to_json_with_truncate(row, true)
+    }
+
+    #[allow(dead_code)]
+    fn row_to_json_full(row: &sqlx::postgres::PgRow) -> Value {
+        Self::row_to_json_with_truncate(row, false)
+    }
+
+    fn row_to_json_with_truncate(row: &sqlx::postgres::PgRow, truncate: bool) -> Value {
         let mut obj = serde_json::Map::new();
         for (i, col) in row.columns().iter().enumerate() {
             let type_name = col.type_info().name();
@@ -132,7 +160,13 @@ impl PostgresDriver {
                     .unwrap_or(Value::Null),
                 "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" => row
                     .try_get::<String, _>(i)
-                    .map(|v| json!(v))
+                    .map(|v| {
+                        if truncate {
+                            json!(Self::truncate_string(&v))
+                        } else {
+                            json!(v)
+                        }
+                    })
                     .unwrap_or(Value::Null),
                 "UUID" => row
                     .try_get::<uuid::Uuid, _>(i)
@@ -154,16 +188,33 @@ impl PostgresDriver {
                     .try_get::<chrono::NaiveTime, _>(i)
                     .map(|v| json!(v.to_string()))
                     .unwrap_or(Value::Null),
-                "JSON" | "JSONB" => row
-                    .try_get::<serde_json::Value, _>(i)
-                    .unwrap_or(Value::Null),
+                "JSON" | "JSONB" => {
+                    let v = row.try_get::<serde_json::Value, _>(i).unwrap_or(Value::Null);
+                    if truncate && v != Value::Null {
+                        Self::truncate_json(&v)
+                    } else {
+                        v
+                    }
+                }
                 "BYTEA" => row
                     .try_get::<Vec<u8>, _>(i)
-                    .map(|v| json!(format!("\\x{}", hex::encode(&v))))
+                    .map(|v| {
+                        if truncate && v.len() > Self::MAX_CELL_LENGTH / 2 {
+                            json!(format!("\\x{}…", hex::encode(&v[..Self::MAX_CELL_LENGTH / 4])))
+                        } else {
+                            json!(format!("\\x{}", hex::encode(&v)))
+                        }
+                    })
                     .unwrap_or(Value::Null),
                 _ => row
                     .try_get::<String, _>(i)
-                    .map(|v| json!(v))
+                    .map(|v| {
+                        if truncate {
+                            json!(Self::truncate_string(&v))
+                        } else {
+                            json!(v)
+                        }
+                    })
                     .unwrap_or_else(|_| json!(format!("<{}>", type_name))),
             };
             obj.insert(col.name().to_string(), value);
@@ -330,6 +381,7 @@ impl DatabaseDriver for PostgresDriver {
             total,
             page,
             limit,
+            is_estimated: false,
         })
     }
 
@@ -482,7 +534,7 @@ impl DatabaseDriver for PostgresDriver {
 
         match sqlx::query(query).fetch_all(&pool).await {
             Ok(rows) => {
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                let data: Vec<Value> = rows.iter().map(Self::row_to_json_full).collect();
                 let row_count = data.len() as i64;
                 Ok(QueryResult {
                     data,

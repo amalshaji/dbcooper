@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Trash, FloppyDisk, Warning, Key } from "@phosphor-icons/react";
 import type { TableColumn } from "@/types/tabTypes";
 import { FieldInput, type DbType } from "@/components/field-inputs";
@@ -38,6 +39,7 @@ interface RowEditSheetProps {
 	onDelete: () => Promise<void>;
 	saving?: boolean;
 	deleting?: boolean;
+	loading?: boolean;
 }
 
 interface FieldValue {
@@ -56,6 +58,7 @@ export function RowEditSheet({
 	onDelete,
 	saving = false,
 	deleting = false,
+	loading = false,
 }: RowEditSheetProps) {
 	const [editedValues, setEditedValues] = useState<Record<string, FieldValue>>(
 		{},
@@ -147,7 +150,24 @@ export function RowEditSheet({
 		await onDelete();
 	};
 
-	if (!row) return null;
+	const renderLoadingSkeleton = () => (
+		<div className="py-6 px-4 space-y-4">
+			{columns.slice(0, 8).map((column, idx) => (
+				<div key={column.name || idx} className="space-y-1.5">
+					<div className="flex items-center gap-2">
+						<Skeleton className="h-4 w-24" />
+						<Skeleton className="h-4 w-16 ml-auto" />
+					</div>
+					<Skeleton className="h-9 w-full" />
+				</div>
+			))}
+			{columns.length > 8 && (
+				<div className="text-xs text-muted-foreground text-center">
+					Loading {columns.length - 8} more fields...
+				</div>
+			)}
+		</div>
+	);
 
 	return (
 		<>
@@ -164,7 +184,9 @@ export function RowEditSheet({
 							</Badge>
 						</SheetTitle>
 						<SheetDescription>
-							{isClickHouse ? (
+							{loading ? (
+								"Loading row data..."
+							) : isClickHouse ? (
 								<span className="flex items-center gap-1 mt-2 text-amber-600">
 									ClickHouse doesn't support direct row editing. Use ALTER TABLE
 									UPDATE queries in the SQL editor instead.
@@ -183,46 +205,50 @@ export function RowEditSheet({
 						</SheetDescription>
 					</SheetHeader>
 
-					<div className="py-6 px-4 space-y-4">
-						{columns.map((column) => {
-							const fieldValue = editedValues[column.name] || {
-								value: row?.[column.name] ?? null,
-								isRawSql: false,
-							};
-							const isPrimaryKey = column.primary_key;
-							const isReadonly = isPrimaryKey || !hasPrimaryKey || isClickHouse;
+					{loading ? (
+						renderLoadingSkeleton()
+					) : row ? (
+						<div className="py-6 px-4 space-y-4">
+							{columns.map((column) => {
+								const fieldValue = editedValues[column.name] || {
+									value: row?.[column.name] ?? null,
+									isRawSql: false,
+								};
+								const isPrimaryKey = column.primary_key;
+								const isReadonly = isPrimaryKey || !hasPrimaryKey || isClickHouse;
 
-							return (
-								<div key={column.name} className="space-y-1.5">
-									<Label className="flex items-center gap-2">
-										<span className="font-medium">{column.name}</span>
-										{column.primary_key && (
-											<Badge
-												variant="default"
-												className="text-[10px] px-1 py-0 gap-0.5"
-											>
-												<Key className="w-3 h-3" />
-												PK
-											</Badge>
-										)}
-										<span className="text-muted-foreground text-xs font-normal ml-auto">
-											{column.type}
-										</span>
-									</Label>
-									<FieldInput
-										column={column}
-										value={fieldValue.value}
-										isRawSql={fieldValue.isRawSql}
-										dbType={dbType}
-										onValueChange={handleValueChange}
-										isReadonly={isReadonly}
-									/>
-								</div>
-							);
-						})}
-					</div>
+								return (
+									<div key={column.name} className="space-y-1.5">
+										<Label className="flex items-center gap-2">
+											<span className="font-medium">{column.name}</span>
+											{column.primary_key && (
+												<Badge
+													variant="default"
+													className="text-[10px] px-1 py-0 gap-0.5"
+												>
+													<Key className="w-3 h-3" />
+													PK
+												</Badge>
+											)}
+											<span className="text-muted-foreground text-xs font-normal ml-auto">
+												{column.type}
+											</span>
+										</Label>
+										<FieldInput
+											column={column}
+											value={fieldValue.value}
+											isRawSql={fieldValue.isRawSql}
+											dbType={dbType}
+											onValueChange={handleValueChange}
+											isReadonly={isReadonly}
+										/>
+									</div>
+								);
+							})}
+						</div>
+					) : null}
 
-					{!isClickHouse && (
+					{!isClickHouse && !loading && row && (
 						<SheetFooter className="flex-row gap-2 justify-between sm:justify-between px-4">
 							<Button
 								variant="destructive"
