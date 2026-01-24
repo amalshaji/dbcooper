@@ -312,8 +312,13 @@ export function SchemaVisualizer({
 	);
 
 	const selectAll = useCallback(() => {
-		onSelectedTablesChange(filteredTable || []);
-	}, [filteredTable, onSelectedTablesChange]);
+		if (tableFilter === "" || !filteredTable) {
+			onSelectedTablesChange(allTableNames);
+		} else {
+			const combined = [...new Set([...selectedTablesArray, ...filteredTable])];
+			onSelectedTablesChange(combined);
+		}
+	}, [tableFilter, filteredTable, selectedTablesArray, allTableNames, onSelectedTablesChange]);
 
 	const deselectAll = useCallback(() => {
 		if (tableFilter === "" || !filteredTable) {
