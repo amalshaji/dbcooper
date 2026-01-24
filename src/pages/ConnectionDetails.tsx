@@ -3269,8 +3269,7 @@ export function ConnectionDetails() {
 															<Collapsible open={isExpanded}>
 																<SidebarMenuItem>
 																	<SidebarMenuButton
-																		render={<div />}
-																		className="w-full group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground cursor-pointer"
+																		className="w-full group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
 																		onClick={() => {
 																			handleOpenTableData(tableName);
 																		}}
