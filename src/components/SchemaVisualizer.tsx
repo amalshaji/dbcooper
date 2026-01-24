@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	ReactFlow,
 	ReactFlowProvider,
@@ -15,6 +15,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
+import { toSvg } from "html-to-image";
+import { toast } from "sonner";
 import { TableNode } from "./SchemaVisualizer/TableNode";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,9 +34,9 @@ import {
 } from "@/components/ui/sheet";
 import {
 	ArrowsClockwise,
-	Maximize2,
 	Funnel,
 	MagnifyingGlass,
+	DownloadSimple,
 } from "@phosphor-icons/react";
 import type { SchemaOverview, TableWithStructure } from "@/types/tabTypes";
 
@@ -249,11 +251,16 @@ export function SchemaVisualizer({
 }: SchemaVisualizerProps) {
 	const [showColumns, setShowColumns] = useState(true);
 	const [filterOpen, setFilterOpen] = useState(false);
+	const [downloadTrigger, setDownloadTrigger] = useState(0);
 	const selectedTables = useMemo(
 		() => new Set(selectedTablesArray),
 		[selectedTablesArray],
 	);
 	const [hasInitialized, setHasInitialized] = useState(false);
+
+	const handleDownload = useCallback(() => {
+		setDownloadTrigger((prev) => prev + 1);
+	}, []);
 
 	const allTableNames = useMemo(() => {
 		if (!schemaOverview) return [];
@@ -318,7 +325,13 @@ export function SchemaVisualizer({
 			const combined = [...new Set([...selectedTablesArray, ...filteredTable])];
 			onSelectedTablesChange(combined);
 		}
-	}, [tableFilter, filteredTable, selectedTablesArray, allTableNames, onSelectedTablesChange]);
+	}, [
+		tableFilter,
+		filteredTable,
+		selectedTablesArray,
+		allTableNames,
+		onSelectedTablesChange,
+	]);
 
 	const deselectAll = useCallback(() => {
 		if (tableFilter === "" || !filteredTable) {
@@ -682,6 +695,10 @@ export function SchemaVisualizer({
 						>
 							{showColumns ? "Hide Columns" : "Show Columns"}
 						</Button>
+						<Button variant="outline" size="sm" onClick={handleDownload}>
+							<DownloadSimple className="w-4 h-4" />
+							Export SVG
+						</Button>
 						{onRefresh && (
 							<Button variant="outline" size="sm" onClick={onRefresh}>
 								<ArrowsClockwise className="w-4 h-4" />
@@ -701,6 +718,7 @@ export function SchemaVisualizer({
 							onEdgesChange={onEdgesChange}
 							onConnect={onConnect}
 							nodeTypes={nodeTypes}
+							downloadTrigger={downloadTrigger}
 						/>
 					</ReactFlowProvider>
 				</div>
@@ -716,6 +734,7 @@ function SchemaVisualizerFlow({
 	onEdgesChange,
 	onConnect,
 	nodeTypes,
+	downloadTrigger,
 }: {
 	nodes: Node[];
 	edges: Edge[];
@@ -723,6 +742,7 @@ function SchemaVisualizerFlow({
 	onEdgesChange: (changes: any) => void;
 	onConnect: (connection: Connection) => void;
 	nodeTypes: any;
+	downloadTrigger: number;
 }) {
 	const { fitView } = useReactFlow();
 
@@ -733,6 +753,66 @@ function SchemaVisualizerFlow({
 			}, 50);
 		}
 	}, [nodes, fitView]);
+
+	useEffect(() => {
+		if (downloadTrigger === 0) return;
+
+		const downloadImage = async () => {
+			const reactFlowElement = document.querySelector(
+				".react-flow",
+			) as HTMLElement;
+			if (!reactFlowElement) {
+				console.error("Could not find .react-flow element");
+				return;
+			}
+
+			try {
+				const svgData = await toSvg(reactFlowElement, {
+					backgroundColor: "#ffffff",
+					filter: (node) => {
+						if (
+							node?.classList?.contains("react-flow__minimap") ||
+							node?.classList?.contains("react-flow__controls")
+						) {
+							return false;
+						}
+						return true;
+					},
+				});
+
+				const { save } = await import("@tauri-apps/plugin-dialog");
+				const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+				const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+
+				const defaultName = `schema-${new Date().toISOString().split("T")[0]}.svg`;
+
+				const filePath = await save({
+					defaultPath: defaultName,
+					filters: [{ name: "SVG Image", extensions: ["svg"] }],
+				});
+
+				if (!filePath) return;
+
+				const svgContent = decodeURIComponent(
+					svgData.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""),
+				);
+
+				await writeTextFile(filePath, svgContent);
+
+				toast.success("Schema exported successfully", {
+					action: {
+						label: "Show in Folder",
+						onClick: () => revealItemInDir(filePath),
+					},
+				});
+			} catch (error) {
+				console.error("Failed to download image:", error);
+				toast.error("Failed to export schema");
+			}
+		};
+
+		downloadImage();
+	}, [downloadTrigger]);
 
 	return (
 		<ReactFlow
