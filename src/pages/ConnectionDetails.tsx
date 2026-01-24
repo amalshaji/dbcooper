@@ -3266,24 +3266,27 @@ export function ConnectionDetails() {
 												return (
 													<ContextMenu key={tableName}>
 														<ContextMenuTrigger>
-															<Collapsible
-																open={isExpanded}
-																onOpenChange={() =>
-																	handleToggleTableExpand(tableName)
-																}
-															>
+															<Collapsible open={isExpanded}>
 																<SidebarMenuItem>
-																	<CollapsibleTrigger
-                                    render={<SidebarMenuButton className="w-full" />}
-                                    onClick={() => {
-																					handleOpenTableData(tableName);
-																				}}
-                                  >
-																		<CaretRight
-																			className={`w-3 h-3 transition-transform ${
-																				isExpanded ? "rotate-90" : ""
-                                        }`}
-																		/>
+																	<SidebarMenuButton
+																		className="w-full group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
+																		onClick={() => {
+																			handleOpenTableData(tableName);
+																		}}
+																	>
+																		<CollapsibleTrigger
+																			onClick={(e) => {
+																				e.stopPropagation();
+																				handleToggleTableExpand(tableName);
+																			}}
+																			className="flex items-center justify-center p-1 rounded hover:bg-sidebar-border"
+																		>
+																			<CaretRight
+																				className={`w-3 h-3 transition-transform ${
+																					isExpanded ? "rotate-90" : ""
+																				}`}
+																			/>
+																		</CollapsibleTrigger>
 																		<Table className="w-3 h-3" />
 																		<span className="truncate text-xs">
 																			{table.name}
@@ -3296,13 +3299,13 @@ export function ConnectionDetails() {
 																				View
 																			</Badge>
 																		)}
-																	</CollapsibleTrigger>
+																	</SidebarMenuButton>
 																	<DropdownMenu>
 																		<DropdownMenuTrigger
 																			render={
 																				<button
 																					type="button"
-																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-sidebar-accent"
+																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/menu-item:opacity-100 hover:bg-sidebar-border"
 																					onClick={(e) => e.stopPropagation()}
 																				/>
 																			}
