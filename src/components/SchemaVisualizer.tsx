@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ReactFlow,
 	ReactFlowProvider,
@@ -24,6 +24,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
 import {
 	Sheet,
 	SheetContent,
@@ -252,6 +253,7 @@ export function SchemaVisualizer({
 	const [showColumns, setShowColumns] = useState(true);
 	const [filterOpen, setFilterOpen] = useState(false);
 	const [downloadTrigger, setDownloadTrigger] = useState(0);
+	const [isDownloading, setIsDownloading] = useState(false);
 	const selectedTables = useMemo(
 		() => new Set(selectedTablesArray),
 		[selectedTablesArray],
@@ -695,8 +697,17 @@ export function SchemaVisualizer({
 						>
 							{showColumns ? "Hide Columns" : "Show Columns"}
 						</Button>
-						<Button variant="outline" size="sm" onClick={handleDownload}>
-							<DownloadSimple className="w-4 h-4" />
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleDownload}
+							disabled={isDownloading}
+						>
+							{isDownloading ? (
+								<Spinner className="w-4 h-4" />
+							) : (
+								<DownloadSimple className="w-4 h-4" />
+							)}
 							Export SVG
 						</Button>
 						{onRefresh && (
@@ -719,6 +730,7 @@ export function SchemaVisualizer({
 							onConnect={onConnect}
 							nodeTypes={nodeTypes}
 							downloadTrigger={downloadTrigger}
+							onDownloadStateChange={setIsDownloading}
 						/>
 					</ReactFlowProvider>
 				</div>
@@ -735,6 +747,7 @@ function SchemaVisualizerFlow({
 	onConnect,
 	nodeTypes,
 	downloadTrigger,
+	onDownloadStateChange,
 }: {
 	nodes: Node[];
 	edges: Edge[];
@@ -743,8 +756,10 @@ function SchemaVisualizerFlow({
 	onConnect: (connection: Connection) => void;
 	nodeTypes: any;
 	downloadTrigger: number;
+	onDownloadStateChange: (isDownloading: boolean) => void;
 }) {
 	const { fitView } = useReactFlow();
+	const isDownloadingRef = useRef(false);
 
 	useEffect(() => {
 		if (nodes.length > 0) {
@@ -757,39 +772,110 @@ function SchemaVisualizerFlow({
 	useEffect(() => {
 		if (downloadTrigger === 0) return;
 
+		const getExportErrorMessage = (
+			error: unknown,
+			stage: "svg" | "dialog" | "write" | "reveal",
+		) => {
+			const message =
+				typeof error === "string"
+					? error
+					: error instanceof Error
+						? error.message
+						: "";
+			const lower = message.toLowerCase();
+
+			if (
+				lower.includes("permission") ||
+				lower.includes("denied") ||
+				lower.includes("eacces")
+			) {
+				return `Permission denied while saving the SVG. Choose a different folder or update permissions.${message ? ` (${message})` : ""}`;
+			}
+
+			if (
+				lower.includes("no space") ||
+				lower.includes("disk") ||
+				lower.includes("quota") ||
+				lower.includes("enospc")
+			) {
+				return `Not enough disk space to save the SVG.${message ? ` (${message})` : ""}`;
+			}
+
+			switch (stage) {
+				case "svg":
+					return `Failed to generate the SVG from the schema view.${message ? ` (${message})` : ""}`;
+				case "dialog":
+					return `Could not open the save dialog.${message ? ` (${message})` : ""}`;
+				case "reveal":
+					return `Saved the SVG, but couldn't reveal it in Finder.${message ? ` (${message})` : ""}`;
+				default:
+					return `Failed to write the SVG file.${message ? ` (${message})` : ""}`;
+			}
+		};
+
 		const downloadImage = async () => {
+			if (isDownloadingRef.current) return;
+			isDownloadingRef.current = true;
+			onDownloadStateChange(true);
+
 			const reactFlowElement = document.querySelector(
 				".react-flow",
 			) as HTMLElement;
 			if (!reactFlowElement) {
 				console.error("Could not find .react-flow element");
+				isDownloadingRef.current = false;
+				onDownloadStateChange(false);
 				return;
 			}
 
 			try {
-				const svgData = await toSvg(reactFlowElement, {
-					backgroundColor: "#ffffff",
-					filter: (node) => {
-						if (
-							node?.classList?.contains("react-flow__minimap") ||
-							node?.classList?.contains("react-flow__controls")
-						) {
-							return false;
-						}
-						return true;
-					},
-				});
+				let svgData: string;
+				try {
+					svgData = await toSvg(reactFlowElement, {
+						backgroundColor: "#ffffff",
+						filter: (node) => {
+							if (
+								node?.classList?.contains("react-flow__minimap") ||
+								node?.classList?.contains("react-flow__controls")
+							) {
+								return false;
+							}
+							return true;
+						},
+					});
+				} catch (error) {
+					console.error("Failed to generate SVG:", error);
+					toast.error(getExportErrorMessage(error, "svg"));
+					return;
+				}
 
-				const { save } = await import("@tauri-apps/plugin-dialog");
-				const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-				const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+				let save: typeof import("@tauri-apps/plugin-dialog").save;
+				let writeTextFile: typeof import("@tauri-apps/plugin-fs").writeTextFile;
+				let revealItemInDir: typeof import("@tauri-apps/plugin-opener").revealItemInDir;
+
+				try {
+					({ save } = await import("@tauri-apps/plugin-dialog"));
+					({ writeTextFile } = await import("@tauri-apps/plugin-fs"));
+					({ revealItemInDir } = await import("@tauri-apps/plugin-opener"));
+				} catch (error) {
+					console.error("Failed to load export plugins:", error);
+					toast.error(getExportErrorMessage(error, "dialog"));
+					return;
+				}
 
 				const defaultName = `schema-${new Date().toISOString().split("T")[0]}.svg`;
 
-				const filePath = await save({
-					defaultPath: defaultName,
-					filters: [{ name: "SVG Image", extensions: ["svg"] }],
-				});
+				let filePath: string | null = null;
+				try {
+					filePath = await save({
+						defaultPath: defaultName,
+						filters: [{ name: "SVG Image", extensions: ["svg"] }],
+					});
+				} catch (error) {
+					console.error("Failed to open save dialog:", error);
+					toast.error(getExportErrorMessage(error, "dialog"));
+					return;
+				}
 
 				if (!filePath) return;
 
@@ -797,22 +883,38 @@ function SchemaVisualizerFlow({
 					svgData.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""),
 				);
 
-				await writeTextFile(filePath, svgContent);
+				try {
+					await writeTextFile(filePath, svgContent);
+				} catch (error) {
+					console.error("Failed to write SVG file:", error);
+					toast.error(getExportErrorMessage(error, "write"));
+					return;
+				}
 
 				toast.success("Schema exported successfully", {
 					action: {
-						label: "Show in Folder",
-						onClick: () => revealItemInDir(filePath),
+						label: "Show in Finder",
+						onClick: async () => {
+							try {
+								await revealItemInDir(filePath);
+							} catch (error) {
+								console.error("Failed to reveal exported file:", error);
+								toast.error(getExportErrorMessage(error, "reveal"));
+							}
+						},
 					},
 				});
 			} catch (error) {
 				console.error("Failed to download image:", error);
-				toast.error("Failed to export schema");
+				toast.error(getExportErrorMessage(error, "write"));
+			} finally {
+				isDownloadingRef.current = false;
+				onDownloadStateChange(false);
 			}
 		};
 
 		downloadImage();
-	}, [downloadTrigger]);
+	}, [downloadTrigger, onDownloadStateChange]);
 
 	return (
 		<ReactFlow
