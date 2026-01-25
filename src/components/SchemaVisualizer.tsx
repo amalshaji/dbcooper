@@ -52,6 +52,7 @@ interface SchemaVisualizerProps {
 	onTableFilterChange: (filter: string) => void;
 	selectedTables: string[];
 	onSelectedTablesChange: (tables: string[]) => void;
+	isActive?: boolean;
 }
 
 function getLayoutedElements(
@@ -249,11 +250,19 @@ export function SchemaVisualizer({
 	onTableFilterChange,
 	selectedTables: selectedTablesArray,
 	onSelectedTablesChange,
+	isActive = true,
 }: SchemaVisualizerProps) {
 	const [showColumns, setShowColumns] = useState(true);
 	const [filterOpen, setFilterOpen] = useState(false);
 	const [downloadTrigger, setDownloadTrigger] = useState(0);
 	const [isDownloading, setIsDownloading] = useState(false);
+	const layoutKey = useMemo(() => {
+		if (!schemaOverview) return "empty";
+		const tableCount = schemaOverview.tables.length;
+		const selectedKey = [...selectedTablesArray].sort().join("|");
+		const filterKey = tableFilter.trim();
+		return `${tableCount}:${selectedKey}:${filterKey}`;
+	}, [schemaOverview, selectedTablesArray, tableFilter]);
 	const selectedTables = useMemo(
 		() => new Set(selectedTablesArray),
 		[selectedTablesArray],
@@ -731,6 +740,8 @@ export function SchemaVisualizer({
 							nodeTypes={nodeTypes}
 							downloadTrigger={downloadTrigger}
 							onDownloadStateChange={setIsDownloading}
+							isActive={isActive}
+							layoutKey={layoutKey}
 						/>
 					</ReactFlowProvider>
 				</div>
@@ -748,6 +759,8 @@ function SchemaVisualizerFlow({
 	nodeTypes,
 	downloadTrigger,
 	onDownloadStateChange,
+	isActive,
+	layoutKey,
 }: {
 	nodes: Node[];
 	edges: Edge[];
@@ -757,17 +770,30 @@ function SchemaVisualizerFlow({
 	nodeTypes: any;
 	downloadTrigger: number;
 	onDownloadStateChange: (isDownloading: boolean) => void;
+	isActive: boolean;
+	layoutKey: string;
 }) {
 	const { fitView } = useReactFlow();
 	const isDownloadingRef = useRef(false);
+	const hasFitView = useRef(false);
+	const lastLayoutKey = useRef<string | null>(null);
 
 	useEffect(() => {
+		if (lastLayoutKey.current === null) {
+			lastLayoutKey.current = layoutKey;
+		}
+	}, [layoutKey]);
+
+	useEffect(() => {
+		if (!isActive) return;
+		if (hasFitView.current) return;
 		if (nodes.length > 0) {
 			setTimeout(() => {
 				fitView({ padding: 0.1, minZoom: 0.05, maxZoom: 1 });
+				hasFitView.current = true;
 			}, 50);
 		}
-	}, [nodes, fitView]);
+	}, [nodes, fitView, isActive]);
 
 	useEffect(() => {
 		if (downloadTrigger === 0) return;

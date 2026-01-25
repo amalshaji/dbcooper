@@ -16,6 +16,7 @@ interface ConnectionStatusProps {
 	initialStatus?: "connected" | "disconnected";
 	onReconnect?: () => Promise<void>;
 	onStatusChange?: (status: "connected" | "disconnected") => void;
+	enabled?: boolean;
 }
 
 export function ConnectionStatus({
@@ -23,6 +24,7 @@ export function ConnectionStatus({
 	initialStatus = "connected",
 	onReconnect,
 	onStatusChange,
+	enabled = true,
 }: ConnectionStatusProps) {
 	const [isReconnecting, setIsReconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export function ConnectionStatus({
 	}, []);
 
 	useEffect(() => {
+		if (!enabled) return;
 		if (currentStatus !== "connected") return;
 
 		const performHealthCheck = async () => {
@@ -101,7 +104,7 @@ export function ConnectionStatus({
 		const interval = setInterval(performHealthCheck, 15000);
 
 		return () => clearInterval(interval);
-	}, [connectionUuid, currentStatus, onStatusChange]);
+	}, [connectionUuid, currentStatus, onStatusChange, enabled]);
 
 	const statusColors = {
 		connected: "bg-green-500",

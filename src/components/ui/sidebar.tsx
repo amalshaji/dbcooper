@@ -153,15 +153,19 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offExamples",
+  offset = 0,
   className,
+  style,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   side?: "left" | "right";
   variant?: "sidebar" | "floating" | "inset";
   collapsible?: "offExamples" | "icon" | "none";
+  offset?: number | string;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const offsetValue = typeof offset === "number" ? `${offset}px` : offset;
 
   if (collapsible === "none") {
     return (
@@ -211,6 +215,7 @@ function Sidebar({
       data-variant={variant}
       data-side={side}
       data-slot="sidebar"
+      style={{ "--sidebar-offset": offsetValue, ...style } as React.CSSProperties}
     >
       {/* This is what handles the sidebar gap on desktop */}
       <div
@@ -229,8 +234,8 @@ function Sidebar({
         className={cn(
           "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
           side === "left"
-            ? "left-0 group-data-[collapsible=offExamples]:left-[calc(var(--sidebar-width)*-1)]"
-            : "right-0 group-data-[collapsible=offExamples]:right-[calc(var(--sidebar-width)*-1)]",
+            ? "left-[var(--sidebar-offset)] group-data-[collapsible=offExamples]:left-[calc(var(--sidebar-offset)-var(--sidebar-width))]"
+            : "right-[var(--sidebar-offset)] group-data-[collapsible=offExamples]:right-[calc(var(--sidebar-offset)-var(--sidebar-width))]",
           // Adjust the padding for floating and inset variants.
           variant === "floating" || variant === "inset"
             ? "p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)]"

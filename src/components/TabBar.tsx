@@ -40,7 +40,7 @@ export function TabBar({
 	useEffect(() => {
 		if (activeTabRef.current && scrollContainerRef.current) {
 			activeTabRef.current.scrollIntoView({
-				behavior: "smooth",
+				behavior: "auto",
 				block: "nearest",
 				inline: "nearest",
 			});
