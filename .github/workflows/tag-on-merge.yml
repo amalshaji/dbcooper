@@ -10,20 +10,34 @@ permissions:
 jobs:
   tag:
     if: >-
-      ${
+      ${{
         github.event.pull_request.merged &&
         github.event.pull_request.base.ref == 'main' &&
         contains(github.event.pull_request.labels.*.name, 'release')
-      }
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
       - name: Create and push tag
         run: |
           version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ -z "$version" ]; then
+            echo "Error: Could not extract version from tauri.conf.json"
+            exit 1
+          fi
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: Invalid version format: $version"
+            exit 1
+          fi
           tag="v$version"
 
           if git ls-remote --tags origin "refs/tags/$tag" | grep -q "$tag"; then
@@ -31,7 +45,7 @@ jobs:
             exit 0
           fi
 
-          git config user.name "github-actions"
-          git config user.email "github-actions@users.noreply.github.com"
-          git tag -a "$tag" -m "Release $tag"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag" "${{ github.event.pull_request.merge_commit_sha }}"
           git push origin "$tag"
