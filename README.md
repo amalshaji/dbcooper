@@ -80,13 +80,10 @@ The app is configured to build for macOS ARM (Apple Silicon). The build process:
 Releases are automated via GitHub Actions. To publish a new version:
 
 1. Update `version` in `src-tauri/tauri.conf.json`
-2. Commit and create a version tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-3. GitHub Actions will build and create a draft release
-4. Review and publish the release
+2. Open a PR and add the `release` label
+3. Merge the PR into `main`
+4. GitHub Actions will create and push the tag (e.g., `v0.0.42`), then build a draft release
+5. Review and publish the release
 
 ### Required Secrets
 
