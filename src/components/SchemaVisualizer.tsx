@@ -776,13 +776,6 @@ function SchemaVisualizerFlow({
 	const { fitView } = useReactFlow();
 	const isDownloadingRef = useRef(false);
 	const hasFitView = useRef(false);
-	const lastLayoutKey = useRef<string | null>(null);
-
-	useEffect(() => {
-		if (lastLayoutKey.current === null) {
-			lastLayoutKey.current = layoutKey;
-		}
-	}, [layoutKey]);
 
 	useEffect(() => {
 		if (!isActive) return;

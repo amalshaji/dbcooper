@@ -278,7 +278,6 @@ export function ConnectionWorkspacePane({
 		statusById,
 	} = useActiveConnections();
 	const cachedStatus = statusById[uuid];
-		useActiveConnections();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
@@ -292,7 +291,7 @@ export function ConnectionWorkspacePane({
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
 	>({});
-	const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
+	const [loadingColumns] = useState<Set<string>>(new Set());
 	const [schemaOverview, setSchemaOverview] = useState<SchemaOverview | null>(
 		null,
 	);
@@ -449,6 +448,13 @@ export function ConnectionWorkspacePane({
 
 	// Ref to track if initial data loading has started
 	const hasStartedLoading = useRef(false);
+	const isMountedRef = useRef(true);
+
+	useEffect(() => {
+		return () => {
+			isMountedRef.current = false;
+		};
+	}, []);
 
 	const activeTab = useMemo(
 		() => tabs.find((t) => t.id === activeTabId) || null,
@@ -482,11 +488,14 @@ export function ConnectionWorkspacePane({
 	}, [filteredTables]);
 
 	useEffect(() => {
+		let cancelled = false;
+
 		const fetchConnection = async () => {
 			if (!uuid) return;
 			setLoadingPhase("fetching-config");
 			try {
 				const data = await api.connections.getByUuid(uuid);
+				if (cancelled || !isMountedRef.current) return;
 				setConnection(data);
 				cacheConnection(data);
 				const cachedConnected = cachedStatus === "connected";
@@ -504,6 +513,7 @@ export function ConnectionWorkspacePane({
 					setLoadingPhase("connecting");
 				}
 			} catch (error) {
+				if (cancelled || !isMountedRef.current) return;
 				console.error("Failed to fetch connection:", error);
 				removeActive(uuid);
 				navigate("/");
@@ -513,6 +523,9 @@ export function ConnectionWorkspacePane({
 		if (uuid) {
 			fetchConnection();
 		}
+		return () => {
+			cancelled = true;
+		};
 	}, [uuid, navigate, cacheConnection, removeActive, schemaOverview, cachedStatus]);
 
 	const handleCloseConnection = useCallback(async () => {
@@ -536,11 +549,12 @@ export function ConnectionWorkspacePane({
 	}, [activeIds, navigate, removeActive, setActive, uuid]);
 
 	const fetchSchemaOverviewData = useCallback(async () => {
-		if (!uuid) return;
+		if (!uuid || !isMountedRef.current) return;
 
 		setLoadingSchemaOverview(true);
 		try {
 			const data = await api.pool.getSchemaOverview(uuid);
+			if (!isMountedRef.current) return;
 			setSchemaOverview(data);
 
 			// Extract tables list from schema overview
@@ -573,6 +587,7 @@ export function ConnectionWorkspacePane({
 				}),
 			);
 		} catch (error) {
+			if (!isMountedRef.current) return;
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
 			setTables([]);
@@ -583,7 +598,9 @@ export function ConnectionWorkspacePane({
 				description: errorMessage,
 			});
 		} finally {
-			setLoadingSchemaOverview(false);
+			if (isMountedRef.current) {
+				setLoadingSchemaOverview(false);
+			}
 		}
 	}, [uuid]);
 
@@ -615,6 +632,7 @@ export function ConnectionWorkspacePane({
 				}
 
 				const connectResult = await api.pool.connect(uuid!);
+				if (!isMountedRef.current) return;
 
 				if (connectResult.status === "connected") {
 					setConnectionStatus("connected");
@@ -629,16 +647,20 @@ export function ConnectionWorkspacePane({
 					});
 				}
 			} catch (error) {
+				if (!isMountedRef.current) return;
 				setConnectionStatus("disconnected");
 				toast.error("Connection failed", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setLoadingPhase("complete");
+				if (isMountedRef.current) {
+					setLoadingPhase("complete");
+				}
 			}
 		};
 
 		loadData().catch((error) => {
+			if (!isMountedRef.current) return;
 			console.error("Failed to load connection data:", error);
 			setConnectionStatus("disconnected");
 			setLoadingPhase("complete");
@@ -656,6 +678,8 @@ export function ConnectionWorkspacePane({
 	]);
 
 	useEffect(() => {
+		let cancelled = false;
+
 		const fetchSavedQueries = async () => {
 			if (!isActive) return;
 			if (!uuid || sidebarTab !== "queries") return;
@@ -663,15 +687,22 @@ export function ConnectionWorkspacePane({
 			setLoadingQueries(true);
 			try {
 				const data = await api.queries.list(uuid);
+				if (cancelled || !isMountedRef.current) return;
 				setSavedQueries(data as SavedQuery[]);
 			} catch (error) {
+				if (cancelled || !isMountedRef.current) return;
 				console.error("Failed to fetch saved queries:", error);
 			} finally {
-				setLoadingQueries(false);
+				if (!cancelled && isMountedRef.current) {
+					setLoadingQueries(false);
+				}
 			}
 		};
 
 		fetchSavedQueries();
+		return () => {
+			cancelled = true;
+		};
 	}, [uuid, sidebarTab, isActive]);
 
 	const updateTab = useCallback(
@@ -909,11 +940,6 @@ export function ConnectionWorkspacePane({
 		setTabs((prev) => [...prev, newTab]);
 		setActiveTabId(newTab.id);
 	}, [tabs]);
-
-	const handleRefreshSchemaOverview = useCallback(async () => {
-		if (!uuid) return;
-		await fetchSchemaOverviewData();
-	}, [uuid, fetchSchemaOverviewData]);
 
 	const handleReconnect = useCallback(async () => {
 		if (!uuid) return;
@@ -1740,7 +1766,7 @@ export function ConnectionWorkspacePane({
 					const displayValue =
 						rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
 
-					if (fkInfo && value !== null) {
+					if (fkInfo) {
 						const refTable = `${schema}.${fkInfo.references_table}`;
 						return (
 							<span

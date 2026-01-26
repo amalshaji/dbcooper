@@ -47,7 +47,13 @@ export function ActiveConnectionsProvider({ children }: { children: ReactNode })
 	}, []);
 
 	const removeActive = useCallback((uuid: string) => {
-		setActiveIds((prev) => prev.filter((id) => id !== uuid));
+		setActiveIds((prev) => {
+			const next = prev.filter((id) => id !== uuid);
+			setActiveId((current) =>
+				current === uuid ? (next[0] ?? null) : current,
+			);
+			return next;
+		});
 		setConnectionsById((prev) => {
 			const next = { ...prev };
 			delete next[uuid];
@@ -58,7 +64,6 @@ export function ActiveConnectionsProvider({ children }: { children: ReactNode })
 			delete next[uuid];
 			return next;
 		});
-		setActiveId((prev) => (prev === uuid ? null : prev));
 	}, []);
 
 	const cacheConnection = useCallback((connection: Connection) => {

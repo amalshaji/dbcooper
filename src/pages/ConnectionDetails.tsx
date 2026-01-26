@@ -20,8 +20,9 @@ export function ConnectionDetails() {
 
 	if (!uuid) return null;
 
-	const currentActiveId = activeId || uuid;
 	const paneIds = activeIds.length > 0 ? activeIds : [uuid];
+	const currentActiveId =
+		activeId && paneIds.includes(activeId) ? activeId : paneIds[0];
 
 	return (
 		<div className="flex h-screen w-full">
