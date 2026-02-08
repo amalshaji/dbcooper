@@ -232,14 +232,12 @@ export function DataTable<TData>({
 
 	const tableWidth = useMemo(() => {
 		if (shouldVirtualizeColumns) {
-			return totalColumnWidth + paddingLeft + paddingRight;
+			return totalColumnWidth;
 		}
 		return Math.max(visibleColumns.length * COLUMN_WIDTH, 100);
 	}, [
 		shouldVirtualizeColumns,
 		totalColumnWidth,
-		paddingLeft,
-		paddingRight,
 		visibleColumns.length,
 	]);
 
