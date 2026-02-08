@@ -2,6 +2,21 @@ name: 'publish'
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.2.3)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: true
   push:
     tags:
       - 'v*'
@@ -16,7 +31,23 @@ jobs:
     runs-on: macos-26
 
     steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${{ inputs.tag }}" ]; then
+            echo "Error: tag input required"
+            exit 1
+          fi
+          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -42,10 +73,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'v__VERSION__'
+          tagName: ${{ steps.tag.outputs.tag }}
+          releaseName: ${{ steps.tag.outputs.tag }}
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
           args: '--target aarch64-apple-darwin'
-
