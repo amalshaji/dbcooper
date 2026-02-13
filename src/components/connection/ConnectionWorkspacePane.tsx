@@ -275,9 +275,7 @@ export function ConnectionWorkspacePane({
 		removeActive,
 		cacheConnection,
 		setStatus,
-		statusById,
 	} = useActiveConnections();
-	const cachedStatus = statusById[uuid];
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
@@ -304,17 +302,6 @@ export function ConnectionWorkspacePane({
 		if (!uuid) return;
 		setStatus(uuid, connectionStatus);
 	}, [uuid, connectionStatus, setStatus]);
-
-	useEffect(() => {
-		if (!isActive) return;
-		if (!connection) return;
-		if (loadingPhase === "complete") return;
-		if (cachedStatus !== "connected") return;
-		if (connection.type !== "redis" && !schemaOverview) return;
-
-		setConnectionStatus("connected");
-		setLoadingPhase("complete");
-	}, [isActive, connection, cachedStatus, loadingPhase, schemaOverview]);
 
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
@@ -449,9 +436,20 @@ export function ConnectionWorkspacePane({
 	// Ref to track if initial data loading has started
 	const hasStartedLoading = useRef(false);
 	const isMountedRef = useRef(true);
+	const loadRunIdRef = useRef(0);
+
+	const createLoadRun = useCallback(() => {
+		loadRunIdRef.current += 1;
+		return loadRunIdRef.current;
+	}, []);
+
+	const isRunActive = useCallback((runId: number) => {
+		return isMountedRef.current && loadRunIdRef.current === runId;
+	}, []);
 
 	useEffect(() => {
 		return () => {
+			loadRunIdRef.current += 1;
 			isMountedRef.current = false;
 		};
 	}, []);
@@ -489,22 +487,18 @@ export function ConnectionWorkspacePane({
 
 	useEffect(() => {
 		let cancelled = false;
+		const runId = createLoadRun();
+		hasStartedLoading.current = false;
 
 		const fetchConnection = async () => {
 			if (!uuid) return;
+			if (cancelled || !isRunActive(runId)) return;
 			setLoadingPhase("fetching-config");
 			try {
 				const data = await api.connections.getByUuid(uuid);
-				if (cancelled || !isMountedRef.current) return;
+				if (cancelled || !isRunActive(runId)) return;
 				setConnection(data);
 				cacheConnection(data);
-				const cachedConnected = cachedStatus === "connected";
-
-				if (cachedConnected && (data.type === "redis" || schemaOverview)) {
-					setLoadingPhase("complete");
-					setConnectionStatus("connected");
-					return;
-				}
 
 				// For SSH connections, show the SSH tunnel phase first
 				if (data.ssh_enabled) {
@@ -513,7 +507,7 @@ export function ConnectionWorkspacePane({
 					setLoadingPhase("connecting");
 				}
 			} catch (error) {
-				if (cancelled || !isMountedRef.current) return;
+				if (cancelled || !isRunActive(runId)) return;
 				console.error("Failed to fetch connection:", error);
 				removeActive(uuid);
 				navigate("/");
@@ -526,7 +520,7 @@ export function ConnectionWorkspacePane({
 		return () => {
 			cancelled = true;
 		};
-	}, [uuid, navigate, cacheConnection, removeActive, schemaOverview, cachedStatus]);
+	}, [uuid, navigate, cacheConnection, removeActive, createLoadRun, isRunActive]);
 
 	const handleCloseConnection = useCallback(async () => {
 		if (!uuid) return;
@@ -548,13 +542,15 @@ export function ConnectionWorkspacePane({
 		}
 	}, [activeIds, navigate, removeActive, setActive, uuid]);
 
-	const fetchSchemaOverviewData = useCallback(async () => {
+	const fetchSchemaOverviewData = useCallback(async (runId?: number) => {
 		if (!uuid || !isMountedRef.current) return;
+		if (runId !== undefined && !isRunActive(runId)) return;
 
 		setLoadingSchemaOverview(true);
 		try {
 			const data = await api.pool.getSchemaOverview(uuid);
 			if (!isMountedRef.current) return;
+			if (runId !== undefined && !isRunActive(runId)) return;
 			setSchemaOverview(data);
 
 			// Extract tables list from schema overview
@@ -577,6 +573,9 @@ export function ConnectionWorkspacePane({
 			const allTableNames = data.tables.map((t) => `${t.schema}.${t.name}`);
 			setTabs((prev) =>
 				prev.map((tab) => {
+					if (runId !== undefined && !isRunActive(runId)) {
+						return tab;
+					}
 					if (
 						tab.type === "schema-visualizer" &&
 						tab.selectedTables.length === 0
@@ -588,6 +587,7 @@ export function ConnectionWorkspacePane({
 			);
 		} catch (error) {
 			if (!isMountedRef.current) return;
+			if (runId !== undefined && !isRunActive(runId)) return;
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
 			setTables([]);
@@ -598,11 +598,14 @@ export function ConnectionWorkspacePane({
 				description: errorMessage,
 			});
 		} finally {
-			if (isMountedRef.current) {
+			if (
+				isMountedRef.current &&
+				(runId === undefined || isRunActive(runId))
+			) {
 				setLoadingSchemaOverview(false);
 			}
 		}
-	}, [uuid]);
+	}, [uuid, isRunActive]);
 
 	// Reset loading flag when connection changes
 	useEffect(() => {
@@ -619,62 +622,54 @@ export function ConnectionWorkspacePane({
 		if (!shouldStartLoading) return;
 
 		hasStartedLoading.current = true;
+		const runId = loadRunIdRef.current;
 
 		const loadData = async () => {
 			try {
-				const cachedConnected =
-					cachedStatus === "connected" && connectionStatus === "connected";
-				const hasSchema = connection.type === "redis" || schemaOverview !== null;
-
-				if (cachedConnected && hasSchema) {
-					setLoadingPhase("complete");
-					return;
-				}
-
-				const connectResult = await api.pool.connect(uuid!);
-				if (!isMountedRef.current) return;
+				if (!uuid) return;
+				const connectResult = await api.pool.connect(uuid);
+				if (!isRunActive(runId)) return;
 
 				if (connectResult.status === "connected") {
 					setConnectionStatus("connected");
 					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
-						await fetchSchemaOverviewData();
+						await fetchSchemaOverviewData(runId);
+						if (!isRunActive(runId)) return;
 					}
 				} else {
+					if (!isRunActive(runId)) return;
 					setConnectionStatus("disconnected");
 					toast.error("Connection failed", {
 						description: connectResult.error || "Connection failed",
 					});
 				}
 			} catch (error) {
-				if (!isMountedRef.current) return;
+				if (!isRunActive(runId)) return;
 				setConnectionStatus("disconnected");
 				toast.error("Connection failed", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				if (isMountedRef.current) {
+				if (isRunActive(runId)) {
 					setLoadingPhase("complete");
 				}
 			}
 		};
 
 		loadData().catch((error) => {
-			if (!isMountedRef.current) return;
+			if (!isRunActive(runId)) return;
 			console.error("Failed to load connection data:", error);
 			setConnectionStatus("disconnected");
 			setLoadingPhase("complete");
 		});
-		// Only depend on connection and loadingPhase, not the callbacks
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [
 		connection,
 		loadingPhase,
 		isActive,
-		connectionStatus,
-		schemaOverview,
-		cachedStatus,
 		uuid,
+		fetchSchemaOverviewData,
+		isRunActive,
 	]);
 
 	useEffect(() => {
