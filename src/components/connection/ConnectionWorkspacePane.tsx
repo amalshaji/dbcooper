@@ -172,11 +172,7 @@ function ContentHeader({
 		>
 			<SidebarTrigger className="-ml-1" />
 			<div className="flex items-center gap-2 flex-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={onClose}
-				>
+				<Button variant="ghost" size="sm" onClick={onClose}>
 					<X className="w-4 h-4" />
 					Close Connection
 				</Button>
@@ -227,11 +223,7 @@ function RedisContentHeader({
 			className="flex h-12 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
 		>
 			<div className="flex items-center gap-2 flex-1 ml-4">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={onClose}
-				>
+				<Button variant="ghost" size="sm" onClick={onClose}>
 					<X className="w-4 h-4" />
 					Close Connection
 				</Button>
@@ -241,13 +233,13 @@ function RedisContentHeader({
 				</span>
 			</div>
 			<div className="flex items-center gap-3">
-			<ConnectionStatus
-				connectionUuid={connection.uuid}
-				initialStatus={connectionStatus}
-				onReconnect={onReconnect}
-				onStatusChange={onStatusChange}
-				enabled={statusEnabled}
-			/>
+				<ConnectionStatus
+					connectionUuid={connection.uuid}
+					initialStatus={connectionStatus}
+					onReconnect={onReconnect}
+					onStatusChange={onStatusChange}
+					enabled={statusEnabled}
+				/>
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
 				</Badge>
@@ -269,13 +261,8 @@ export function ConnectionWorkspacePane({
 	const uuid = connectionUuid;
 	const navigate = useNavigate();
 	const { openSettings } = useSettings();
-	const {
-		activeIds,
-		setActive,
-		removeActive,
-		cacheConnection,
-		setStatus,
-	} = useActiveConnections();
+	const { activeIds, setActive, removeActive, cacheConnection, setStatus } =
+		useActiveConnections();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
@@ -520,7 +507,14 @@ export function ConnectionWorkspacePane({
 		return () => {
 			cancelled = true;
 		};
-	}, [uuid, navigate, cacheConnection, removeActive, createLoadRun, isRunActive]);
+	}, [
+		uuid,
+		navigate,
+		cacheConnection,
+		removeActive,
+		createLoadRun,
+		isRunActive,
+	]);
 
 	const handleCloseConnection = useCallback(async () => {
 		if (!uuid) return;
@@ -542,70 +536,73 @@ export function ConnectionWorkspacePane({
 		}
 	}, [activeIds, navigate, removeActive, setActive, uuid]);
 
-	const fetchSchemaOverviewData = useCallback(async (runId?: number) => {
-		if (!uuid || !isMountedRef.current) return;
-		if (runId !== undefined && !isRunActive(runId)) return;
-
-		setLoadingSchemaOverview(true);
-		try {
-			const data = await api.pool.getSchemaOverview(uuid);
-			if (!isMountedRef.current) return;
+	const fetchSchemaOverviewData = useCallback(
+		async (runId?: number) => {
+			if (!uuid || !isMountedRef.current) return;
 			if (runId !== undefined && !isRunActive(runId)) return;
-			setSchemaOverview(data);
 
-			// Extract tables list from schema overview
-			const tablesList: DatabaseTable[] = data.tables.map((table) => ({
-				schema: table.schema,
-				name: table.name,
-				type: (table.type === "view" ? "view" : "table") as "table" | "view",
-			}));
-			setTables(tablesList);
-			setConnectionStatus("connected");
+			setLoadingSchemaOverview(true);
+			try {
+				const data = await api.pool.getSchemaOverview(uuid);
+				if (!isMountedRef.current) return;
+				if (runId !== undefined && !isRunActive(runId)) return;
+				setSchemaOverview(data);
 
-			const tableDataMap: Record<string, TableColumn[]> = {};
-			data.tables.forEach((table) => {
-				const fullName = `${table.schema}.${table.name}`;
-				tableDataMap[fullName] = table.columns;
-			});
-			setTableColumns(tableDataMap);
+				// Extract tables list from schema overview
+				const tablesList: DatabaseTable[] = data.tables.map((table) => ({
+					schema: table.schema,
+					name: table.name,
+					type: (table.type === "view" ? "view" : "table") as "table" | "view",
+				}));
+				setTables(tablesList);
+				setConnectionStatus("connected");
 
-			// Initialize selectedTables for schema visualizer tabs if empty
-			const allTableNames = data.tables.map((t) => `${t.schema}.${t.name}`);
-			setTabs((prev) =>
-				prev.map((tab) => {
-					if (runId !== undefined && !isRunActive(runId)) {
+				const tableDataMap: Record<string, TableColumn[]> = {};
+				data.tables.forEach((table) => {
+					const fullName = `${table.schema}.${table.name}`;
+					tableDataMap[fullName] = table.columns;
+				});
+				setTableColumns(tableDataMap);
+
+				// Initialize selectedTables for schema visualizer tabs if empty
+				const allTableNames = data.tables.map((t) => `${t.schema}.${t.name}`);
+				setTabs((prev) =>
+					prev.map((tab) => {
+						if (runId !== undefined && !isRunActive(runId)) {
+							return tab;
+						}
+						if (
+							tab.type === "schema-visualizer" &&
+							tab.selectedTables.length === 0
+						) {
+							return { ...tab, selectedTables: allTableNames };
+						}
 						return tab;
-					}
-					if (
-						tab.type === "schema-visualizer" &&
-						tab.selectedTables.length === 0
-					) {
-						return { ...tab, selectedTables: allTableNames };
-					}
-					return tab;
-				}),
-			);
-		} catch (error) {
-			if (!isMountedRef.current) return;
-			if (runId !== undefined && !isRunActive(runId)) return;
-			console.error("Failed to fetch schema overview:", error);
-			setSchemaOverview(null);
-			setTables([]);
-			setConnectionStatus("disconnected");
-			const errorMessage =
-				error instanceof Error ? error.message : String(error);
-			toast.error("Connection failed", {
-				description: errorMessage,
-			});
-		} finally {
-			if (
-				isMountedRef.current &&
-				(runId === undefined || isRunActive(runId))
-			) {
-				setLoadingSchemaOverview(false);
+					}),
+				);
+			} catch (error) {
+				if (!isMountedRef.current) return;
+				if (runId !== undefined && !isRunActive(runId)) return;
+				console.error("Failed to fetch schema overview:", error);
+				setSchemaOverview(null);
+				setTables([]);
+				setConnectionStatus("disconnected");
+				const errorMessage =
+					error instanceof Error ? error.message : String(error);
+				toast.error("Connection failed", {
+					description: errorMessage,
+				});
+			} finally {
+				if (
+					isMountedRef.current &&
+					(runId === undefined || isRunActive(runId))
+				) {
+					setLoadingSchemaOverview(false);
+				}
 			}
-		}
-	}, [uuid, isRunActive]);
+		},
+		[uuid, isRunActive],
+	);
 
 	// Reset loading flag when connection changes
 	useEffect(() => {
