@@ -893,7 +893,7 @@ function SchemaVisualizerFlow({
 
 				toast.success("Schema exported successfully", {
 					action: {
-						label: "Show in Finder",
+						label: "Open File Location",
 						onClick: async () => {
 							try {
 								await revealItemInDir(filePath);

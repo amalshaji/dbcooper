@@ -56,6 +56,7 @@ import { UpdateChecker } from "@/components/UpdateChecker";
 import { handleDragStart } from "@/lib/windowDrag";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { toast } from "sonner";
 
 // Database type icons and colors
@@ -231,7 +232,12 @@ export function Connections() {
 
 			if (filePath) {
 				await writeTextFile(filePath, JSON.stringify(exportData, null, 2));
-				toast.success(`Exported "${connection.name}"`);
+				toast.success(`Exported "${connection.name}"`, {
+					action: {
+						label: "Open File Location",
+						onClick: () => revealItemInDir(filePath),
+					},
+				});
 			}
 		} catch (error) {
 			console.error("Failed to export connection:", error);
