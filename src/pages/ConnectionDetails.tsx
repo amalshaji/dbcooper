@@ -1102,6 +1102,17 @@ export function ConnectionDetails() {
 		[activeTab, updateTab],
 	);
 
+	const handleCopyQueryError = async (errorMessage: string) => {
+		try {
+			await navigator.clipboard.writeText(errorMessage);
+			toast.success("Copied to clipboard");
+		} catch (error) {
+			toast.error("Failed to copy error", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		}
+	};
+
 	const handleLoadQuery = (savedQuery: SavedQuery) => {
 		handleOpenQuery(savedQuery.query, savedQuery.id, savedQuery.name);
 	};
@@ -2152,6 +2163,32 @@ export function ConnectionDetails() {
 		</Card>
 	);
 
+	const renderQueryError = (errorMessage: string) => {
+		const trimmedError = errorMessage.trimEnd();
+
+		return (
+			<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
+				<div className="flex items-start justify-between">
+					<p className="text-sm text-destructive font-medium">Query Error</p>
+					<Button
+						variant="ghost"
+						size="sm"
+						className="h-7 px-2 text-destructive hover:text-destructive"
+						onClick={() => handleCopyQueryError(trimmedError)}
+					>
+						<Copy className="w-4 h-4" />
+						Copy
+					</Button>
+				</div>
+				<div className="mt-1">
+					<span className="inline whitespace-pre-wrap break-words select-text text-sm text-destructive/80">
+						{trimmedError}
+					</span>
+				</div>
+			</div>
+		);
+	};
+
 	const renderQueryContent = (tab: QueryTab) => (
 		<div className="space-y-4">
 			<Card>
@@ -2482,12 +2519,7 @@ export function ConnectionDetails() {
 							))}
 						</div>
 					) : tab.error ? (
-						<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
-							<p className="text-sm text-destructive font-medium">
-								Query Error
-							</p>
-							<p className="text-sm text-destructive/80 mt-1">{tab.error}</p>
-						</div>
+						renderQueryError(tab.error)
 					) : tab.results && tab.results.length > 0 ? (
 						<div className="max-h-[85vh]">
 							<DataTable
