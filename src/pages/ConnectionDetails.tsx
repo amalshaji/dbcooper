@@ -1397,7 +1397,7 @@ export function ConnectionDetails() {
 			await writeTextFile(filePath, csvContent);
 			toast.success("CSV saved successfully", {
 				action: {
-					label: "Show in Finder",
+					label: "Open File Location",
 					onClick: () => revealItemInDir(filePath),
 				},
 			});
@@ -2447,7 +2447,7 @@ export function ConnectionDetails() {
 										await writeTextFile(filePath, csvContent);
 										toast.success("CSV saved successfully", {
 											action: {
-												label: "Show in Finder",
+												label: "Open File Location",
 												onClick: () => revealItemInDir(filePath),
 											},
 										});
