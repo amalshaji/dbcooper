@@ -13,7 +13,6 @@ import {
 	ArrowLeft,
 	Code,
 	Table,
-	Columns,
 	FloppyDisk,
 	ArrowsClockwise,
 	DownloadSimple,
@@ -23,6 +22,7 @@ import {
 	Gear,
 } from "@phosphor-icons/react";
 import type { Tab } from "@/types/tabTypes";
+import type { DatabaseTable } from "@/types/table";
 
 interface CommandPaletteProps {
 	open: boolean;
@@ -41,8 +41,10 @@ interface CommandPaletteProps {
 	onExportCSV: () => void;
 	onClearFilter: () => void;
 	onOpenSchemaVisualizer: () => void;
+	onOpenTableData: (tableName: string) => void;
 	onSwitchSidebarTab: (tab: "tables" | "queries") => void;
 	onOpenSettings: () => void;
+	tables: DatabaseTable[];
 	connectionType?: string;
 }
 
@@ -70,8 +72,10 @@ export function CommandPalette({
 	onExportCSV,
 	onClearFilter,
 	onOpenSchemaVisualizer,
+	onOpenTableData,
 	onSwitchSidebarTab,
 	onOpenSettings,
+	tables,
 	connectionType,
 }: CommandPaletteProps) {
 	const isQueryTab = activeTab?.type === "query";
@@ -269,6 +273,28 @@ export function CommandPalette({
 							<span>Schema Visualizer</span>
 							<CommandShortcut>{getShortcutKey("Cmd+Shift+V")}</CommandShortcut>
 						</CommandItem>
+					</CommandGroup>
+				)}
+
+				{tables.length > 0 && (
+					<CommandGroup heading="Tables">
+						{tables.map((table) => {
+							const fullName = `${table.schema}.${table.name}`;
+							return (
+								<CommandItem
+									key={fullName}
+									value={`${fullName} ${table.name} ${table.schema}`}
+									onSelect={() => {
+										onOpenTableData(fullName);
+										onOpenChange(false);
+									}}
+								>
+									<Database className="w-4 h-4" />
+									<span>{table.name}</span>
+									<CommandShortcut>{table.schema}</CommandShortcut>
+								</CommandItem>
+							);
+						})}
 					</CommandGroup>
 				)}
 

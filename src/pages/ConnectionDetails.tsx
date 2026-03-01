@@ -3913,8 +3913,10 @@ export function ConnectionDetails() {
 					onExportCSV={handleExportCSV}
 					onClearFilter={handleClearFilter}
 					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+					onOpenTableData={handleOpenTableData}
 					onSwitchSidebarTab={setSidebarTab}
 					onOpenSettings={openSettings}
+					tables={tables}
 					connectionType={connection.type}
 				/>
 			)}
