@@ -3311,7 +3311,7 @@ export function ConnectionDetails() {
 																				e.stopPropagation();
 																				handleToggleTableExpand(tableName);
 																			}}
-																			className="flex items-center justify-center p-1 rounded hover:bg-sidebar-border"
+																			className="flex items-center justify-center p-1 rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
 																		>
 																			<CaretRight
 																				className={`w-3 h-3 transition-transform ${
@@ -3337,7 +3337,7 @@ export function ConnectionDetails() {
 																			render={
 																				<button
 																					type="button"
-																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/menu-item:opacity-100 hover:bg-sidebar-border"
+																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/menu-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
 																					onClick={(e) => e.stopPropagation()}
 																				/>
 																			}
