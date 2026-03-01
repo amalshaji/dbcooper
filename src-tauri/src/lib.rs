@@ -28,8 +28,23 @@ use commands::queries::{
 };
 use commands::settings::{get_all_settings, get_setting, set_setting};
 use database::pool_manager::PoolManager;
-use tauri::menu::{AboutMetadata, Menu, PredefinedMenuItem, Submenu};
-use tauri::Manager;
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{Manager, WebviewUrl};
+
+const NEW_WINDOW_MENU_ID: &str = "new_window";
+
+fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+    let label = format!("window-{}", uuid::Uuid::new_v4());
+
+    if let Some(mut window_config) = app.config().app.windows.first().cloned() {
+        window_config.label = label;
+        tauri::WebviewWindowBuilder::from_config(app, &window_config)?.build()?;
+    } else {
+        tauri::WebviewWindowBuilder::new(app, label, WebviewUrl::default()).build()?;
+    }
+
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -90,7 +105,33 @@ pub fn run() {
                 ],
             )?;
 
-            Menu::with_items(app_handle, &[&app_submenu, &edit_submenu])
+            let new_window_menu_item = MenuItem::with_id(
+                app_handle,
+                NEW_WINDOW_MENU_ID,
+                "New Window",
+                true,
+                Some("CmdOrCtrl+Shift+N"),
+            )?;
+
+            let file_submenu = Submenu::with_items(
+                app_handle,
+                "File",
+                true,
+                &[
+                    &new_window_menu_item,
+                    &PredefinedMenuItem::separator(app_handle)?,
+                    &PredefinedMenuItem::close_window(app_handle, Some("Close Window"))?,
+                ],
+            )?;
+
+            Menu::with_items(app_handle, &[&app_submenu, &file_submenu, &edit_submenu])
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == NEW_WINDOW_MENU_ID {
+                if let Err(error) = create_new_window(app) {
+                    eprintln!("Failed to open new window: {error}");
+                }
+            }
         })
         .setup(|app| {
             #[cfg(desktop)]
