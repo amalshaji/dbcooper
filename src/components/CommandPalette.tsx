@@ -83,7 +83,10 @@ export function CommandPalette({
 		activeTab.results &&
 		activeTab.results.length > 0;
 	const hasFilter =
-		isTableDataTab && activeTab && "filter" in activeTab && activeTab.filter;
+		(isTableDataTab || isQueryTab) &&
+		activeTab &&
+		"filter" in activeTab &&
+		!!activeTab.filter;
 
 	useEffect(() => {
 		const down = (e: KeyboardEvent) => {

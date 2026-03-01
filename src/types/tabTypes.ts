@@ -77,6 +77,10 @@ export interface QueryTab extends BaseTab {
 	success: boolean;
 	executionTime: number | null;
 	executing: boolean;
+	filterInput: string;
+	filter: string;
+	sort: SortConfig | null;
+	resultBaseQuery: string | null;
 }
 
 export interface RedisQueryTab extends BaseTab {
@@ -157,6 +161,10 @@ export function createQueryTab(
 		success: false,
 		executionTime: null,
 		executing: false,
+		filterInput: "",
+		filter: "",
+		sort: null,
+		resultBaseQuery: null,
 	};
 }
 
