@@ -13,7 +13,33 @@ export function UpdateChecker() {
 	const [downloading, setDownloading] = useState(false);
 	const [checkingManually, setCheckingManually] = useState(false);
 	const [readyToInstall, setReadyToInstall] = useState(false);
+	const [downloadStarted, setDownloadStarted] = useState(false);
+	const [downloadedBytes, setDownloadedBytes] = useState(0);
+	const [totalBytes, setTotalBytes] = useState<number | null>(null);
 	const updateRef = useRef<Update | null>(null);
+	const downloadedBytesRef = useRef(0);
+	const totalBytesRef = useRef<number | null>(null);
+
+	const formatBytes = (bytes: number): string => {
+		if (bytes < 1024) return `${bytes} B`;
+
+		const units = ["KB", "MB", "GB"];
+		let value = bytes / 1024;
+		let unitIndex = 0;
+
+		while (value >= 1024 && unitIndex < units.length - 1) {
+			value /= 1024;
+			unitIndex += 1;
+		}
+
+		const precision = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+		return `${value.toFixed(precision)} ${units[unitIndex]}`;
+	};
+
+	const downloadProgress =
+		totalBytes && totalBytes > 0
+			? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+			: null;
 
 	useEffect(() => {
 		checkSettingsAndUpdate();
@@ -63,13 +89,43 @@ export function UpdateChecker() {
 
 		try {
 			setDownloading(true);
-			await update.download(() => {});
+			setDownloadStarted(false);
+			setDownloadedBytes(0);
+			setTotalBytes(null);
+			downloadedBytesRef.current = 0;
+			totalBytesRef.current = null;
+
+			await update.download((event) => {
+				if (event.event === "Started") {
+					setDownloadStarted(true);
+					const contentLength = event.data.contentLength ?? null;
+					setTotalBytes(contentLength);
+					totalBytesRef.current = contentLength;
+					return;
+				}
+
+				if (event.event === "Progress") {
+					setDownloadStarted(true);
+					setDownloadedBytes((previous) => {
+						const next = previous + event.data.chunkLength;
+						downloadedBytesRef.current = next;
+						return next;
+					});
+					return;
+				}
+
+				if (event.event === "Finished" && totalBytesRef.current == null) {
+					setTotalBytes(downloadedBytesRef.current);
+					totalBytesRef.current = downloadedBytesRef.current;
+				}
+			});
 			setReadyToInstall(true);
 		} catch (error) {
 			console.error("Failed to download update:", error);
 			toast.error(`Failed to download update: ${error}`);
 		} finally {
 			setDownloading(false);
+			setDownloadStarted(false);
 		}
 	};
 
@@ -105,13 +161,43 @@ export function UpdateChecker() {
 		return (
 			<Badge
 				variant="secondary"
-				className={`cursor-pointer transition-colors rounded-md ${downloading ? "" : "hover:bg-secondary/80"}`}
+				className={`cursor-pointer transition-colors rounded-md ${downloading ? "cursor-default relative overflow-hidden pr-1.5" : "hover:bg-secondary/80"}`}
 				onClick={!downloading ? handleDownload : undefined}
 			>
 				{downloading ? (
 					<>
 						<Spinner className="h-3 w-3" />
-						Downloading v{updateVersion}
+						{downloadStarted ? (
+							<>
+								<span className="tabular-nums text-[10px]">
+									{totalBytes !== null
+										? `${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)}`
+										: `${formatBytes(downloadedBytes)}`}
+									{downloadProgress !== null ? ` ${downloadProgress}%` : ""}
+								</span>
+								<div className="pointer-events-none absolute left-1 right-1 bottom-[2px] h-[2px] rounded-full bg-secondary-foreground/20 overflow-hidden">
+									<div
+										className={`h-full bg-secondary-foreground ${
+											downloadProgress === null
+												? "w-1/3 animate-pulse"
+												: "transition-[width] duration-150"
+										}`}
+										style={
+											downloadProgress !== null
+												? { width: `${downloadProgress}%` }
+												: undefined
+										}
+									/>
+								</div>
+							</>
+						) : (
+							<span>Starting download...</span>
+						)}
+						<span className="sr-only">
+							{downloadStarted && totalBytes !== null
+								? `Downloading v${updateVersion}: ${formatBytes(downloadedBytes)} of ${formatBytes(totalBytes)}, ${downloadProgress ?? 0}%`
+								: `Downloading v${updateVersion}`}
+						</span>
 					</>
 				) : (
 					`Update to v${updateVersion}`
