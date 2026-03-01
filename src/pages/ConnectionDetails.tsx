@@ -11,6 +11,7 @@ import {
 	type TableColumn,
 	type TableStructureData,
 	type ForeignKeyInfo,
+	type SortConfig,
 	type SchemaOverview,
 	createTableDataTab,
 	createTableStructureTab,
@@ -140,6 +141,66 @@ type LoadingPhase =
 	| "connecting"
 	| "loading-schema"
 	| "complete";
+
+function stripTrailingSemicolon(query: string): string {
+	return query.trim().replace(/;\s*$/, "");
+}
+
+function stripLeadingSqlComments(query: string): string {
+	let sql = query.trimStart();
+
+	while (true) {
+		if (sql.startsWith("--")) {
+			const newlineIndex = sql.indexOf("\n");
+			if (newlineIndex === -1) return "";
+			sql = sql.slice(newlineIndex + 1).trimStart();
+			continue;
+		}
+
+		if (sql.startsWith("/*")) {
+			const endIndex = sql.indexOf("*/");
+			if (endIndex === -1) return "";
+			sql = sql.slice(endIndex + 2).trimStart();
+			continue;
+		}
+
+		break;
+	}
+
+	return sql;
+}
+
+function isWrappableQuery(query: string): boolean {
+	const sql = stripLeadingSqlComments(query).toUpperCase();
+	return sql.startsWith("SELECT") || sql.startsWith("WITH") || sql.startsWith("VALUES");
+}
+
+function quoteResultColumn(column: string, dbType?: string): string {
+	const resolvedType = (dbType || "").toLowerCase();
+	if (resolvedType === "clickhouse") {
+		return `\`${column.replace(/`/g, "``")}\``;
+	}
+	return `"${column.replace(/"/g, '""')}"`;
+}
+
+function buildWrappedQuery(
+	baseQuery: string,
+	filter: string,
+	sort: SortConfig | null,
+	dbType?: string,
+): string {
+	const normalizedBaseQuery = stripTrailingSemicolon(baseQuery);
+	const trimmedFilter = filter.trim();
+	const whereClause = trimmedFilter ? ` WHERE ${trimmedFilter}` : "";
+	const orderClause = sort
+		? ` ORDER BY ${quoteResultColumn(sort.column, dbType)} ${sort.direction.toUpperCase()}`
+		: "";
+
+	return `WITH user_query AS (
+${normalizedBaseQuery}
+)
+SELECT * FROM user_query${whereClause}${orderClause};`;
+}
 
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({
@@ -920,16 +981,105 @@ export function ConnectionDetails() {
 		fetchTableData({ ...tab, filter: tab.filterInput, currentPage: 1 });
 	}, [activeTab, updateTab, fetchTableData]);
 
-	const handleClearFilter = useCallback(() => {
-		if (!activeTab || activeTab.type !== "table-data") return;
-		const tab = activeTab as TableDataTab;
-		updateTab<TableDataTab>(tab.id, {
-			filter: "",
-			filterInput: "",
-			currentPage: 1,
+	const runQueryResultViewQuery = useCallback(
+		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
+			if (!uuid) return;
+
+			if (!tab.resultBaseQuery) {
+				updateTab<QueryTab>(tab.id, { executing: false });
+				toast.error(
+					"Query-level filter/sort is available only for SELECT-style query results",
+				);
+				return;
+			}
+
+			const wrappedQuery = buildWrappedQuery(
+				tab.resultBaseQuery,
+				nextFilter,
+				nextSort,
+				connection?.db_type || connection?.type,
+			);
+
+			try {
+				const result = await api.pool.executeQuery(uuid, wrappedQuery);
+				const executionTime = result.time_taken_ms ?? 0;
+
+				if (result.error) {
+					updateTab<QueryTab>(tab.id, {
+						error: result.error,
+						executionTime,
+						executing: false,
+					});
+					return;
+				}
+
+				updateTab<QueryTab>(tab.id, {
+					results: result.data as Record<string, unknown>[],
+					success: true,
+					error: null,
+					executionTime,
+					executing: false,
+					filter: nextFilter,
+					sort: nextSort,
+				});
+			} catch (error) {
+				updateTab<QueryTab>(tab.id, {
+					error:
+						error instanceof Error
+							? error.message
+							: "Failed to apply query filter/sort",
+					executionTime: null,
+					executing: false,
+				});
+			}
+		},
+		[uuid, updateTab, connection?.db_type, connection?.type],
+	);
+
+	const handleQueryFilterInputChange = useCallback(
+		(value: string) => {
+			if (!activeTab || activeTab.type !== "query") return;
+			updateTab<QueryTab>(activeTab.id, { filterInput: value });
+		},
+		[activeTab, updateTab],
+	);
+
+	const handleApplyQueryFilter = useCallback(() => {
+		if (!activeTab || activeTab.type !== "query") return;
+		const tab = activeTab as QueryTab;
+		updateTab<QueryTab>(tab.id, {
+			filter: tab.filterInput,
+			executing: true,
+			error: null,
 		});
-		fetchTableData({ ...tab, filter: "", currentPage: 1 });
-	}, [activeTab, updateTab, fetchTableData]);
+		void runQueryResultViewQuery(tab, tab.filterInput, tab.sort);
+	}, [activeTab, updateTab, runQueryResultViewQuery]);
+
+	const handleClearFilter = useCallback(() => {
+		if (!activeTab) return;
+
+		if (activeTab.type === "table-data") {
+			const tab = activeTab as TableDataTab;
+			updateTab<TableDataTab>(tab.id, {
+				filter: "",
+				filterInput: "",
+				currentPage: 1,
+			});
+			fetchTableData({ ...tab, filter: "", currentPage: 1 });
+			return;
+		}
+
+		if (activeTab.type === "query") {
+			const tab = activeTab as QueryTab;
+			updateTab<QueryTab>(activeTab.id, {
+				filter: "",
+				filterInput: "",
+				executing: true,
+				error: null,
+			});
+			void runQueryResultViewQuery(tab, "", tab.sort);
+		}
+	}, [activeTab, updateTab, fetchTableData, runQueryResultViewQuery]);
 
 	const handleSortChange = useCallback(
 		(sort: { column: string; direction: "asc" | "desc" } | null) => {
@@ -939,6 +1089,20 @@ export function ConnectionDetails() {
 			fetchTableData({ ...tab, sort, currentPage: 1 });
 		},
 		[activeTab, updateTab, fetchTableData],
+	);
+
+	const handleQuerySortChange = useCallback(
+		(sort: SortConfig | null) => {
+			if (!activeTab || activeTab.type !== "query") return;
+			const tab = activeTab as QueryTab;
+			updateTab<QueryTab>(activeTab.id, {
+				sort,
+				executing: true,
+				error: null,
+			});
+			void runQueryResultViewQuery(tab, tab.filter, sort);
+		},
+		[activeTab, updateTab, runQueryResultViewQuery],
 	);
 
 	const handleRunQueryForTable = (tableName: string) => {
@@ -1000,6 +1164,10 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			filterInput: "",
+			filter: "",
+			sort: null,
+			resultBaseQuery: null,
 		});
 
 		try {
@@ -1022,6 +1190,12 @@ export function ConnectionDetails() {
 				success: true,
 				executionTime,
 				executing: false,
+				filterInput: "",
+				filter: "",
+				sort: null,
+				resultBaseQuery: isWrappableQuery(queryToRun)
+					? stripTrailingSemicolon(queryToRun)
+					: null,
 			});
 		} catch (error) {
 			updateTab<QueryTab>(tab.id, {
@@ -1048,11 +1222,16 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			filterInput: "",
+			filter: "",
+			sort: null,
+			resultBaseQuery: null,
 		});
 
 		let totalTime = 0;
 		let lastResult: Record<string, unknown>[] = [];
 		let lastError: string | null = null;
+		let lastBaseQuery: string | null = null;
 
 		try {
 			for (const statement of statements) {
@@ -1068,6 +1247,9 @@ export function ConnectionDetails() {
 				}
 
 				lastResult = result.data as Record<string, unknown>[];
+				lastBaseQuery = isWrappableQuery(queryToRun)
+					? stripTrailingSemicolon(queryToRun)
+					: null;
 			}
 
 			if (lastError) {
@@ -1082,6 +1264,10 @@ export function ConnectionDetails() {
 					success: true,
 					executionTime: totalTime,
 					executing: false,
+					filterInput: "",
+					filter: "",
+					sort: null,
+					resultBaseQuery: lastBaseQuery,
 				});
 			}
 		} catch (error) {
@@ -1547,8 +1733,8 @@ export function ConnectionDetails() {
 				e.key === "x" &&
 				(e.metaKey || e.ctrlKey) &&
 				e.shiftKey &&
-				activeTab?.type === "table-data" &&
-				activeTab.filter
+				((activeTab?.type === "table-data" && activeTab.filter) ||
+					(activeTab?.type === "query" && activeTab.filter))
 			) {
 				e.preventDefault();
 				handleClearFilter();
@@ -2419,9 +2605,9 @@ export function ConnectionDetails() {
 							<CardDescription>
 								{tab.results !== null &&
 									tab.results.length > 0 &&
-									`Returned ${tab.results.length} row${
-										tab.results.length !== 1 ? "s" : ""
-									}`}
+									`${tab.filter ? "Filtered " : ""}returned ${
+										tab.results.length
+									} row${tab.results.length !== 1 ? "s" : ""}`}
 								{tab.results !== null &&
 									tab.results.length === 0 &&
 									tab.success &&
@@ -2520,31 +2706,86 @@ export function ConnectionDetails() {
 						</div>
 					) : tab.error ? (
 						renderQueryError(tab.error)
-					) : tab.results && tab.results.length > 0 ? (
-						<div className="max-h-[85vh]">
-							<DataTable
-								data={tab.results}
-								columns={queryColumns}
-								hidePagination
-								virtualize={tab.results.length > 100}
-								onRowClick={(row) => {
-									if (!tab.results) return;
-									const index = tab.results.findIndex((r) => r === row);
-									setSelectedQueryRow({ row, index });
-									setQueryResultSheetOpen(true);
-								}}
-							/>
-						</div>
-					) : tab.success && tab.results && tab.results.length === 0 ? (
-						<div className="text-center py-8">
-							<div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
-								<p className="text-sm text-green-800 dark:text-green-200 font-medium">
-									✓ Query executed successfully
-								</p>
-								<p className="text-sm text-green-600 dark:text-green-300 mt-1">
-									No rows returned
-								</p>
-							</div>
+					) : tab.results ? (
+						<div className="space-y-4">
+							{tab.resultBaseQuery ? (
+								<div className="flex items-center gap-2">
+									<Input
+										placeholder="Filter query output (SQL WHERE clause)"
+										value={tab.filterInput}
+										onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+											handleQueryFilterInputChange(e.target.value)
+										}
+										onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+											if (e.key === "Enter") {
+												handleApplyQueryFilter();
+											}
+										}}
+										className="flex-1 font-mono text-xs"
+									/>
+									<Button
+										size="sm"
+										onClick={handleApplyQueryFilter}
+										disabled={tab.executing || !tab.filterInput.trim()}
+									>
+										Apply
+									</Button>
+									{tab.filter && (
+										<Button
+											size="sm"
+											variant="outline"
+											onClick={handleClearFilter}
+											disabled={tab.executing}
+										>
+											Clear
+										</Button>
+									)}
+								</div>
+							) : (
+								<div className="text-xs text-muted-foreground">
+									Query-level filter/sort is only available for SELECT-style
+									results.
+								</div>
+							)}
+							{tab.filter && (
+								<div className="text-xs text-muted-foreground">
+									Active filter:{" "}
+									<code className="bg-muted px-1 py-0.5 rounded">
+										{tab.filter}
+									</code>
+								</div>
+							)}
+							{tab.results.length > 0 ? (
+								<div className="max-h-[85vh]">
+									<DataTable
+										data={tab.results}
+										columns={queryColumns}
+										hidePagination
+										virtualize={tab.results.length > 100}
+										sortable={!!tab.resultBaseQuery}
+										sort={tab.sort}
+										onSortChange={
+											tab.resultBaseQuery ? handleQuerySortChange : undefined
+										}
+										onRowClick={(row) => {
+											const index = tab.results.findIndex((r) => r === row);
+											setSelectedQueryRow({ row, index });
+											setQueryResultSheetOpen(true);
+										}}
+									/>
+								</div>
+							) : tab.success ? (
+								<div className="text-center py-8">
+									<div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
+										<p className="text-sm text-green-800 dark:text-green-200 font-medium">
+											✓ Query executed successfully
+										</p>
+										<p className="text-sm text-green-600 dark:text-green-300 mt-1">
+											No rows returned
+										</p>
+									</div>
+								</div>
+							) : null}
 						</div>
 					) : (
 						<div className="text-center py-8 text-muted-foreground">
