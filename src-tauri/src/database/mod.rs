@@ -6,6 +6,7 @@ pub mod postgres;
 pub mod queries;
 pub mod redis;
 pub mod sqlite;
+pub mod utils;
 
 use crate::db::models::{
     QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
