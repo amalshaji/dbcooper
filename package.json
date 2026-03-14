@@ -8,6 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "build:mcp": "bash scripts/build-mcp-sidecar.sh",
+    "build:mcp:release": "bash scripts/build-mcp-sidecar.sh release",
+    "tauri:dev": "bun run build:mcp && tauri dev",
+    "tauri:build": "bun run build:mcp:release && tauri build",
     "tauri": "tauri"
   },
   "dependencies": {

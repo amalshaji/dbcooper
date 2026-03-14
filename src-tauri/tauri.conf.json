@@ -46,7 +46,10 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15"
-    }
+    },
+    "externalBin": [
+      "binaries/dbcooper-mcp"
+    ]
   },
   "plugins": {
     "updater": {
