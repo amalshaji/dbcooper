@@ -368,7 +368,10 @@ impl DatabaseDriver for RedisDriver {
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
-        Ok(SchemaOverview { tables: vec![] })
+        Ok(SchemaOverview {
+            tables: vec![],
+            functions: vec![],
+        })
     }
 }
 

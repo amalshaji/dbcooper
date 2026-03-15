@@ -193,7 +193,9 @@ async fn test_get_table_data_empty_table() {
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let driver = create_driver_with_table(&temp_dir).await;
 
-    let result = driver.get_table_data("main", "users", 1, 10, None, None, None).await;
+    let result = driver
+        .get_table_data("main", "users", 1, 10, None, None, None)
+        .await;
     assert!(result.is_ok());
 
     let data = result.unwrap();
@@ -219,7 +221,9 @@ async fn test_get_table_data_with_rows() {
         .await
         .expect("Failed to insert test data");
 
-    let result = driver.get_table_data("main", "users", 1, 10, None, None, None).await;
+    let result = driver
+        .get_table_data("main", "users", 1, 10, None, None, None)
+        .await;
     assert!(result.is_ok());
 
     let data = result.unwrap();
@@ -287,7 +291,15 @@ async fn test_get_table_data_with_filter() {
         .expect("Failed to insert test data");
 
     let result = driver
-        .get_table_data("main", "users", 1, 10, Some("age > 25".to_string()), None, None)
+        .get_table_data(
+            "main",
+            "users",
+            1,
+            10,
+            Some("age > 25".to_string()),
+            None,
+            None,
+        )
         .await;
     assert!(result.is_ok());
 
@@ -570,6 +582,10 @@ async fn test_get_schema_overview() {
 
     let overview = result.unwrap();
     assert_eq!(overview.tables.len(), 2, "Should have 2 tables");
+    assert!(
+        overview.functions.is_empty(),
+        "SQLite should not list functions"
+    );
 
     // Verify categories table
     let categories = overview.tables.iter().find(|t| t.name == "categories");

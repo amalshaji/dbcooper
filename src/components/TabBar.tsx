@@ -22,6 +22,8 @@ function getTabIcon(tab: Tab) {
 			return <Code className="w-3.5 h-3.5" />;
 		case "schema-visualizer":
 			return <Database className="w-3.5 h-3.5" />;
+		case "function-definition":
+			return <Code className="w-3.5 h-3.5" />;
 		default:
 			return null;
 	}

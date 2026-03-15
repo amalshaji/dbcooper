@@ -17,7 +17,8 @@ use super::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
-    QueryResult, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
+    FunctionDefinition, QueryResult, TableDataResponse, TableInfo, TableStructure,
+    TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -385,7 +386,15 @@ impl PoolManager {
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver
-            .get_table_data(schema, table, page, limit, filter, sort_column, sort_direction)
+            .get_table_data(
+                schema,
+                table,
+                page,
+                limit,
+                filter,
+                sort_column,
+                sort_direction,
+            )
             .await
     }
 
@@ -423,5 +432,23 @@ impl PoolManager {
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
 
         driver.get_schema_overview().await
+    }
+
+    /// Get a function definition using the pooled connection
+    pub async fn get_function_definition(
+        &self,
+        uuid: &str,
+        schema: &str,
+        name: &str,
+        identity_args: &str,
+    ) -> Result<FunctionDefinition, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+
+        driver
+            .get_function_definition(schema, name, identity_args)
+            .await
     }
 }

@@ -4,7 +4,7 @@ import { sql, type SQLConfig } from "@codemirror/lang-sql";
 import { rosePineDawn, barf } from "thememirror";
 import { keymap } from "@codemirror/view";
 import { EditorView } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
+import { EditorState, Prec } from "@codemirror/state";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
@@ -103,7 +103,7 @@ export function SqlEditor({
 					},
 				]),
 			),
-		[onRunQuery],
+		[onRunQuery, disabled, value],
 	);
 
 	const fontTheme = useMemo(
@@ -156,10 +156,11 @@ export function SqlEditor({
 			runQueryKeymap,
 			sqlExtension,
 			fontTheme,
+			EditorState.readOnly.of(disabled),
 			EditorView.lineWrapping,
 			cursorExtension,
 		],
-		[runQueryKeymap, sqlExtension, fontTheme, cursorExtension],
+		[runQueryKeymap, sqlExtension, fontTheme, disabled, cursorExtension],
 	);
 
 	const handleGenerate = () => {
@@ -262,6 +263,7 @@ export function SqlEditor({
 						extensions={extensions}
 						theme={isDark ? barf : rosePineDawn}
 						onChange={onChange}
+						editable={!disabled}
 						basicSetup={{
 							lineNumbers: true,
 							foldGutter: true,

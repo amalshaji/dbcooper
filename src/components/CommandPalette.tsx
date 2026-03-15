@@ -21,7 +21,7 @@ import {
 	X,
 	Gear,
 } from "@phosphor-icons/react";
-import type { Tab } from "@/types/tabTypes";
+import { formatFunctionSignature, type FunctionSummary, type Tab } from "@/types/tabTypes";
 import type { DatabaseTable } from "@/types/table";
 
 interface CommandPaletteProps {
@@ -42,9 +42,11 @@ interface CommandPaletteProps {
 	onClearFilter: () => void;
 	onOpenSchemaVisualizer: () => void;
 	onOpenTableData: (tableName: string) => void;
-	onSwitchSidebarTab: (tab: "tables" | "queries") => void;
+	onOpenFunctionDefinition: (functionSummary: FunctionSummary) => void;
+	onSwitchSidebarTab: (tab: "objects" | "queries") => void;
 	onOpenSettings: () => void;
 	tables: DatabaseTable[];
+	functions: FunctionSummary[];
 	connectionType?: string;
 }
 
@@ -73,9 +75,11 @@ export function CommandPalette({
 	onClearFilter,
 	onOpenSchemaVisualizer,
 	onOpenTableData,
+	onOpenFunctionDefinition,
 	onSwitchSidebarTab,
 	onOpenSettings,
 	tables,
+	functions,
 	connectionType,
 }: CommandPaletteProps) {
 	const isQueryTab = activeTab?.type === "query";
@@ -298,19 +302,41 @@ export function CommandPalette({
 					</CommandGroup>
 				)}
 
+				{functions.length > 0 && (
+					<CommandGroup heading="Functions">
+						{functions.map((functionSummary) => {
+							const signature = formatFunctionSignature(functionSummary);
+							return (
+								<CommandItem
+									key={signature}
+									value={`${signature} ${functionSummary.name} ${functionSummary.schema} ${functionSummary.arguments} ${functionSummary.return_type} ${functionSummary.language}`}
+									onSelect={() => {
+										onOpenFunctionDefinition(functionSummary);
+										onOpenChange(false);
+									}}
+								>
+									<Code className="w-4 h-4" />
+									<span>{formatFunctionSignature(functionSummary, false)}</span>
+									<CommandShortcut>{functionSummary.schema}</CommandShortcut>
+								</CommandItem>
+							);
+						})}
+					</CommandGroup>
+				)}
+
 				<CommandSeparator />
 
 				<CommandGroup heading="Sidebar">
-					<CommandItem
-						onSelect={() => {
-							onSwitchSidebarTab("tables");
-							onOpenChange(false);
-						}}
-					>
-						<Table className="w-4 h-4" />
-						<span>Tables Tab</span>
-						<CommandShortcut>{getShortcutKey("Cmd+1")}</CommandShortcut>
-					</CommandItem>
+						<CommandItem
+							onSelect={() => {
+								onSwitchSidebarTab("objects");
+								onOpenChange(false);
+							}}
+						>
+							<Table className="w-4 h-4" />
+							<span>Objects Tab</span>
+							<CommandShortcut>{getShortcutKey("Cmd+1")}</CommandShortcut>
+						</CommandItem>
 					<CommandItem
 						onSelect={() => {
 							onSwitchSidebarTab("queries");

@@ -497,6 +497,9 @@ impl DatabaseDriver for SqliteDriver {
 
         let tables: Vec<TableWithStructure> = tables_map.into_values().collect();
 
-        Ok(SchemaOverview { tables })
+        Ok(SchemaOverview {
+            tables,
+            functions: Vec::new(),
+        })
     }
 }

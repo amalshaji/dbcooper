@@ -166,6 +166,28 @@ pub struct TableWithStructure {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionSummary {
+    pub schema: String,
+    pub name: String,
+    pub identity_args: String,
+    pub arguments: String,
+    pub return_type: String,
+    pub language: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionDefinition {
+    pub schema: String,
+    pub name: String,
+    pub identity_args: String,
+    pub arguments: String,
+    pub return_type: String,
+    pub language: String,
+    pub definition: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaOverview {
     pub tables: Vec<TableWithStructure>,
+    pub functions: Vec<FunctionSummary>,
 }

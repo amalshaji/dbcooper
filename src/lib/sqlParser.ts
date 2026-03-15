@@ -11,6 +11,24 @@ export interface SqlStatement {
 	endOffset: number; // Character offset from start of text
 }
 
+function readDollarQuoteTag(line: string, index: number): string | null {
+	if (line[index] !== "$") {
+		return null;
+	}
+
+	const closingIndex = line.indexOf("$", index + 1);
+	if (closingIndex === -1) {
+		return null;
+	}
+
+	const tagBody = line.slice(index + 1, closingIndex);
+	if (tagBody !== "" && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(tagBody)) {
+		return null;
+	}
+
+	return line.slice(index, closingIndex + 1);
+}
+
 /**
  * Parse SQL text into individual statements.
  * Handles semicolons within string literals and comments.
@@ -27,6 +45,7 @@ export function parseStatements(sql: string): SqlStatement[] {
 	let inDoubleQuote = false;
 	let inLineComment = false;
 	let inBlockComment = false;
+	let dollarQuoteTag: string | null = null;
 
 	for (let lineNum = 0; lineNum < lines.length; lineNum++) {
 		const line = lines[lineNum];
@@ -36,6 +55,25 @@ export function parseStatements(sql: string): SqlStatement[] {
 			const char = line[i];
 			const nextChar = line[i + 1];
 			const prevChar = line[i - 1];
+
+			if (dollarQuoteTag) {
+				if (line.startsWith(dollarQuoteTag, i)) {
+					currentStatement += dollarQuoteTag;
+					currentOffset += dollarQuoteTag.length;
+					i += dollarQuoteTag.length - 1;
+					dollarQuoteTag = null;
+					continue;
+				}
+
+				if (currentStatement.trim() === "" && char.trim() !== "") {
+					statementStartLine = lineNum;
+					statementStartOffset = currentOffset;
+				}
+
+				currentStatement += char;
+				currentOffset++;
+				continue;
+			}
 
 			// Handle block comment start
 			if (
@@ -56,6 +94,20 @@ export function parseStatements(sql: string): SqlStatement[] {
 					currentStatement += char;
 					currentOffset++;
 					continue;
+				}
+				if (char === "$") {
+					const openingTag = readDollarQuoteTag(line, i);
+					if (openingTag) {
+						if (currentStatement.trim() === "") {
+							statementStartLine = lineNum;
+							statementStartOffset = currentOffset;
+						}
+						dollarQuoteTag = openingTag;
+						currentStatement += openingTag;
+						currentOffset += openingTag.length;
+						i += openingTag.length - 1;
+						continue;
+					}
 				}
 			}
 
@@ -82,7 +134,8 @@ export function parseStatements(sql: string): SqlStatement[] {
 				!inSingleQuote &&
 				!inDoubleQuote &&
 				!inLineComment &&
-				!inBlockComment
+				!inBlockComment &&
+				!dollarQuoteTag
 			) {
 				currentStatement += char;
 				const trimmed = currentStatement.trim();

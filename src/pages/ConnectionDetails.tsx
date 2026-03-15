@@ -4,6 +4,8 @@ import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
 import {
 	type Tab,
+	type FunctionDefinitionTab,
+	type FunctionSummary,
 	type TableDataTab,
 	type TableStructureTab,
 	type QueryTab,
@@ -13,14 +15,21 @@ import {
 	type ForeignKeyInfo,
 	type SortConfig,
 	type SchemaOverview,
+	createFunctionDefinitionTab,
 	createTableDataTab,
 	createTableStructureTab,
 	createQueryTab,
 	createSchemaVisualizerTab,
+	formatFunctionSignature,
 } from "@/types/tabTypes";
 import type { DatabaseTable } from "@/types/table";
 import type { SavedQuery } from "@/types/savedQuery";
-import { api, type Connection } from "@/lib/tauri";
+import {
+	api,
+	type Connection,
+	type RedisKeyDetails,
+	type RedisKeyInfo,
+} from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
@@ -65,19 +74,11 @@ import {
 	SidebarMenu,
 	SidebarMenuButton,
 	SidebarMenuItem,
-	SidebarMenuSub,
-	SidebarMenuSubItem,
-	SidebarMenuSubButton,
 	SidebarProvider,
 	SidebarInset,
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
 	DropdownMenu,
@@ -100,11 +101,8 @@ import {
 	FloppyDisk,
 	ArrowsClockwise,
 	Database,
-	CaretRight,
 	CaretDown,
-	Columns,
 	DownloadSimple,
-	MagnifyingGlass,
 	Graph,
 	X,
 	PlayCircle,
@@ -126,6 +124,8 @@ import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { RedisKeySheet } from "@/components/RedisKeySheet";
 import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
+import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -324,15 +324,15 @@ export function ConnectionDetails() {
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
-	const [sidebarTab, setSidebarTab] = useState<"tables" | "queries">("tables");
-	const [tableSearchQuery, setTableSearchQuery] = useState("");
+	const [sidebarTab, setSidebarTab] = useState<"objects" | "queries">(
+		"objects",
+	);
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [loadingQueries, setLoadingQueries] = useState(false);
 	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
 	>({});
-	const [loadingColumns, setLoadingColumns] = useState<Set<string>>(new Set());
 	const [schemaOverview, setSchemaOverview] = useState<SchemaOverview | null>(
 		null,
 	);
@@ -347,9 +347,11 @@ export function ConnectionDetails() {
 
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
-	const [redisKeys, setRedisKeys] = useState<any[] | null>(null);
+	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
 	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-	const [redisKeyDetails, setRedisKeyDetails] = useState<any>(null);
+	const [redisKeyDetails, setRedisKeyDetails] = useState<RedisKeyDetails | null>(
+		null,
+	);
 	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
 	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
 	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
@@ -478,31 +480,18 @@ export function ConnectionDetails() {
 		[tabs, activeTabId],
 	);
 
-	const filteredTables = useMemo(() => {
-		if (!tableSearchQuery.trim()) {
-			return tables;
-		}
-		const query = tableSearchQuery.toLowerCase();
-		return tables.filter(
-			(table) =>
-				table.name.toLowerCase().includes(query) ||
-				table.schema.toLowerCase().includes(query) ||
-				`${table.schema}.${table.name}`.toLowerCase().includes(query),
-		);
-	}, [tables, tableSearchQuery]);
+	const totalObjectCount = useMemo(() => {
+		return tables.length + (schemaOverview?.functions.length || 0);
+	}, [tables, schemaOverview]);
 
-	const tablesBySchema = useMemo(() => {
-		return filteredTables.reduce(
-			(acc, table) => {
-				if (!acc[table.schema]) {
-					acc[table.schema] = [];
-				}
-				acc[table.schema].push(table);
-				return acc;
-			},
-			{} as Record<string, DatabaseTable[]>,
-		);
-	}, [filteredTables]);
+	const objectSchemaCount = useMemo(() => {
+		const schemaNames = new Set<string>();
+		tables.forEach((table) => schemaNames.add(table.schema));
+		schemaOverview?.functions.forEach((functionSummary) => {
+			schemaNames.add(functionSummary.schema);
+		});
+		return schemaNames.size;
+	}, [tables, schemaOverview]);
 
 	useEffect(() => {
 		const fetchConnection = async () => {
@@ -735,6 +724,42 @@ export function ConnectionDetails() {
 		[uuid, updateTab, schemaOverview],
 	);
 
+	const fetchFunctionDefinition = useCallback(
+		async (tab: FunctionDefinitionTab) => {
+			if (!uuid) return;
+
+			updateTab<FunctionDefinitionTab>(tab.id, {
+				loading: true,
+				error: null,
+			});
+
+			try {
+				const definition = await api.pool.getFunctionDefinition(
+					uuid,
+					tab.functionSummary.schema,
+					tab.functionSummary.name,
+					tab.functionSummary.identity_args,
+				);
+
+				updateTab<FunctionDefinitionTab>(tab.id, {
+					definition,
+					loading: false,
+					error: null,
+				});
+			} catch (error) {
+				console.error("Failed to fetch function definition:", error);
+				const errorMessage =
+					error instanceof Error ? error.message : String(error);
+				updateTab<FunctionDefinitionTab>(tab.id, {
+					definition: null,
+					loading: false,
+					error: errorMessage,
+				});
+			}
+		},
+		[uuid, updateTab],
+	);
+
 	const fetchForeignKeys = useCallback(
 		async (tab: TableDataTab) => {
 			if (!uuid) return;
@@ -839,6 +864,29 @@ export function ConnectionDetails() {
 		[tabs, fetchTableStructure],
 	);
 
+	const handleOpenFunctionDefinition = useCallback(
+		(functionSummary: FunctionSummary) => {
+			const existingTab = tabs.find(
+				(tab) =>
+					tab.type === "function-definition" &&
+					formatFunctionSignature(
+						(tab as FunctionDefinitionTab).functionSummary,
+					) === formatFunctionSignature(functionSummary),
+			);
+
+			if (existingTab) {
+				setActiveTabId(existingTab.id);
+				return;
+			}
+
+			const newTab = createFunctionDefinitionTab(functionSummary);
+			setTabs((prev) => [...prev, newTab]);
+			setActiveTabId(newTab.id);
+			fetchFunctionDefinition(newTab);
+		},
+		[tabs, fetchFunctionDefinition],
+	);
+
 	const handleOpenQuery = useCallback(
 		(
 			query: string,
@@ -883,11 +931,6 @@ export function ConnectionDetails() {
 		setTabs((prev) => [...prev, newTab]);
 		setActiveTabId(newTab.id);
 	}, [tabs]);
-
-	const handleRefreshSchemaOverview = useCallback(async () => {
-		if (!uuid) return;
-		await fetchSchemaOverviewData();
-	}, [uuid, fetchSchemaOverviewData]);
 
 	const handleReconnect = useCallback(async () => {
 		if (!uuid) return;
@@ -1286,6 +1329,22 @@ export function ConnectionDetails() {
 			updateTab<QueryTab>(activeTab.id, { query });
 		},
 		[activeTab, updateTab],
+	);
+
+	const handleInsertQueryText = useCallback(
+		(text: string) => {
+			if (!activeTab || activeTab.type !== "query") return;
+
+			const query = activeTab.query;
+			const needsSpace =
+				query.length > 0 &&
+				!query.endsWith(" ") &&
+				!query.endsWith("\n") &&
+				!query.endsWith("\t");
+
+			handleQueryChange(query + (needsSpace ? " " : "") + text);
+		},
+		[activeTab, handleQueryChange],
 	);
 
 	const handleCopyQueryError = async (errorMessage: string) => {
@@ -1754,14 +1813,14 @@ export function ConnectionDetails() {
 				return;
 			}
 
-			// Cmd+1 - Switch to Tables tab
+			// Cmd+1 - Switch to Objects tab
 			if (
 				e.key === "1" &&
 				(e.metaKey || e.ctrlKey) &&
 				connection?.type !== "redis"
 			) {
 				e.preventDefault();
-				setSidebarTab("tables");
+				setSidebarTab("objects");
 				return;
 			}
 
@@ -1945,7 +2004,7 @@ export function ConnectionDetails() {
 			? [
 					{
 						phase: "loading-schema" as LoadingPhase,
-						label: "Loading schema and tables",
+						label: "Loading schema and objects",
 					},
 				]
 			: []),
@@ -2805,18 +2864,17 @@ export function ConnectionDetails() {
 			<CardHeader>
 				<CardTitle>Welcome</CardTitle>
 				<CardDescription>
-					Select a table from the sidebar or create a new query to get started
+					Select an object from the sidebar or create a new query to get started
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
 				<div className="space-y-2">
 					<p className="text-sm text-muted-foreground">
-						Click on a table to view its data, or use the &quot;+&quot; button
-						to create a new SQL query.
+						Open a table, view, or function from the sidebar, or use the
+						&quot;+&quot; button to create a new SQL query.
 					</p>
 					<p className="text-sm text-muted-foreground">
-						Found {tables.length} tables across{" "}
-						{Object.keys(tablesBySchema).length} schemas.
+						Found {totalObjectCount} objects across {objectSchemaCount} schemas.
 					</p>
 				</div>
 			</CardContent>
@@ -3404,6 +3462,10 @@ export function ConnectionDetails() {
 		</div>
 	);
 
+	const renderFunctionDefinitionContent = (tab: FunctionDefinitionTab) => (
+		<FunctionDefinitionView tab={tab} />
+	);
+
 	const renderActiveTabContent = () => {
 		if (!activeTab) return renderEmptyState();
 
@@ -3416,6 +3478,10 @@ export function ConnectionDetails() {
 				return renderQueryContent(activeTab as QueryTab);
 			case "schema-visualizer":
 				return renderSchemaVisualizerContent(activeTab as SchemaVisualizerTab);
+			case "function-definition":
+				return renderFunctionDefinitionContent(
+					activeTab as FunctionDefinitionTab,
+				);
 			default:
 				return renderEmptyState();
 		}
@@ -3470,7 +3536,7 @@ export function ConnectionDetails() {
 								size="icon-sm"
 								onClick={handleRefreshTables}
 								disabled={refreshingTables || loadingSchemaOverview}
-								title="Refresh tables list"
+								title="Refresh objects"
 							>
 								{refreshingTables || loadingSchemaOverview ? (
 									<Spinner />
@@ -3484,238 +3550,42 @@ export function ConnectionDetails() {
 						{connection.database}
 					</div>
 				</SidebarHeader>
-				<SidebarContent className="p-2">
+				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
 						value={sidebarTab}
-						onValueChange={(v) => setSidebarTab(v as "tables" | "queries")}
+						onValueChange={(v) => setSidebarTab(v as "objects" | "queries")}
+						className="h-full min-h-0"
 					>
 						<TabsList className="w-full grid grid-cols-2">
-							<TabsTrigger value="tables" className="flex items-center gap-2">
+							<TabsTrigger value="objects" className="flex items-center gap-2">
 								<Table className="w-4 h-4" />
-								Tables
+								Objects
 							</TabsTrigger>
 							<TabsTrigger value="queries" className="flex items-center gap-2">
 								<Code className="w-4 h-4" />
 								Queries
 							</TabsTrigger>
 						</TabsList>
-						<TabsContent value="tables" className="mt-2">
-							<div className="space-y-2 mb-2 px-2">
-								<div className="relative">
-									<MagnifyingGlass className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-									<Input
-										placeholder="Search tables..."
-										value={tableSearchQuery}
-										onChange={(e) => setTableSearchQuery(e.target.value)}
-										className="pl-7 h-7 text-xs"
-									/>
-								</div>
-								{tableSearchQuery && (
-									<div className="text-xs text-muted-foreground">
-										{filteredTables.length} of {tables.length} tables
-									</div>
-								)}
-								{!tableSearchQuery && (
-									<div className="text-xs text-muted-foreground">
-										{tables.length} tables
-									</div>
-								)}
-							</div>
-							{Object.entries(tablesBySchema).map(([schema, schemaTables]) => (
-								<SidebarGroup key={schema} className="p-0">
-									<SidebarGroupLabel>{schema}</SidebarGroupLabel>
-									<SidebarGroupContent>
-										<SidebarMenu>
-											{(schemaTables as DatabaseTable[]).map((table) => {
-												const tableName = `${table.schema}.${table.name}`;
-												const isExpanded = expandedTables.has(tableName);
-												const isLoading =
-													loadingColumns.has(tableName) ||
-													(loadingSchemaOverview &&
-														isExpanded &&
-														!tableColumns[tableName]);
-												const cols = tableColumns[tableName] || [];
-
-												return (
-													<ContextMenu key={tableName}>
-														<ContextMenuTrigger>
-															<Collapsible open={isExpanded}>
-																<SidebarMenuItem>
-																	<SidebarMenuButton
-																		className="w-full group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground"
-																		onClick={() => {
-																			handleOpenTableData(tableName);
-																		}}
-																	>
-																		<CollapsibleTrigger
-																			onClick={(e) => {
-																				e.stopPropagation();
-																				handleToggleTableExpand(tableName);
-																			}}
-																			className="flex items-center justify-center p-1 rounded hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-																		>
-																			<CaretRight
-																				className={`w-3 h-3 transition-transform ${
-																					isExpanded ? "rotate-90" : ""
-																				}`}
-																			/>
-																		</CollapsibleTrigger>
-																		<Table className="w-3 h-3" />
-																		<span className="truncate text-xs">
-																			{table.name}
-																		</span>
-																		{table.type === "view" && (
-																			<Badge
-																				variant="secondary"
-																				className="ml-auto text-xs"
-																			>
-																				View
-																			</Badge>
-																		)}
-																	</SidebarMenuButton>
-																	<DropdownMenu>
-																		<DropdownMenuTrigger
-																			render={
-																				<button
-																					type="button"
-																					className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/menu-item:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-																					onClick={(e) => e.stopPropagation()}
-																				/>
-																			}
-																		>
-																			<DotsThreeVertical className="w-3 h-3" />
-																		</DropdownMenuTrigger>
-																		<DropdownMenuContent align="end">
-																			<DropdownMenuItem
-																				onClick={() => {
-																					handleOpenTableData(tableName);
-																				}}
-																			>
-																				<Table className="w-4 h-4" />
-																				View Data
-																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
-																					handleRunQueryForTable(tableName)
-																				}
-																			>
-																				<Code className="w-4 h-4" />
-																				Run Query
-																			</DropdownMenuItem>
-																			<DropdownMenuItem
-																				onClick={() =>
-																					handleOpenTableStructure(tableName)
-																				}
-																			>
-																				<Columns className="w-4 h-4" />
-																				View Structure
-																			</DropdownMenuItem>
-																		</DropdownMenuContent>
-																	</DropdownMenu>
-																</SidebarMenuItem>
-																<CollapsibleContent>
-																	<SidebarMenuSub>
-																		{isLoading ? (
-																			<SidebarMenuSubItem>
-																				<SidebarMenuSubButton>
-																					<Spinner className="w-3 h-3" />
-																					<span className="text-muted-foreground">
-																						Loading...
-																					</span>
-																				</SidebarMenuSubButton>
-																			</SidebarMenuSubItem>
-																		) : cols.length > 0 ? (
-																			cols.map((col) => (
-																				<SidebarMenuSubItem key={col.name}>
-																					<SidebarMenuSubButton
-																						className="group/col-item"
-																						onClick={() => {
-																							// If there's an active query tab, insert column name
-																							if (
-																								activeTab &&
-																								activeTab.type === "query"
-																							) {
-																								const queryTab =
-																									activeTab as QueryTab;
-																								const query = queryTab.query;
-																								const needsSpace =
-																									query.length > 0 &&
-																									!query.endsWith(" ") &&
-																									!query.endsWith("\n") &&
-																									!query.endsWith("\t");
-																								handleQueryChange(
-																									query +
-																										(needsSpace ? " " : "") +
-																										col.name,
-																								);
-																							}
-																						}}
-																					>
-																						<span className="font-mono text-xs truncate">
-																							{col.name}
-																						</span>
-																						<span className="text-muted-foreground group-hover/col-item:text-sidebar-accent-foreground text-xs ml-auto truncate max-w-[80px]">
-																							{col.type}
-																						</span>
-																						{col.primary_key && (
-																							<Badge
-																								variant="outline"
-																								className="text-[10px] px-1 py-0 ml-1"
-																							>
-																								PK
-																							</Badge>
-																						)}
-																					</SidebarMenuSubButton>
-																				</SidebarMenuSubItem>
-																			))
-																		) : (
-																			<SidebarMenuSubItem>
-																				<SidebarMenuSubButton>
-																					<span className="text-muted-foreground text-xs">
-																						No columns
-																					</span>
-																				</SidebarMenuSubButton>
-																			</SidebarMenuSubItem>
-																		)}
-																	</SidebarMenuSub>
-																</CollapsibleContent>
-															</Collapsible>
-														</ContextMenuTrigger>
-														<ContextMenuContent>
-															<ContextMenuItem
-																onClick={() => {
-																	handleOpenTableData(tableName);
-																}}
-															>
-																<Table className="w-4 h-4" />
-																View Data
-															</ContextMenuItem>
-															<ContextMenuItem
-																onClick={() =>
-																	handleRunQueryForTable(tableName)
-																}
-															>
-																<Code className="w-4 h-4" />
-																Run Query
-															</ContextMenuItem>
-															<ContextMenuItem
-																onClick={() =>
-																	handleOpenTableStructure(tableName)
-																}
-															>
-																<Columns className="w-4 h-4" />
-																View Structure
-															</ContextMenuItem>
-														</ContextMenuContent>
-													</ContextMenu>
-												);
-											})}
-										</SidebarMenu>
-									</SidebarGroupContent>
-								</SidebarGroup>
-							))}
+						<TabsContent value="objects" className="mt-2 min-h-0 flex-1">
+							<ObjectExplorer
+								schemaOverview={schemaOverview}
+								loading={loadingSchemaOverview}
+								expandedTables={expandedTables}
+								tableColumns={tableColumns}
+								onToggleTableExpand={handleToggleTableExpand}
+								onOpenTableData={handleOpenTableData}
+								onRunQueryForTable={handleRunQueryForTable}
+								onOpenTableStructure={handleOpenTableStructure}
+								onOpenFunctionDefinition={handleOpenFunctionDefinition}
+								activeQueryTab={
+									activeTab?.type === "query"
+										? (activeTab as QueryTab)
+										: null
+								}
+								onInsertQueryText={handleInsertQueryText}
+							/>
 						</TabsContent>
-						<TabsContent value="queries" className="mt-2">
+						<TabsContent value="queries" className="mt-2 min-h-0 flex-1 overflow-auto">
 							<SidebarGroup>
 								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
 								<SidebarGroupContent>
@@ -3914,9 +3784,11 @@ export function ConnectionDetails() {
 					onClearFilter={handleClearFilter}
 					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
 					onOpenTableData={handleOpenTableData}
+					onOpenFunctionDefinition={handleOpenFunctionDefinition}
 					onSwitchSidebarTab={setSidebarTab}
 					onOpenSettings={openSettings}
 					tables={tables}
+					functions={schemaOverview?.functions || []}
 					connectionType={connection.type}
 				/>
 			)}

@@ -231,7 +231,16 @@ pub async fn pool_get_table_data(
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
     match pool_manager
-        .get_table_data(&uuid, &schema, &table, page, limit, filter.clone(), sort_column.clone(), sort_direction.clone())
+        .get_table_data(
+            &uuid,
+            &schema,
+            &table,
+            page,
+            limit,
+            filter.clone(),
+            sort_column.clone(),
+            sort_direction.clone(),
+        )
         .await
     {
         Ok(result) => Ok(result),
@@ -242,7 +251,16 @@ pub async fn pool_get_table_data(
             );
             reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
             pool_manager
-                .get_table_data(&uuid, &schema, &table, page, limit, filter, sort_column, sort_direction)
+                .get_table_data(
+                    &uuid,
+                    &schema,
+                    &table,
+                    page,
+                    limit,
+                    filter,
+                    sort_column,
+                    sort_direction,
+                )
                 .await
         }
     }
@@ -318,6 +336,36 @@ pub async fn pool_get_schema_overview(
             );
             reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
             pool_manager.get_schema_overview(&uuid).await
+        }
+    }
+}
+
+/// Get a function definition using the pooled connection (auto-connects if needed, auto-retries on error)
+#[tauri::command]
+pub async fn pool_get_function_definition(
+    pool_manager: State<'_, PoolManager>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    schema: String,
+    name: String,
+    identity_args: String,
+) -> Result<crate::db::models::FunctionDefinition, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    match pool_manager
+        .get_function_definition(&uuid, &schema, &name, &identity_args)
+        .await
+    {
+        Ok(result) => Ok(result),
+        Err(e) => {
+            println!(
+                "[Pool] get_function_definition failed: {}, retrying with fresh connection",
+                e
+            );
+            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+            pool_manager
+                .get_function_definition(&uuid, &schema, &name, &identity_args)
+                .await
         }
     }
 }

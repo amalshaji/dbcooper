@@ -1,7 +1,13 @@
 import type { TableDataResponse } from "./tableData";
 import type { RedisKeyInfo, RedisKeyDetails } from "@/lib/tauri";
 
-export type TabType = "table-data" | "table-structure" | "query" | "redis-query" | "schema-visualizer";
+export type TabType =
+	| "table-data"
+	| "table-structure"
+	| "query"
+	| "redis-query"
+	| "schema-visualizer"
+	| "function-definition";
 
 export interface TableColumn {
 	name: string;
@@ -101,8 +107,30 @@ export interface SchemaVisualizerTab extends BaseTab {
 	selectedTables: string[];
 }
 
+export interface FunctionSummary {
+	schema: string;
+	name: string;
+	identity_args: string;
+	arguments: string;
+	return_type: string;
+	language: string;
+}
+
+export interface FunctionDefinition extends FunctionSummary {
+	definition: string;
+}
+
+export interface FunctionDefinitionTab extends BaseTab {
+	type: "function-definition";
+	functionSummary: FunctionSummary;
+	definition: FunctionDefinition | null;
+	loading: boolean;
+	error: string | null;
+}
+
 export interface SchemaOverview {
 	tables: TableWithStructure[];
+	functions: FunctionSummary[];
 }
 
 export interface TableWithStructure {
@@ -114,7 +142,21 @@ export interface TableWithStructure {
 	indexes: IndexInfo[];
 }
 
-export type Tab = TableDataTab | TableStructureTab | QueryTab | RedisQueryTab | SchemaVisualizerTab;
+export type Tab =
+	| TableDataTab
+	| TableStructureTab
+	| QueryTab
+	| RedisQueryTab
+	| SchemaVisualizerTab
+	| FunctionDefinitionTab;
+
+export function formatFunctionSignature(
+	summary: Pick<FunctionSummary, "schema" | "name" | "identity_args">,
+	includeSchema: boolean = true,
+): string {
+	const signature = `${summary.name}(${summary.identity_args})`;
+	return includeSchema ? `${summary.schema}.${signature}` : signature;
+}
 
 export function createTableDataTab(tableName: string): TableDataTab {
 	return {
@@ -191,5 +233,19 @@ export function createSchemaVisualizerTab(): SchemaVisualizerTab {
 		loading: false,
 		tableFilter: "",
 		selectedTables: [],
+	};
+}
+
+export function createFunctionDefinitionTab(
+	functionSummary: FunctionSummary,
+): FunctionDefinitionTab {
+	return {
+		id: `function-definition-${functionSummary.schema}-${functionSummary.name}-${functionSummary.identity_args}-${Date.now()}`,
+		type: "function-definition",
+		title: formatFunctionSignature(functionSummary, false),
+		functionSummary,
+		definition: null,
+		loading: false,
+		error: null,
 	};
 }

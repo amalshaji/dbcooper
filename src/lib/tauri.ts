@@ -80,6 +80,31 @@ export interface TableStructure {
 	foreign_keys: ForeignKeyInfo[];
 }
 
+export interface FunctionSummary {
+	schema: string;
+	name: string;
+	identity_args: string;
+	arguments: string;
+	return_type: string;
+	language: string;
+}
+
+export interface FunctionDefinition extends FunctionSummary {
+	definition: string;
+}
+
+export interface SchemaOverview {
+	tables: {
+		schema: string;
+		name: string;
+		type: string;
+		columns: ColumnInfo[];
+		foreign_keys: ForeignKeyInfo[];
+		indexes: IndexInfo[];
+	}[];
+	functions: FunctionSummary[];
+}
+
 export interface TableDataResponse {
 	data: Record<string, unknown>[];
 	total: number;
@@ -645,16 +670,20 @@ export const api = {
 			invoke<QueryResult>("pool_execute_query", { uuid, query }),
 
 		getSchemaOverview: (uuid: string) =>
-			invoke<{
-				tables: {
-					schema: string;
-					name: string;
-					type: string;
-					columns: ColumnInfo[];
-					foreign_keys: ForeignKeyInfo[];
-					indexes: IndexInfo[];
-				}[];
-			}>("pool_get_schema_overview", { uuid }),
+			invoke<SchemaOverview>("pool_get_schema_overview", { uuid }),
+
+		getFunctionDefinition: (
+			uuid: string,
+			schema: string,
+			name: string,
+			identityArgs: string,
+		) =>
+			invoke<FunctionDefinition>("pool_get_function_definition", {
+				uuid,
+				schema,
+				name,
+				identityArgs,
+			}),
 
 		updateTableRow: (
 			uuid: string,

@@ -3,10 +3,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::DatabaseDriver;
-use crate::database::queries::clickhouse::{COLUMNS_QUERY, INDEXES_QUERY};
+use crate::database::queries::clickhouse::{
+    COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
+};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
-    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
+    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    TestConnectionResult,
 };
 use std::collections::HashMap;
 
@@ -121,6 +124,65 @@ impl ClickhouseDriver {
             .replace('\u{201C}', "\"") // Left double quotation mark
             .replace('\u{201D}', "\"") // Right double quotation mark
             .replace("\\'", "'") // Backslash-escaped single quote
+    }
+
+    fn escape_string_literal(value: &str) -> String {
+        value.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+
+    fn parse_function_arguments(arguments: &str, create_query: &str) -> String {
+        let trimmed_arguments = arguments.trim();
+        if !trimmed_arguments.is_empty() {
+            return trimmed_arguments.to_string();
+        }
+
+        let Some((_, after_as)) = create_query.split_once(" AS ") else {
+            return String::new();
+        };
+        let Some((raw_arguments, _)) = after_as.split_once("->") else {
+            return String::new();
+        };
+
+        let trimmed = raw_arguments.trim();
+        if trimmed.starts_with('(') && trimmed.ends_with(')') && trimmed.len() >= 2 {
+            trimmed[1..trimmed.len() - 1].trim().to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    fn map_function_language(origin: &str) -> String {
+        match origin {
+            "SQLUserDefined" => "sql".to_string(),
+            "ExecutableUserDefined" => "executable".to_string(),
+            _ => origin.to_lowercase(),
+        }
+    }
+
+    fn map_clickhouse_function(schema: &str, row: &Value) -> (FunctionSummary, String) {
+        let name = row["name"].as_str().unwrap_or("").to_string();
+        let origin = row["origin"].as_str().unwrap_or("");
+        let create_query = row["create_query"].as_str().unwrap_or("").to_string();
+        let arguments =
+            Self::parse_function_arguments(row["arguments"].as_str().unwrap_or(""), &create_query);
+        let return_type = row["returned_value"]
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("Inferred")
+            .to_string();
+        let language = Self::map_function_language(origin);
+
+        (
+            FunctionSummary {
+                schema: schema.to_string(),
+                name,
+                identity_args: arguments.clone(),
+                arguments,
+                return_type,
+                language,
+            },
+            create_query,
+        )
     }
 }
 
@@ -302,6 +364,10 @@ impl DatabaseDriver for ClickhouseDriver {
             .execute_query_json(&indexes_query)
             .await
             .unwrap_or_default();
+        let functions_rows = self
+            .execute_query_json(FUNCTION_SUMMARIES_QUERY)
+            .await
+            .unwrap_or_default();
 
         let mut indexes_map: HashMap<(String, String), Vec<IndexInfo>> = HashMap::new();
 
@@ -384,7 +450,52 @@ impl DatabaseDriver for ClickhouseDriver {
             });
         }
 
-        Ok(SchemaOverview { tables })
+        let functions = functions_rows
+            .into_iter()
+            .map(|row| Self::map_clickhouse_function(&self.config.database, &row).0)
+            .collect();
+
+        Ok(SchemaOverview { tables, functions })
+    }
+
+    async fn get_function_definition(
+        &self,
+        _schema: &str,
+        name: &str,
+        identity_args: &str,
+    ) -> Result<FunctionDefinition, String> {
+        let query = FUNCTION_DEFINITION_QUERY.replace("{name}", &Self::escape_string_literal(name));
+        let row = self
+            .execute_query_json(&query)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("Function not found: {}", name))?;
+
+        let (summary, create_query) = Self::map_clickhouse_function(&self.config.database, &row);
+
+        if !identity_args.is_empty() && summary.identity_args != identity_args {
+            return Err(format!("Function not found: {}({})", name, identity_args));
+        }
+
+        let definition = if create_query.trim().is_empty() {
+            format!(
+                "-- ClickHouse {} UDF `{}`\n-- The server does not expose a CREATE FUNCTION statement for this function.",
+                summary.language, summary.name
+            )
+        } else {
+            create_query
+        };
+
+        Ok(FunctionDefinition {
+            schema: summary.schema,
+            name: summary.name,
+            identity_args: summary.identity_args,
+            arguments: summary.arguments,
+            return_type: summary.return_type,
+            language: summary.language,
+            definition,
+        })
     }
 
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {

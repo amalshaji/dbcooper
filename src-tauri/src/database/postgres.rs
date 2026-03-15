@@ -6,10 +6,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{DatabaseDriver, PostgresConfig};
-use crate::database::queries::postgres::SCHEMA_OVERVIEW_QUERY;
+use crate::database::queries::postgres::{
+    FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, SCHEMA_OVERVIEW_QUERY,
+};
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
-    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
+    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    TestConnectionResult,
 };
 
 pub struct PostgresDriver {
@@ -566,6 +569,90 @@ impl DatabaseDriver for PostgresDriver {
             });
         }
 
-        Ok(SchemaOverview { tables })
+        let function_rows =
+            sqlx::query_as::<_, (String, String, String, String, String, String)>(
+                FUNCTION_SUMMARIES_QUERY,
+            )
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("Connection reset by peer")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                {
+                    println!(
+                        "[Postgres] Connection error in get_schema_overview functions query, will reset pool on next access: {}",
+                        error_str
+                    );
+                }
+                error_str
+            })?;
+
+        let functions = function_rows
+            .into_iter()
+            .map(
+                |(schema, name, identity_args, arguments, return_type, language)| FunctionSummary {
+                    schema,
+                    name,
+                    identity_args,
+                    arguments,
+                    return_type,
+                    language,
+                },
+            )
+            .collect();
+
+        Ok(SchemaOverview { tables, functions })
+    }
+
+    async fn get_function_definition(
+        &self,
+        schema: &str,
+        name: &str,
+        identity_args: &str,
+    ) -> Result<FunctionDefinition, String> {
+        let pool = self.get_pool_with_retry().await?;
+
+        let row =
+            sqlx::query_as::<_, (String, String, String, String, String, String, String)>(
+                FUNCTION_DEFINITION_QUERY,
+            )
+            .bind(schema)
+            .bind(name)
+            .bind(identity_args)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("Connection reset by peer")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection closed")
+                {
+                    println!(
+                        "[Postgres] Connection error in get_function_definition, will reset pool on next access: {}",
+                        error_str
+                    );
+                }
+                error_str
+            })?;
+
+        match row {
+            Some((schema, name, identity_args, arguments, return_type, language, definition)) => {
+                Ok(FunctionDefinition {
+                    schema,
+                    name,
+                    identity_args,
+                    arguments,
+                    return_type,
+                    language,
+                    definition,
+                })
+            }
+            None => Err(format!(
+                "Function not found: {}.{}({})",
+                schema, name, identity_args
+            )),
+        }
     }
 }

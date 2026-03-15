@@ -33,6 +33,13 @@ async fn drop_table(driver: &PostgresDriver, table: &str) {
         .await;
 }
 
+/// Helper to clean up a test schema
+async fn drop_schema(driver: &PostgresDriver, schema: &str) {
+    let _ = driver
+        .execute_query(&format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", schema))
+        .await;
+}
+
 // ============================================================================
 // Connection Tests
 // ============================================================================
@@ -690,6 +697,129 @@ async fn test_get_schema_overview() {
 
     // Cleanup
     drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_get_schema_overview_marks_views_and_lists_functions() {
+    let driver = create_test_driver();
+    let schema_name = test_table_name("schema_ns");
+    let table_name = test_table_name("source");
+    let view_name = test_table_name("view");
+    let function_name = test_table_name("fn");
+
+    driver
+        .execute_query(&format!("CREATE SCHEMA \"{}\"", schema_name))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{}\".\"{}\" (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL
+            )",
+            schema_name, table_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE VIEW \"{}\".\"{}\" AS SELECT * FROM \"{}\".\"{}\"",
+            schema_name, view_name, schema_name, table_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION \"{}\".\"{}\"(value integer) RETURNS integer LANGUAGE sql AS $$ SELECT value + 1 $$",
+            schema_name, function_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION \"{}\".\"{}\"(value text) RETURNS text LANGUAGE sql AS $$ SELECT value || '!' $$",
+            schema_name, function_name
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+
+    let view = overview
+        .tables
+        .iter()
+        .find(|table| table.schema == schema_name && table.name == view_name)
+        .expect("Should include test view");
+    assert_eq!(view.table_type, "view");
+
+    let functions: Vec<_> = overview
+        .functions
+        .iter()
+        .filter(|function| function.schema == schema_name && function.name == function_name)
+        .collect();
+    assert_eq!(functions.len(), 2, "Should include both overloads");
+    assert_ne!(functions[0].identity_args, functions[1].identity_args);
+
+    drop_schema(&driver, &schema_name).await;
+}
+
+#[tokio::test]
+async fn test_get_function_definition_for_overload() {
+    let driver = create_test_driver();
+    let schema_name = test_table_name("function_ns");
+    let function_name = test_table_name("function");
+
+    driver
+        .execute_query(&format!("CREATE SCHEMA \"{}\"", schema_name))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION \"{}\".\"{}\"(value integer) RETURNS integer LANGUAGE sql AS $$ SELECT value + 1 $$",
+            schema_name, function_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION \"{}\".\"{}\"(value text) RETURNS text LANGUAGE sql AS $$ SELECT value || '!' $$",
+            schema_name, function_name
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+    let function = overview
+        .functions
+        .iter()
+        .find(|summary| {
+            summary.schema == schema_name
+                && summary.name == function_name
+                && summary.identity_args == "value integer"
+        })
+        .expect("Should include integer overload");
+
+    let definition = driver
+        .get_function_definition(&schema_name, &function_name, &function.identity_args)
+        .await
+        .unwrap();
+
+    assert_eq!(definition.schema, schema_name);
+    assert_eq!(definition.name, function_name);
+    assert_eq!(definition.identity_args, "value integer");
+    assert_eq!(definition.return_type, "integer");
+    assert!(
+        definition.definition.contains(&function_name),
+        "Definition should include function name"
+    );
+
+    drop_schema(&driver, &schema_name).await;
 }
 
 // ============================================================================

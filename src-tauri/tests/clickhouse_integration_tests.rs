@@ -34,6 +34,20 @@ async fn drop_table(driver: &ClickhouseDriver, table: &str) {
         .await;
 }
 
+/// Helper to clean up a test view
+async fn drop_view(driver: &ClickhouseDriver, view: &str) {
+    let _ = driver
+        .execute_query(&format!("DROP VIEW IF EXISTS `{}`", view))
+        .await;
+}
+
+/// Helper to clean up a test function
+async fn drop_function(driver: &ClickhouseDriver, function: &str) {
+    let _ = driver
+        .execute_query(&format!("DROP FUNCTION IF EXISTS {}", function))
+        .await;
+}
+
 // ============================================================================
 // Connection Tests
 // ============================================================================
@@ -254,7 +268,15 @@ async fn test_get_table_data_with_filter() {
         .unwrap();
 
     let result = driver
-        .get_table_data("default", &table_name, 1, 10, Some("age > 25".to_string()), None, None)
+        .get_table_data(
+            "default",
+            &table_name,
+            1,
+            10,
+            Some("age > 25".to_string()),
+            None,
+            None,
+        )
         .await;
     assert!(result.is_ok());
 
@@ -481,6 +503,114 @@ async fn test_get_schema_overview() {
 
     // Cleanup
     drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_get_schema_overview_normalizes_view_type() {
+    let driver = create_test_driver();
+    let table_name = test_table_name("view_source");
+    let view_name = test_table_name("view");
+
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE `{}` (
+                id UInt64,
+                name String
+            ) ENGINE = Memory",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "CREATE VIEW `{}` AS SELECT * FROM `{}`",
+            view_name, table_name
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+    let view = overview
+        .tables
+        .iter()
+        .find(|table| table.name == view_name)
+        .expect("Should include ClickHouse view");
+
+    assert_eq!(view.table_type, "view");
+
+    drop_view(&driver, &view_name).await;
+    drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_get_schema_overview_includes_user_defined_functions() {
+    let driver = create_test_driver();
+    let function_name = test_table_name("udf");
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION {} AS (value, increment) -> value + increment",
+            function_name
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+    let function = overview
+        .functions
+        .iter()
+        .find(|function| function.name == function_name)
+        .expect("Should include ClickHouse UDF");
+
+    assert_eq!(function.schema, "default");
+    assert_eq!(function.identity_args, "value, increment");
+    assert_eq!(function.arguments, "value, increment");
+    assert_eq!(function.return_type, "Inferred");
+    assert_eq!(function.language, "sql");
+
+    drop_function(&driver, &function_name).await;
+}
+
+#[tokio::test]
+async fn test_get_function_definition_for_user_defined_function() {
+    let driver = create_test_driver();
+    let function_name = test_table_name("udfdef");
+
+    driver
+        .execute_query(&format!(
+            "CREATE FUNCTION {} AS name -> concat('Hello, ', name, '!')",
+            function_name
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+    let function = overview
+        .functions
+        .iter()
+        .find(|summary| summary.name == function_name)
+        .expect("Should include ClickHouse UDF");
+
+    let definition = driver
+        .get_function_definition("default", &function_name, &function.identity_args)
+        .await
+        .unwrap();
+
+    assert_eq!(definition.schema, "default");
+    assert_eq!(definition.name, function_name);
+    assert_eq!(definition.identity_args, "name");
+    assert_eq!(definition.language, "sql");
+    assert!(
+        definition.definition.contains(&function_name),
+        "Definition should include function name"
+    );
+    assert!(
+        definition.definition.contains("CREATE FUNCTION"),
+        "Definition should include CREATE FUNCTION statement"
+    );
+
+    drop_function(&driver, &function_name).await;
 }
 
 // ============================================================================

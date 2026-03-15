@@ -8,7 +8,7 @@ pub mod redis;
 pub mod sqlite;
 
 use crate::db::models::{
-    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
+    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
     TestConnectionResult,
 };
 
@@ -45,6 +45,16 @@ pub trait DatabaseDriver: Send + Sync {
 
     /// Get schema overview with all tables and their structures (columns, foreign keys, indexes)
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String>;
+
+    /// Get a function definition by fully qualified identity signature.
+    async fn get_function_definition(
+        &self,
+        _schema: &str,
+        _name: &str,
+        _identity_args: &str,
+    ) -> Result<FunctionDefinition, String> {
+        Err("Function definitions are not supported for this database".to_string())
+    }
 }
 
 /// Configuration for Postgres connections

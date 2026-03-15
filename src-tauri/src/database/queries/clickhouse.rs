@@ -2,7 +2,10 @@ pub const COLUMNS_QUERY: &str = r#"
 SELECT 
     c.database as schema,
     c.table as name,
-    t.engine as type,
+    CASE
+        WHEN lower(t.engine) IN ('view', 'materializedview', 'liveview') THEN 'view'
+        ELSE 'table'
+    END as type,
     groupArray(tuple(
         c.name,
         c.type,
@@ -26,4 +29,31 @@ SELECT
 FROM system.data_skipping_indices
 WHERE database = currentDatabase()
 GROUP BY database, table;
+"#;
+
+pub const FUNCTION_SUMMARIES_QUERY: &str = r#"
+SELECT
+    currentDatabase() AS schema,
+    name,
+    origin,
+    arguments,
+    returned_value,
+    create_query
+FROM system.functions
+WHERE origin != 'System'
+ORDER BY name;
+"#;
+
+pub const FUNCTION_DEFINITION_QUERY: &str = r#"
+SELECT
+    currentDatabase() AS schema,
+    name,
+    origin,
+    arguments,
+    returned_value,
+    create_query
+FROM system.functions
+WHERE origin != 'System'
+    AND name = '{name}'
+LIMIT 1;
 "#;
