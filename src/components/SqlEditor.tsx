@@ -93,8 +93,8 @@ export function SqlEditor({
 				keymap.of([
 					{
 						key: "Mod-Enter",
-						run: () => {
-							if (onRunQuery && !disabled && value.trim()) {
+						run: (view) => {
+							if (onRunQuery && !disabled && view.state.doc.toString().trim()) {
 								onRunQuery();
 								return true;
 							}
@@ -103,7 +103,7 @@ export function SqlEditor({
 					},
 				]),
 			),
-		[onRunQuery, disabled, value],
+		[onRunQuery, disabled],
 	);
 
 	const fontTheme = useMemo(

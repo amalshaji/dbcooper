@@ -1,5 +1,23 @@
 import type { TableDataResponse } from "./tableData";
-import type { RedisKeyInfo, RedisKeyDetails } from "@/lib/tauri";
+import type {
+	ColumnInfo,
+	ForeignKeyInfo,
+	FunctionDefinition,
+	FunctionSummary,
+	RedisKeyDetails,
+	RedisKeyInfo,
+	SchemaOverview,
+	TableStructure,
+} from "@/lib/tauri";
+
+export type {
+	ForeignKeyInfo,
+	FunctionDefinition,
+	FunctionSummary,
+	IndexInfo,
+	SchemaOverview,
+	TableWithStructure,
+} from "@/lib/tauri";
 
 export type TabType =
 	| "table-data"
@@ -9,38 +27,9 @@ export type TabType =
 	| "schema-visualizer"
 	| "function-definition";
 
-export interface TableColumn {
-	name: string;
-	type: string;
-	nullable: boolean;
-	default: string | null;
-	primary_key: boolean;
-}
+export type TableColumn = ColumnInfo;
 
-export interface TableStructureData {
-	columns: TableColumn[];
-	indexes: {
-		name: string;
-		columns: string[];
-		unique: boolean;
-		primary: boolean;
-	}[];
-	foreign_keys: ForeignKeyInfo[];
-}
-
-export interface ForeignKeyInfo {
-	name: string;
-	column: string;
-	references_table: string;
-	references_column: string;
-}
-
-export interface IndexInfo {
-	name: string;
-	columns: string[];
-	unique: boolean;
-	primary: boolean;
-}
+export type TableStructureData = TableStructure;
 
 interface BaseTab {
 	id: string;
@@ -107,39 +96,12 @@ export interface SchemaVisualizerTab extends BaseTab {
 	selectedTables: string[];
 }
 
-export interface FunctionSummary {
-	schema: string;
-	name: string;
-	identity_args: string;
-	arguments: string;
-	return_type: string;
-	language: string;
-}
-
-export interface FunctionDefinition extends FunctionSummary {
-	definition: string;
-}
-
 export interface FunctionDefinitionTab extends BaseTab {
 	type: "function-definition";
 	functionSummary: FunctionSummary;
 	definition: FunctionDefinition | null;
 	loading: boolean;
 	error: string | null;
-}
-
-export interface SchemaOverview {
-	tables: TableWithStructure[];
-	functions: FunctionSummary[];
-}
-
-export interface TableWithStructure {
-	schema: string;
-	name: string;
-	type: string;
-	columns: TableColumn[];
-	foreign_keys: ForeignKeyInfo[];
-	indexes: IndexInfo[];
 }
 
 export type Tab =

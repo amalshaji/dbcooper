@@ -93,15 +93,17 @@ export interface FunctionDefinition extends FunctionSummary {
 	definition: string;
 }
 
+export interface TableWithStructure {
+	schema: string;
+	name: string;
+	type: string;
+	columns: ColumnInfo[];
+	foreign_keys: ForeignKeyInfo[];
+	indexes: IndexInfo[];
+}
+
 export interface SchemaOverview {
-	tables: {
-		schema: string;
-		name: string;
-		type: string;
-		columns: ColumnInfo[];
-		foreign_keys: ForeignKeyInfo[];
-		indexes: IndexInfo[];
-	}[];
+	tables: TableWithStructure[];
 	functions: FunctionSummary[];
 }
 
