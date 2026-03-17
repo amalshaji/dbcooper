@@ -137,14 +137,6 @@ function TableObjectRow({
 							</CollapsibleTrigger>
 							<Table className="h-3 w-3" />
 							<span className="truncate text-xs">{table.name}</span>
-							{table.type === "view" && (
-								<Badge
-									variant="outline"
-									className="ml-auto h-5 border-current/30 bg-transparent px-1.5 py-0 text-[10px] font-normal text-inherit shadow-none"
-								>
-									View
-								</Badge>
-							)}
 						</SidebarMenuButton>
 						<DropdownMenu>
 							<DropdownMenuTrigger
@@ -518,12 +510,6 @@ export function ObjectExplorer({
 													<span className="truncate text-xs">
 														{formatFunctionSignature(functionSummary, false)}
 													</span>
-													<Badge
-														variant="outline"
-														className="ml-auto h-5 max-w-[88px] truncate border-current/30 bg-transparent px-1.5 py-0 text-[10px] font-normal text-inherit shadow-none"
-													>
-														{functionSummary.return_type}
-													</Badge>
 												</SidebarMenuButton>
 											</SidebarMenuItem>
 										))}
