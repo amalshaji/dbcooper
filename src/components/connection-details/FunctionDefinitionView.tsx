@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SqlEditor } from "@/components/SqlEditor";
 import type { FunctionDefinitionTab } from "@/types/tabTypes";
 import { formatFunctionSignature } from "@/types/tabTypes";
-import { Code, Copy } from "@phosphor-icons/react";
+import { Check, Code, Copy } from "@phosphor-icons/react";
 
 interface FunctionDefinitionViewProps {
 	tab: FunctionDefinitionTab;
@@ -22,27 +22,41 @@ interface FunctionDefinitionViewProps {
 export function FunctionDefinitionView({
 	tab,
 }: FunctionDefinitionViewProps) {
-	const [copying, setCopying] = useState(false);
+	const [copied, setCopied] = useState(false);
+	const resetTimerRef = useRef<number | null>(null);
 	const displayDefinition = tab.definition?.definition.trimEnd() || "";
 	const definitionHeight = displayDefinition
 		? `${Math.min(Math.max(displayDefinition.split(/\r?\n/).length, 3), 24) * 22}px`
 		: "66px";
 
+	useEffect(() => {
+		return () => {
+			if (resetTimerRef.current) {
+				window.clearTimeout(resetTimerRef.current);
+			}
+		};
+	}, []);
+
 	const handleCopy = async () => {
-		if (!tab.definition?.definition || copying) {
+		if (!tab.definition?.definition) {
 			return;
 		}
 
-		setCopying(true);
 		try {
 			await navigator.clipboard.writeText(tab.definition.definition);
+			setCopied(true);
+			if (resetTimerRef.current) {
+				window.clearTimeout(resetTimerRef.current);
+			}
+			resetTimerRef.current = window.setTimeout(() => {
+				setCopied(false);
+				resetTimerRef.current = null;
+			}, 2000);
 			toast.success("Function definition copied");
 		} catch (error) {
 			toast.error("Failed to copy function definition", {
 				description: error instanceof Error ? error.message : String(error),
 			});
-		} finally {
-			setCopying(false);
 		}
 	};
 
@@ -62,10 +76,19 @@ export function FunctionDefinitionView({
 						variant="outline"
 						size="sm"
 						onClick={handleCopy}
-						disabled={!tab.definition || copying}
+						disabled={!tab.definition}
 					>
-						<Copy className="h-4 w-4" />
-						Copy Definition
+						{copied ? (
+							<>
+								<Check className="h-4 w-4" />
+								Copied!
+							</>
+						) : (
+							<>
+								<Copy className="h-4 w-4" />
+								Copy Definition
+							</>
+						)}
 					</Button>
 				</div>
 			</CardHeader>

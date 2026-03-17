@@ -37,8 +37,7 @@ SELECT
     name,
     origin,
     arguments,
-    returned_value,
-    create_query
+    returned_value
 FROM system.functions
 WHERE origin != 'System'
 ORDER BY name;

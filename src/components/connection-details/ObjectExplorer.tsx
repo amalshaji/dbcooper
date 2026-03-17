@@ -419,6 +419,7 @@ export function ObjectExplorer({
 		tables.length + (schemaOverview?.functions.length || 0);
 	const selectedSchemaTotal = selectedSchemaEntry?.objectCount || 0;
 	const filteredObjectCount = getObjectCount(selectedSchemaObjects);
+	const isLoadingObjects = loading && !schemaOverview;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
@@ -442,7 +443,12 @@ export function ObjectExplorer({
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-auto px-1">
-				{schemaEntries.length === 0 ? (
+				{isLoadingObjects ? (
+					<div className="flex items-center gap-2 px-2 py-4 text-xs text-muted-foreground">
+						<Spinner className="h-3 w-3" />
+						Loading objects...
+					</div>
+				) : schemaEntries.length === 0 ? (
 					<div className="px-2 py-4 text-xs text-muted-foreground">
 						No objects found.
 					</div>

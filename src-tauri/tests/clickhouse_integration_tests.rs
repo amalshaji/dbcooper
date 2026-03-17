@@ -564,8 +564,8 @@ async fn test_get_schema_overview_includes_user_defined_functions() {
         .expect("Should include ClickHouse UDF");
 
     assert_eq!(function.schema, "default");
-    assert_eq!(function.identity_args, "value, increment");
-    assert_eq!(function.arguments, "value, increment");
+    assert_eq!(function.identity_args, "");
+    assert_eq!(function.arguments, "");
     assert_eq!(function.return_type, "Inferred");
     assert_eq!(function.language, "sql");
 
