@@ -277,6 +277,13 @@ export const api = {
 				password: connection.password,
 				ssl: connection.ssl === 1,
 				filePath: connection.file_path,
+				sshEnabled: connection.ssh_enabled === 1,
+				sshHost: connection.ssh_host,
+				sshPort: connection.ssh_port,
+				sshUser: connection.ssh_user,
+				sshPassword: connection.ssh_password,
+				sshKeyPath: connection.ssh_key_path,
+				sshUseKey: connection.ssh_use_key === 1,
 			}),
 
 		listTables: (connection: Connection) =>
