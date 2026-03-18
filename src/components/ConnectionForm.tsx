@@ -474,6 +474,11 @@ export function ConnectionForm({
 				</div>
 			</Field>
 
+		</>
+	);
+
+	const renderSecurityFields = () => (
+		<div className="space-y-4">
 			<Field orientation="horizontal">
 				<Switch
 					id="connection-ssl"
@@ -488,7 +493,7 @@ export function ConnectionForm({
 				</FieldLabel>
 			</Field>
 
-			<div className="border-t pt-4 mt-2">
+			<div className="border-t pt-4">
 				<Field orientation="horizontal">
 					<Switch
 						id="connection-ssh-enabled"
@@ -646,7 +651,7 @@ export function ConnectionForm({
 					</div>
 				)}
 			</div>
-		</>
+		</div>
 	);
 
 	return (
@@ -768,45 +773,51 @@ export function ConnectionForm({
 
 						{formData.type !== "sqlite" &&
 							(formData.type === "postgres" || formData.type === "redis" ? (
-								<Tabs
-									value={connectionTab}
-									onValueChange={(value) =>
-										setConnectionTab(value as "inputs" | "url")
-									}
-									className="gap-3"
-								>
-									<TabsList variant="line">
-										<TabsTrigger value="inputs">Inputs</TabsTrigger>
-										<TabsTrigger value="url">URL</TabsTrigger>
-									</TabsList>
-									<TabsContent value="inputs" className="space-y-4">
-										{renderServerFields()}
-									</TabsContent>
-									<TabsContent value="url" className="space-y-3">
-										<Field>
-											<FieldLabel htmlFor="connection-url">
-												Connection URL
-											</FieldLabel>
-											<Input
-												id="connection-url"
-												type="text"
-												value={connectionUrl}
-												onChange={(e) => setConnectionUrl(e.target.value)}
-												placeholder={
-													formData.type === "postgres"
-														? "postgres://user:pass@host:5432/dbname"
-														: "redis://:password@host:6379/0"
-												}
-											/>
-										</Field>
-										<p className="text-xs text-muted-foreground">
-											Use a full connection string to populate the input
-											fields.
-										</p>
-									</TabsContent>
-								</Tabs>
+								<>
+									<Tabs
+										value={connectionTab}
+										onValueChange={(value) =>
+											setConnectionTab(value as "inputs" | "url")
+										}
+										className="gap-3"
+									>
+										<TabsList variant="line">
+											<TabsTrigger value="inputs">Inputs</TabsTrigger>
+											<TabsTrigger value="url">URL</TabsTrigger>
+										</TabsList>
+										<TabsContent value="inputs" className="space-y-4">
+											{renderServerFields()}
+										</TabsContent>
+										<TabsContent value="url" className="space-y-3">
+											<Field>
+												<FieldLabel htmlFor="connection-url">
+													Connection URL
+												</FieldLabel>
+												<Input
+													id="connection-url"
+													type="text"
+													value={connectionUrl}
+													onChange={(e) => setConnectionUrl(e.target.value)}
+													placeholder={
+														formData.type === "postgres"
+															? "postgres://user:pass@host:5432/dbname"
+															: "redis://:password@host:6379/0"
+													}
+												/>
+											</Field>
+											<p className="text-xs text-muted-foreground">
+												Use a full connection string to populate the input
+												fields.
+											</p>
+										</TabsContent>
+									</Tabs>
+									{renderSecurityFields()}
+								</>
 							) : (
-								renderServerFields()
+								<>
+									{renderServerFields()}
+									{renderSecurityFields()}
+								</>
 							))}
 					</FieldGroup>
 
