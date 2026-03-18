@@ -25,10 +25,22 @@ permissions:
   contents: write
 
 jobs:
-  macos:
+  publish:
     permissions:
       contents: write
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-26
+            args: '--target aarch64-apple-darwin'
+            rust_targets: aarch64-apple-darwin
+            install_linux_deps: false
+          - platform: ubuntu-latest
+            args: '--target x86_64-unknown-linux-gnu'
+            rust_targets: x86_64-unknown-linux-gnu
+            install_linux_deps: true
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Resolve tag
@@ -57,12 +69,18 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.rust_targets }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+
+      - name: Install Linux dependencies
+        if: matrix.install_linux_deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
         run: bun install
@@ -78,4 +96,4 @@ jobs:
           releaseBody: 'See the assets to download this version and install.'
           releaseDraft: true
           prerelease: false
-          args: '--target aarch64-apple-darwin'
+          args: ${{ matrix.args }}
