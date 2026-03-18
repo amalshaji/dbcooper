@@ -534,7 +534,7 @@ export function ObjectExplorer({
 					</div>
 					<Select
 						value={selectedSchema}
-						onValueChange={setSelectedSchemaPreference}
+						onValueChange={(v) => setSelectedSchemaPreference(v || "")}
 					>
 						<SelectTrigger size="sm" className="w-full justify-between">
 							<SelectValue />

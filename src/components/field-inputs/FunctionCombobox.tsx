@@ -6,7 +6,7 @@ import {
 	ComboboxItem,
 } from "@/components/ui/combobox";
 import { Code } from "@phosphor-icons/react";
-import { isSqlFunction } from "@/lib/sqlFunctions";
+
 
 interface FunctionComboboxProps {
 	value: string;
@@ -49,7 +49,7 @@ export function FunctionCombobox({
 	return (
 		<Combobox
 			value={value}
-			onValueChange={handleSelectFromDropdown}
+			onValueChange={(v) => handleSelectFromDropdown(v || "")}
 		>
 			<ComboboxInput
 				type={inputType}

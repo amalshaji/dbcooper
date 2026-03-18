@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/tauri";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 
 interface TableSchema {
   schema: string;
@@ -29,9 +29,7 @@ interface AiErrorPayload {
 }
 
 // Global listener management to prevent duplicates in React Strict Mode
-let globalUnlistenChunk: UnlistenFn | null = null;
-let globalUnlistenDone: UnlistenFn | null = null;
-let globalUnlistenError: UnlistenFn | null = null;
+// Global listener management to prevent duplicates in React Strict Mode
 let listenerSessionId: string | null = null;
 let listenerOnStream: ((chunk: string) => void) | null = null;
 let listenerResolve: (() => void) | null = null;
@@ -42,13 +40,13 @@ async function setupGlobalListeners() {
   if (listenersSetup) return;
   listenersSetup = true;
 
-  globalUnlistenChunk = await listen<AiChunkPayload>("ai-chunk", (event) => {
+  await listen<AiChunkPayload>("ai-chunk", (event) => {
     if (event.payload.session_id === listenerSessionId && listenerOnStream) {
       listenerOnStream(event.payload.chunk);
     }
   });
 
-  globalUnlistenDone = await listen<AiDonePayload>("ai-done", (event) => {
+  await listen<AiDonePayload>("ai-done", (event) => {
     if (event.payload.session_id === listenerSessionId) {
       listenerSessionId = null;
       if (listenerResolve) {
@@ -58,7 +56,7 @@ async function setupGlobalListeners() {
     }
   });
 
-  globalUnlistenError = await listen<AiErrorPayload>("ai-error", (event) => {
+  await listen<AiErrorPayload>("ai-error", (event) => {
     if (event.payload.session_id === listenerSessionId) {
       listenerSessionId = null;
       if (listenerReject) {
