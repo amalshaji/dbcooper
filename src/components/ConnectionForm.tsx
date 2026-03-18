@@ -90,7 +90,7 @@ const defaultFormData: ConnectionFormData = {
 	username: "",
 	password: "",
 	ssl: false,
-	db_type: "postgres",
+	dbType: "postgres",
 	file_path: undefined,
 	ssh_enabled: false,
 	ssh_host: "",
@@ -130,7 +130,7 @@ export function ConnectionForm({
 				username: initialData.username,
 				password: initialData.password,
 				ssl: initialData.ssl === 1,
-				db_type: initialData.db_type || "postgres",
+				dbType: initialData.db_type || "postgres",
 				file_path: initialData.file_path || undefined,
 				ssh_enabled: initialData.ssh_enabled === 1,
 				ssh_host: initialData.ssh_host || "",
@@ -151,7 +151,7 @@ export function ConnectionForm({
 		setFormData({
 			...formData,
 			type,
-			db_type: type,
+			dbType: type,
 			port: defaultPorts[type],
 		});
 		setConnectionTab("inputs");
@@ -301,7 +301,7 @@ export function ConnectionForm({
 							username: formData.username,
 							password: formData.password,
 							ssl: formData.ssl ? 1 : 0,
-							db_type: formData.db_type,
+							db_type: formData.dbType,
 							file_path: formData.file_path || null,
 							ssh_enabled: formData.ssh_enabled ? 1 : 0,
 							ssh_host: formData.ssh_host || "",
