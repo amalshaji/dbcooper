@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+default-run = "dbcooper"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -51,9 +52,15 @@ reqwest = { version = "0.12", features = [
     "stream",
 ], default-features = false }
 futures-util = "0.3"
+rmcp = { version = "1", features = ["server", "transport-io"] }
+clap = { version = "4", features = ["derive"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+[[bin]]
+name = "dbcooper-mcp"
+path = "src/bin/dbcooper-mcp.rs"
 
 [dev-dependencies]
 tempfile = "3"
