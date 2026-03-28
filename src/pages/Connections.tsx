@@ -193,10 +193,14 @@ export function Connections() {
 				created_at,
 				updated_at,
 				ssh_use_key,
+				db_type,
+				file_path,
 				...connectionData
 			} = connection;
 			const duplicatedData: ConnectionFormData = {
 				...connectionData,
+				dbType: db_type,
+				file_path: file_path === null ? undefined : file_path,
 				name: `${name} (Copy)`,
 				ssl: Boolean(connection.ssl),
 				ssh_enabled: connection.ssh_enabled

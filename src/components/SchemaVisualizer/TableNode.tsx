@@ -1,9 +1,9 @@
 import { memo, useMemo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { Badge } from "@/components/ui/badge";
 import type { TableColumn, ForeignKeyInfo } from "@/types/tabTypes";
 
-interface TableNodeData {
+interface TableNodeData extends Record<string, unknown> {
 	tableName: string;
 	schema: string;
 	columns: TableColumn[];
@@ -16,7 +16,7 @@ interface TableNodeData {
 const HEADER_HEIGHT = 36;
 const ROW_HEIGHT = 36;
 
-export const TableNode = memo(({ data }: NodeProps<TableNodeData>) => {
+export const TableNode = memo(({ data }: NodeProps<Node<TableNodeData, "tableNode">>) => {
 	const {
 		tableName,
 		schema,

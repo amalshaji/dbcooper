@@ -38,21 +38,23 @@ interface FieldValue {
 }
 
 function isAutoIncrementColumn(column: TableColumn): boolean {
-	const hasDefault =
+	const hasDefault = Boolean(
 		column.default &&
 		column.default.toLowerCase() !== "null" &&
-		column.default.trim() !== "";
-	const defaultLower = hasDefault ? column.default.toLowerCase() : "";
-	const defaultIsFunction =
+		column.default.trim() !== ""
+	);
+	const defaultLower = (hasDefault && column.default) ? column.default.toLowerCase() : "";
+	const defaultIsFunction = Boolean(
 		hasDefault &&
 		(defaultLower.includes("nextval") ||
 			defaultLower.includes("gen_random_uuid") ||
 			defaultLower.includes("uuid_generate") ||
 			defaultLower.includes("generateuuid") ||
 			defaultLower.includes("::regclass") ||
-			defaultLower.includes("::text"));
+			defaultLower.includes("::text"))
+	);
 
-	return (
+	return Boolean(
 		column.type.toLowerCase().includes("serial") ||
 		column.type.toLowerCase().includes("autoincrement") ||
 		(column.primary_key && defaultIsFunction) ||

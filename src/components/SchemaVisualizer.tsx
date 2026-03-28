@@ -70,7 +70,7 @@ function getLayoutedElements(
 	const referencedColumnsMap = new Map<string, Set<string>>();
 
 	tables.forEach((table) => {
-		const fullName = `${table.schema}.${table.name}`;
+
 		table.foreign_keys.forEach((fk) => {
 			const targetTable = `${table.schema}.${fk.references_table}`;
 			if (!referencedColumnsMap.has(targetTable)) {
@@ -487,6 +487,7 @@ export function SchemaVisualizer({
 						</div>
 						<div className="flex items-center gap-2">
 							<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
+								{/* @ts-ignore */}
 								<SheetTrigger asChild>
 									<Button variant="outline" size="sm">
 										<Funnel className="w-4 h-4" />
@@ -618,6 +619,7 @@ export function SchemaVisualizer({
 					</div>
 					<div className="flex items-center gap-2">
 						<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
+							{/* @ts-ignore */}
 							<SheetTrigger asChild>
 								<Button variant="outline" size="sm">
 									<Funnel className="w-4 h-4" />
