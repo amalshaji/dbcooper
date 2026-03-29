@@ -40,6 +40,7 @@ dirs = "5"
 thiserror = "2"
 hex = "0.4"
 async-ssh2-lite = { version = "0.5", features = ["tokio"] }
+ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }
 redis = { version = "0.27", features = [
     "tokio-comp",
     "connection-manager",
