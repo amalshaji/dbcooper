@@ -90,7 +90,7 @@ const defaultFormData: ConnectionFormData = {
 	username: "",
 	password: "",
 	ssl: false,
-	dbType: "postgres",
+	db_type: "postgres",
 	file_path: undefined,
 	ssh_enabled: false,
 	ssh_host: "",
@@ -130,7 +130,7 @@ export function ConnectionForm({
 				username: initialData.username,
 				password: initialData.password,
 				ssl: initialData.ssl === 1,
-				dbType: initialData.db_type || "postgres",
+				db_type: initialData.db_type || "postgres",
 				file_path: initialData.file_path || undefined,
 				ssh_enabled: initialData.ssh_enabled === 1,
 				ssh_host: initialData.ssh_host || "",
@@ -151,18 +151,18 @@ export function ConnectionForm({
 		setFormData({
 			...formData,
 			type,
-			dbType: type,
+			db_type: type,
 			port: defaultPorts[type],
 		});
 		setConnectionTab("inputs");
 		setConnectionUrl("");
 	};
 
-	const applyConnectionUrl = (): boolean => {
+	const applyConnectionUrl = (): ConnectionFormData | null => {
 		const rawUrl = connectionUrl.trim();
 		if (!rawUrl) {
 			toast.error("Please enter a connection URL");
-			return false;
+			return null;
 		}
 
 		let parsedUrl: URL;
@@ -170,7 +170,7 @@ export function ConnectionForm({
 			parsedUrl = new URL(rawUrl);
 		} catch {
 			toast.error("Invalid connection URL");
-			return false;
+			return null;
 		}
 
 		if (formData.type === "postgres") {
@@ -179,19 +179,19 @@ export function ConnectionForm({
 				parsedUrl.protocol !== "postgresql:"
 			) {
 				toast.error("PostgreSQL URL must start with postgres://");
-				return false;
+				return null;
 			}
 
 			const host = parsedUrl.hostname;
 			if (!host) {
 				toast.error("PostgreSQL URL must include a host");
-				return false;
+				return null;
 			}
 
 			const database = parsedUrl.pathname.replace(/^\/+/, "");
 			if (!database) {
 				toast.error("PostgreSQL URL must include a database name");
-				return false;
+				return null;
 			}
 
 			const port = parsedUrl.port
@@ -199,14 +199,14 @@ export function ConnectionForm({
 				: defaultPorts.postgres;
 			if (!Number.isFinite(port) || port <= 0) {
 				toast.error("Invalid PostgreSQL port in URL");
-				return false;
+				return null;
 			}
 
 			const sslmode = parsedUrl.searchParams.get("sslmode");
 			const ssl =
 				sslmode === null ? formData.ssl : sslmode.toLowerCase() !== "disable";
 
-			setFormData({
+			const newData: ConnectionFormData = {
 				...formData,
 				host,
 				port,
@@ -214,21 +214,22 @@ export function ConnectionForm({
 				username: decodeURIComponent(parsedUrl.username || ""),
 				password: decodeURIComponent(parsedUrl.password || ""),
 				ssl,
-			});
+			};
+			setFormData(newData);
 			toast.success("PostgreSQL URL applied");
-			return true;
+			return newData;
 		}
 
 		if (formData.type === "redis") {
 			if (parsedUrl.protocol !== "redis:" && parsedUrl.protocol !== "rediss:") {
 				toast.error("Redis URL must start with redis://");
-				return false;
+				return null;
 			}
 
 			const host = parsedUrl.hostname;
 			if (!host) {
 				toast.error("Redis URL must include a host");
-				return false;
+				return null;
 			}
 
 			const port = parsedUrl.port
@@ -236,7 +237,7 @@ export function ConnectionForm({
 				: defaultPorts.redis;
 			if (!Number.isFinite(port) || port <= 0) {
 				toast.error("Invalid Redis port in URL");
-				return false;
+				return null;
 			}
 
 			const databasePath = parsedUrl.pathname.replace(/^\/+/, "");
@@ -244,19 +245,19 @@ export function ConnectionForm({
 			if (databasePath) {
 				if (!/^\d+$/.test(databasePath)) {
 					toast.error("Redis database index must be a number (0-15)");
-					return false;
+					return null;
 				}
 				const databaseIndex = Number(databasePath);
 				if (databaseIndex < 0 || databaseIndex > 15) {
 					toast.error("Redis database index must be between 0 and 15");
-					return false;
+					return null;
 				}
 				database = String(databaseIndex);
 			}
 
 			const ssl = parsedUrl.protocol === "rediss:" ? true : formData.ssl;
 
-			setFormData({
+			const newData: ConnectionFormData = {
 				...formData,
 				host,
 				port,
@@ -264,69 +265,70 @@ export function ConnectionForm({
 				username: decodeURIComponent(parsedUrl.username || ""),
 				password: decodeURIComponent(parsedUrl.password || ""),
 				ssl,
-			});
+			};
+			setFormData(newData);
 			toast.success("Redis URL applied");
-			return true;
+			return newData;
 		}
 
-		return false;
+		return null;
 	};
 
 	const handleTestConnection = async () => {
 		setIsTesting(true);
 		try {
+			let activeData = formData;
 			if (
 				(formData.type === "postgres" || formData.type === "redis") &&
-				connectionTab === "url" &&
-				connectionUrl.trim().length > 0
+				connectionTab === "url"
 			) {
-				const applied = applyConnectionUrl();
-				if (!applied) {
+				const parsed = applyConnectionUrl();
+				if (!parsed) {
 					return;
 				}
+				activeData = parsed;
 			}
-			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
 			const result =
-				formData.type === "redis" ||
-				formData.type === "sqlite" ||
-				formData.type === "clickhouse"
+				activeData.type === "redis" ||
+				activeData.type === "sqlite" ||
+				activeData.type === "clickhouse"
 					? await api.database.testConnection({
 							id: 0,
 							uuid: "",
-							type: formData.type,
-							name: formData.name,
-							host: formData.host,
-							port: formData.port,
-							database: formData.database,
-							username: formData.username,
-							password: formData.password,
-							ssl: formData.ssl ? 1 : 0,
-							db_type: formData.dbType,
-							file_path: formData.file_path || null,
-							ssh_enabled: formData.ssh_enabled ? 1 : 0,
-							ssh_host: formData.ssh_host || "",
-							ssh_port: formData.ssh_port || 22,
-							ssh_user: formData.ssh_user || "",
-							ssh_password: formData.ssh_password || "",
-							ssh_key_path: formData.ssh_key_path || "",
-							ssh_use_key: formData.ssh_use_key ? 1 : 0,
+							type: activeData.type,
+							name: activeData.name,
+							host: activeData.host,
+							port: activeData.port,
+							database: activeData.database,
+							username: activeData.username,
+							password: activeData.password,
+							ssl: activeData.ssl ? 1 : 0,
+							db_type: activeData.db_type,
+							file_path: activeData.file_path || null,
+							ssh_enabled: activeData.ssh_enabled ? 1 : 0,
+							ssh_host: activeData.ssh_host || "",
+							ssh_port: activeData.ssh_port || 22,
+							ssh_user: activeData.ssh_user || "",
+							ssh_password: activeData.ssh_password || "",
+							ssh_key_path: activeData.ssh_key_path || "",
+							ssh_use_key: activeData.ssh_use_key ? 1 : 0,
 							created_at: "",
 							updated_at: "",
 						})
 					: await api.postgres.testConnection({
-							host: formData.host,
-							port: formData.port,
-							database: formData.database,
-							username: formData.username,
-							password: formData.password,
-							ssl: formData.ssl,
-							ssh_enabled: formData.ssh_enabled,
-							ssh_host: formData.ssh_host,
-							ssh_port: formData.ssh_port,
-							ssh_user: formData.ssh_user,
-							ssh_password: formData.ssh_password,
-							ssh_key_path: formData.ssh_key_path,
-							ssh_use_key: formData.ssh_use_key,
+							host: activeData.host,
+							port: activeData.port,
+							database: activeData.database,
+							username: activeData.username,
+							password: activeData.password,
+							ssl: activeData.ssl,
+							ssh_enabled: activeData.ssh_enabled,
+							ssh_host: activeData.ssh_host,
+							ssh_port: activeData.ssh_port,
+							ssh_user: activeData.ssh_user,
+							ssh_password: activeData.ssh_password,
+							ssh_key_path: activeData.ssh_key_path,
+							ssh_use_key: activeData.ssh_use_key,
 						});
 
 			if (result.success) {
@@ -345,17 +347,18 @@ export function ConnectionForm({
 		e.preventDefault();
 		setIsSubmitting(true);
 		try {
+			let activeData = formData;
 			if (
 				(formData.type === "postgres" || formData.type === "redis") &&
-				connectionTab === "url" &&
-				connectionUrl.trim().length > 0
+				connectionTab === "url"
 			) {
-				const applied = applyConnectionUrl();
-				if (!applied) {
+				const parsed = applyConnectionUrl();
+				if (!parsed) {
 					return;
 				}
+				activeData = parsed;
 			}
-			await onSubmit(formData);
+			await onSubmit(activeData);
 			if (!isEditMode) {
 				setFormData(defaultFormData);
 			}

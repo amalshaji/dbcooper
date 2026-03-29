@@ -35,7 +35,7 @@ export interface ConnectionFormData {
 	username: string;
 	password: string;
 	ssl: boolean;
-	dbType: string;
+	db_type: string;
 	file_path?: string;
 	ssh_enabled?: boolean;
 	ssh_host?: string;

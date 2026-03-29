@@ -199,7 +199,7 @@ export function Connections() {
 			} = connection;
 			const duplicatedData: ConnectionFormData = {
 				...connectionData,
-				dbType: db_type,
+				db_type,
 				file_path: file_path === null ? undefined : file_path,
 				name: `${name} (Copy)`,
 				ssl: Boolean(connection.ssl),
