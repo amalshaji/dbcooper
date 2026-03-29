@@ -79,3 +79,53 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: '--target aarch64-apple-darwin'
+
+      - name: Validate bundled macOS libraries
+        run: |
+          set -euo pipefail
+
+          app_path="$(find src-tauri/target -path '*/bundle/macos/*.app' | head -n 1)"
+          if [ -z "$app_path" ]; then
+            echo "Could not find bundled macOS app"
+            exit 1
+          fi
+
+          scan_dirs=(
+            "$app_path/Contents/MacOS"
+            "$app_path/Contents/Frameworks"
+            "$app_path/Contents/Libraries"
+            "$app_path/Contents/Plugins"
+          )
+
+          checked=0
+          while IFS= read -r binary; do
+            checked=$((checked + 1))
+            echo "Inspecting $binary"
+            links="$(otool -L "$binary")"
+            echo "$links"
+
+            if echo "$links" | grep -E '(/opt/homebrew|/usr/local/Cellar)'; then
+              echo "Found Homebrew-linked library in $binary"
+              exit 1
+            fi
+
+            if echo "$links" | grep -E '(/(opt/homebrew|usr/local/Cellar).*(libssl|libcrypto)|(^|[[:space:]])(libssl|libcrypto)\.)'; then
+              echo "Found non-system OpenSSL linkage in $binary"
+              exit 1
+            fi
+          done < <(
+            for dir in "${scan_dirs[@]}"; do
+              if [ -d "$dir" ]; then
+                find "$dir" -type f -print0
+              fi
+            done | while IFS= read -r -d '' candidate; do
+              if file "$candidate" | grep -q 'Mach-O'; then
+                printf '%s\n' "$candidate"
+              fi
+            done
+          )
+
+          if [ "$checked" -eq 0 ]; then
+            echo "No Mach-O binaries found in bundle to inspect"
+            exit 1
+          fi
