@@ -172,6 +172,10 @@ impl PoolManager {
                 let redis_config = RedisConfig {
                     host: effective_host,
                     port: effective_port,
+                    username: config
+                        .username
+                        .clone()
+                        .filter(|username| !username.is_empty()),
                     password: config.password.clone(),
                     db: config.database.clone().and_then(|d| d.parse().ok()),
                     tls: config.ssl.unwrap_or(false),

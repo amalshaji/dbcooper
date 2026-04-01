@@ -118,6 +118,7 @@ async fn create_driver_with_ssh(
             let config = RedisConfig {
                 host: effective_host,
                 port: effective_port,
+                username: username.filter(|username| !username.is_empty()),
                 password,
                 db: database.and_then(|d| d.parse().ok()),
                 tls: ssl.unwrap_or(false),
@@ -174,6 +175,7 @@ fn create_driver(
             let config = RedisConfig {
                 host: host.unwrap_or_default(),
                 port: port.unwrap_or(6379),
+                username: username.filter(|username| !username.is_empty()),
                 password,
                 db: database.and_then(|d| d.parse().ok()),
                 tls: ssl.unwrap_or(false),
@@ -215,8 +217,21 @@ pub async fn unified_test_connection(
     ssh_use_key: Option<bool>,
 ) -> Result<TestConnectionResult, String> {
     let (driver, _tunnel) = match create_driver_with_ssh(
-        &db_type, host, port, database, username, password, ssl, file_path,
-        ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key,
+        &db_type,
+        host,
+        port,
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+        ssh_enabled,
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        ssh_password,
+        ssh_key_path,
+        ssh_use_key,
     )
     .await
     {
@@ -878,6 +893,11 @@ async fn get_redis_config_from_uuid(
     let config = RedisConfig {
         host: conn.host.clone(),
         port: conn.port,
+        username: if conn.username.is_empty() {
+            None
+        } else {
+            Some(conn.username.clone())
+        },
         password: if conn.password.is_empty() {
             None
         } else {

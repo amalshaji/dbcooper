@@ -79,6 +79,7 @@ pub struct SqliteConfig {
 pub struct RedisConfig {
     pub host: String,
     pub port: i64,
+    pub username: Option<String>,
     pub password: Option<String>,
     pub db: Option<i64>,
     pub tls: bool,
