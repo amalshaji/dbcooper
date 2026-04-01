@@ -332,10 +332,17 @@ export function Connections() {
 								icon={<Database className="w-16 h-16" />}
 								title="No connections yet"
 								description="Get started by creating your first database connection. You can connect to PostgreSQL, MySQL, SQLite, or Redis."
-								action={{
-									label: "Create Connection",
-									onClick: () => setIsFormOpen(true),
-								}}
+								actions={[
+									{
+										label: "Import Connections",
+										onClick: handleImportConnections,
+										variant: "outline",
+									},
+									{
+										label: "Create Connection",
+										onClick: () => setIsFormOpen(true),
+									},
+								]}
 							/>
 						</div>
 					) : (
