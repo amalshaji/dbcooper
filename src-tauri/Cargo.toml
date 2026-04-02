@@ -52,6 +52,9 @@ reqwest = { version = "0.12", features = [
     "stream",
 ], default-features = false }
 futures-util = "0.3"
+rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
+axum = "0.8"
+tokio-util = "0.7"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
