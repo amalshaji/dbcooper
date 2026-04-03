@@ -206,10 +206,28 @@ pub async fn unified_test_connection(
     password: Option<String>,
     ssl: Option<bool>,
     file_path: Option<String>,
+    ssh_enabled: Option<bool>,
+    ssh_host: Option<String>,
+    ssh_port: Option<i64>,
+    ssh_user: Option<String>,
+    ssh_password: Option<String>,
+    ssh_key_path: Option<String>,
+    ssh_use_key: Option<bool>,
 ) -> Result<TestConnectionResult, String> {
-    let driver = create_driver(
+    let (driver, _tunnel) = match create_driver_with_ssh(
         &db_type, host, port, database, username, password, ssl, file_path,
-    )?;
+        ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(e) => {
+            return Ok(TestConnectionResult {
+                success: false,
+                message: e,
+            })
+        }
+    };
     driver.test_connection().await
 }
 
