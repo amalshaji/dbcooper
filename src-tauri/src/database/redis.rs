@@ -54,27 +54,49 @@ impl RedisDriver {
         }
     }
 
-    /// Build Redis connection string
-    fn build_connection_string(&self) -> String {
-        let mut auth = String::new();
-        if let Some(password) = &self.config.password {
-            if !password.is_empty() {
-                auth = format!(":{}@", password);
+    fn build_connection_info(&self) -> Result<redis::ConnectionInfo, String> {
+        self.build_connection_info_with_host(&self.config.host, self.config.port)
+    }
+
+    fn build_connection_info_with_host(
+        &self,
+        host: &str,
+        port: i64,
+    ) -> Result<redis::ConnectionInfo, String> {
+        let port = u16::try_from(port).map_err(|_| format!("Invalid Redis port: {}", port))?;
+
+        let addr = if self.config.tls {
+            redis::ConnectionAddr::TcpTls {
+                host: host.to_string(),
+                port,
+                insecure: false,
+                tls_params: None,
             }
-        }
+        } else {
+            redis::ConnectionAddr::Tcp(host.to_string(), port)
+        };
 
-        let db = self.config.db.unwrap_or(0);
-        let scheme = if self.config.tls { "rediss" } else { "redis" };
+        let redis = redis::RedisConnectionInfo {
+            db: self.config.db.unwrap_or(0),
+            username: self
+                .config
+                .username
+                .clone()
+                .filter(|username| !username.is_empty()),
+            password: self
+                .config
+                .password
+                .clone()
+                .filter(|password| !password.is_empty()),
+            ..Default::default()
+        };
 
-        format!(
-            "{}://{}{}:{}/{}",
-            scheme, auth, self.config.host, self.config.port, db
-        )
+        Ok(redis::ConnectionInfo { addr, redis })
     }
 
     /// Create a new Redis connection
     async fn create_connection(&self) -> Result<redis::aio::MultiplexedConnection, String> {
-        let client = redis::Client::open(self.build_connection_string())
+        let client = redis::Client::open(self.build_connection_info()?)
             .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         // Use a 10 second timeout for connection
@@ -148,31 +170,16 @@ impl RedisDriver {
         format!("Failed to {}: {}", operation, error_str)
     }
 
-    /// Get connection string for SSH tunnel
-    fn build_connection_string_with_host(&self, host: &str, port: u16) -> String {
-        let mut auth = String::new();
-        if let Some(password) = &self.config.password {
-            if !password.is_empty() {
-                auth = format!(":{}@", password);
-            }
-        }
-
-        let db = self.config.db.unwrap_or(0);
-        let scheme = if self.config.tls { "rediss" } else { "redis" };
-
-        format!("{}://{}{}:{}/{}", scheme, auth, host, port, db)
-    }
-
     /// Create connection with SSH tunnel support
     #[allow(dead_code)]
     async fn get_connection_with_tunnel(
         &self,
         tunnel: &SshTunnel,
     ) -> Result<redis::aio::MultiplexedConnection, String> {
-        let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
-
-        let client = redis::Client::open(conn_str)
-            .map_err(|e| format!("Failed to create Redis client: {}", e))?;
+        let client = redis::Client::open(
+            self.build_connection_info_with_host("127.0.0.1", i64::from(tunnel.local_port))?,
+        )
+        .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         client
             .get_multiplexed_async_connection()
@@ -230,6 +237,98 @@ impl RedisDriver {
             redis::Value::Set(set) => Some(set.len()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn driver(config: RedisConfig) -> RedisDriver {
+        RedisDriver::new(config)
+    }
+
+    #[test]
+    fn build_connection_info_without_auth() {
+        let driver = driver(RedisConfig {
+            host: "localhost".to_string(),
+            port: 6379,
+            username: None,
+            password: None,
+            db: Some(0),
+            tls: false,
+        });
+
+        let info = driver.build_connection_info().unwrap();
+
+        assert!(matches!(
+            info.addr,
+            redis::ConnectionAddr::Tcp(ref host, 6379) if host == "localhost"
+        ));
+        assert_eq!(info.redis.db, 0);
+        assert_eq!(info.redis.username, None);
+        assert_eq!(info.redis.password, None);
+    }
+
+    #[test]
+    fn build_connection_info_with_password_only_auth() {
+        let driver = driver(RedisConfig {
+            host: "cache.example.com".to_string(),
+            port: 6380,
+            username: Some(String::new()),
+            password: Some("secret".to_string()),
+            db: Some(4),
+            tls: false,
+        });
+
+        let info = driver.build_connection_info().unwrap();
+
+        assert_eq!(info.redis.db, 4);
+        assert_eq!(info.redis.username, None);
+        assert_eq!(info.redis.password.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn build_connection_info_with_acl_auth_and_tls() {
+        let driver = driver(RedisConfig {
+            host: "cache.example.com".to_string(),
+            port: 6380,
+            username: Some("app-user".to_string()),
+            password: Some("secret".to_string()),
+            db: Some(7),
+            tls: true,
+        });
+
+        let info = driver.build_connection_info().unwrap();
+
+        assert!(matches!(
+            info.addr,
+            redis::ConnectionAddr::TcpTls {
+                ref host,
+                port: 6380,
+                insecure: false,
+                tls_params: None,
+            } if host == "cache.example.com"
+        ));
+        assert_eq!(info.redis.db, 7);
+        assert_eq!(info.redis.username.as_deref(), Some("app-user"));
+        assert_eq!(info.redis.password.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn build_connection_info_rejects_invalid_port() {
+        let driver = driver(RedisConfig {
+            host: "localhost".to_string(),
+            port: 100_000,
+            username: None,
+            password: None,
+            db: None,
+            tls: false,
+        });
+
+        let error = driver.build_connection_info().unwrap_err();
+
+        assert!(error.contains("Invalid Redis port"));
     }
 }
 
@@ -911,10 +1010,10 @@ impl RedisDriver {
         F: Fn(u32, u32, usize, &[String]),
     {
         let start_time = std::time::Instant::now();
-        let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
-
-        let client = redis::Client::open(conn_str)
-            .map_err(|e| format!("Failed to create Redis client: {}", e))?;
+        let client = redis::Client::open(
+            self.build_connection_info_with_host("127.0.0.1", i64::from(tunnel.local_port))?,
+        )
+        .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
             .get_multiplexed_async_connection()
@@ -986,10 +1085,10 @@ impl RedisDriver {
         tunnel: &SshTunnel,
         key: &str,
     ) -> Result<RedisKeyDetails, String> {
-        let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
-
-        let client = redis::Client::open(conn_str)
-            .map_err(|e| format!("Failed to create Redis client: {}", e))?;
+        let client = redis::Client::open(
+            self.build_connection_info_with_host("127.0.0.1", i64::from(tunnel.local_port))?,
+        )
+        .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
             .get_multiplexed_async_connection()
@@ -1074,10 +1173,10 @@ impl RedisDriver {
         &self,
         tunnel: &SshTunnel,
     ) -> Result<TestConnectionResult, String> {
-        let conn_str = self.build_connection_string_with_host("127.0.0.1", tunnel.local_port);
-
-        let client = redis::Client::open(conn_str)
-            .map_err(|e| format!("Failed to create Redis client: {}", e))?;
+        let client = redis::Client::open(
+            self.build_connection_info_with_host("127.0.0.1", i64::from(tunnel.local_port))?,
+        )
+        .map_err(|e| format!("Failed to create Redis client: {}", e))?;
 
         let mut conn = client
             .get_multiplexed_async_connection()
