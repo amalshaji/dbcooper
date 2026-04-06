@@ -411,7 +411,7 @@ export function ConnectionDetails() {
 								key,
 								key_type: "",
 								ttl: -2,
-								size: null,
+								size: undefined,
 							}));
 							return [...(prev || []), ...newKeys];
 						});
@@ -2827,7 +2827,7 @@ export function ConnectionDetails() {
 											tab.resultBaseQuery ? handleQuerySortChange : undefined
 										}
 										onRowClick={(row) => {
-											const index = tab.results.findIndex((r) => r === row);
+											const index = tab.results?.findIndex((r) => r === row) ?? -1;
 											setSelectedQueryRow({ row, index });
 											setQueryResultSheetOpen(true);
 										}}
