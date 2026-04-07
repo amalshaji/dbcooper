@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod database;
 pub mod db;
+pub mod mcp;
 mod ssh_tunnel;
 
 use commands::ai::{generate_sql, select_tables_for_query};
@@ -28,6 +29,8 @@ use commands::queries::{
     create_saved_query, delete_saved_query, get_saved_queries, update_saved_query,
 };
 use commands::settings::{get_all_settings, get_setting, set_setting};
+use std::sync::Arc;
+
 use database::pool_manager::PoolManager;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Manager, WebviewUrl};
@@ -143,10 +146,27 @@ pub fn run() {
             let pool = rt
                 .block_on(db::init_pool())
                 .expect("Failed to initialize database");
-            app.manage(pool);
+            app.manage(pool.clone());
 
-            // Initialize connection pool manager
-            app.manage(PoolManager::new());
+            // Initialize connection pool manager (shared between Tauri and MCP)
+            let pool_manager = Arc::new(PoolManager::new());
+            app.manage(pool_manager.clone());
+
+            // Start embedded MCP HTTP server
+            let mcp_pool = pool;
+            let mcp_pool_manager = pool_manager;
+            tauri::async_runtime::spawn(async move {
+                match mcp::server::start_mcp_server(mcp_pool, mcp_pool_manager, true).await {
+                    Ok(handle) => {
+                        eprintln!(
+                            "MCP server listening on http://127.0.0.1:{}/mcp",
+                            handle.port
+                        );
+                        handle.cancellation_token.cancelled().await;
+                    }
+                    Err(e) => eprintln!("Failed to start MCP server: {}", e),
+                }
+            });
 
             Ok(())
         })
