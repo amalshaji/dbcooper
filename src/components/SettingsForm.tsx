@@ -32,6 +32,10 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const [openaiEndpoint, setOpenaiEndpoint] = useState("");
 	const [openaiApiKey, setOpenaiApiKey] = useState("");
 	const [openaiModel, setOpenaiModel] = useState("gpt-4.1");
+	const [forgegraphServer, setForgegraphServer] = useState("");
+	const [forgegraphToken, setForgegraphToken] = useState("");
+	const [showForgegraphToken, setShowForgegraphToken] = useState(false);
+	const [testingForgegraph, setTestingForgegraph] = useState(false);
 
 	useEffect(() => {
 		loadSettings();
@@ -46,6 +50,8 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
 			setOpenaiModel(settings.openai_model || "gpt-4.1");
+			setForgegraphServer(settings.forgegraph_server || "");
+			setForgegraphToken(settings.forgegraph_token || "");
 		} catch (error) {
 			console.error("Failed to load settings:", error);
 		} finally {
@@ -64,6 +70,8 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			await api.settings.set("openai_endpoint", openaiEndpoint);
 			await api.settings.set("openai_api_key", openaiApiKey);
 			await api.settings.set("openai_model", openaiModel);
+			await api.settings.set("forgegraph_server", forgegraphServer);
+			await api.settings.set("forgegraph_token", forgegraphToken);
 
 			applyTheme(theme);
 			toast.success("Settings saved");
@@ -73,6 +81,20 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			toast.error("Failed to save settings");
 		} finally {
 			setSaving(false);
+		}
+	};
+
+	const handleTestForgegraph = async () => {
+		setTestingForgegraph(true);
+		try {
+			await api.settings.set("forgegraph_server", forgegraphServer);
+			await api.settings.set("forgegraph_token", forgegraphToken);
+			const services = await api.forgegraph.sync();
+			toast.success(`Connected — found ${services.length} service${services.length !== 1 ? "s" : ""}`);
+		} catch (error) {
+			toast.error(String(error));
+		} finally {
+			setTestingForgegraph(false);
 		}
 	};
 
@@ -208,6 +230,62 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 						</Button>
 					</div>
 				</div>
+			</div>
+
+			<div className="space-y-3">
+				<h3 className={headingSize}>ForgeGraph</h3>
+				<div className="space-y-2">
+					<Label htmlFor="forgegraph-server" className={compact ? "text-sm" : ""}>
+						Server URL
+					</Label>
+					<Input
+						id="forgegraph-server"
+						type="url"
+						placeholder="https://forgegraf.com"
+						value={forgegraphServer}
+						onChange={(e) => setForgegraphServer(e.target.value)}
+					/>
+				</div>
+				<div className="space-y-2">
+					<Label htmlFor="forgegraph-token" className={compact ? "text-sm" : ""}>
+						API Token
+					</Label>
+					<div className="relative">
+						<Input
+							id="forgegraph-token"
+							type={showForgegraphToken ? "text" : "password"}
+							placeholder="fg_..."
+							value={forgegraphToken}
+							onChange={(e) => setForgegraphToken(e.target.value)}
+							className="pr-10"
+						/>
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon"
+							className="absolute right-0 top-0 h-full"
+							onClick={() => setShowForgegraphToken(!showForgegraphToken)}
+						>
+							{showForgegraphToken ? (
+								<EyeSlash className="h-4 w-4" />
+							) : (
+								<Eye className="h-4 w-4" />
+							)}
+						</Button>
+					</div>
+				</div>
+				{forgegraphServer && forgegraphToken && (
+					<Button
+						type="button"
+						variant="outline"
+						size={compact ? "sm" : "default"}
+						onClick={handleTestForgegraph}
+						disabled={testingForgegraph}
+					>
+						{testingForgegraph && <Spinner />}
+						Test Connection
+					</Button>
+				)}
 			</div>
 
 			<div className={compact ? "pt-2" : "pt-4"}>

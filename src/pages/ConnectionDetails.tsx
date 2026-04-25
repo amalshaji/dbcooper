@@ -1,59 +1,48 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import {
+	ArrowLeft,
+	ArrowRight,
+	ArrowsClockwise,
+	CaretDown,
+	Check,
+	Code,
+	Copy,
+	Database,
+	DotsThreeVertical,
+	DownloadSimple,
+	FloppyDisk,
+	Gear,
+	Graph,
+	PaintBrush,
+	PlayCircle,
+	Plus,
+	Table,
+	X,
+} from "@phosphor-icons/react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { format as formatSQL } from "sql-formatter";
-import { useParams, useNavigate } from "react-router-dom";
-import {
-	type Tab,
-	type FunctionDefinitionTab,
-	type FunctionSummary,
-	type TableDataTab,
-	type TableStructureTab,
-	type QueryTab,
-	type SchemaVisualizerTab,
-	type TableColumn,
-	type TableStructureData,
-	type ForeignKeyInfo,
-	type SortConfig,
-	type SchemaOverview,
-	createFunctionDefinitionTab,
-	createTableDataTab,
-	createTableStructureTab,
-	createQueryTab,
-	createSchemaVisualizerTab,
-	formatFunctionSignature,
-} from "@/types/tabTypes";
-import type { DatabaseTable } from "@/types/table";
-import type { SavedQuery } from "@/types/savedQuery";
-import {
-	api,
-	type Connection,
-	type RedisKeyDetails,
-	type RedisKeyInfo,
-} from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
-import { PostgresqlIcon } from "@/components/icons/postgres";
-import { SqliteIcon } from "@/components/icons/sqlite";
-import { RedisIcon } from "@/components/icons/redis";
+import { format as formatSQL } from "sql-formatter";
+import { CommandPalette } from "@/components/CommandPalette";
+import { ConnectionStatus } from "@/components/ConnectionStatus";
+import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
+import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
+import { DataTable } from "@/components/DataTable";
+import { ExpandableText } from "@/components/ExpandableText";
+import { ForgeGraphTree } from "@/components/ForgeGraphTree";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@/components/ui/sheet";
+import { PostgresqlIcon } from "@/components/icons/postgres";
+import { RedisIcon } from "@/components/icons/redis";
+import { SqliteIcon } from "@/components/icons/sqlite";
+import { QueryResultSheet } from "@/components/QueryResultSheet";
+import { RedisKeySheet } from "@/components/RedisKeySheet";
+import { RowEditSheet } from "@/components/RowEditSheet";
+import { RowInsertSheet } from "@/components/RowInsertSheet";
+import { SchemaVisualizer } from "@/components/SchemaVisualizer";
+import { SqlEditor } from "@/components/SqlEditor";
+import { TabBar } from "@/components/TabBar";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -64,28 +53,15 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-	Sidebar,
-	SidebarContent,
-	SidebarGroup,
-	SidebarGroupContent,
-	SidebarGroupLabel,
-	SidebarHeader,
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
-	SidebarProvider,
-	SidebarInset,
-	SidebarTrigger,
-	useSidebar,
-} from "@/components/ui/sidebar";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -93,47 +69,77 @@ import {
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
-	Table,
-	ArrowLeft,
-	ArrowRight,
-	Code,
-	DotsThreeVertical,
-	FloppyDisk,
-	ArrowsClockwise,
-	Database,
-	CaretDown,
-	DownloadSimple,
-	Graph,
-	X,
-	PlayCircle,
-	Check,
-	Copy,
-	Plus,
-	PaintBrush,
-	Gear,
-} from "@phosphor-icons/react";
-import { DataTable } from "@/components/DataTable";
-import type { ColumnDef } from "@tanstack/react-table";
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetHeader,
+	SheetTitle,
+} from "@/components/ui/sheet";
+import {
+	Sidebar,
+	SidebarContent,
+	SidebarGroup,
+	SidebarGroupContent,
+	SidebarGroupLabel,
+	SidebarHeader,
+	SidebarInset,
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+	SidebarProvider,
+	SidebarTrigger,
+	useSidebar,
+} from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { QueryResultSheet } from "@/components/QueryResultSheet";
-import { SqlEditor } from "@/components/SqlEditor";
-import { TabBar } from "@/components/TabBar";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useSettings } from "@/contexts/SettingsContext";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
-import { RowEditSheet } from "@/components/RowEditSheet";
-import { RowInsertSheet } from "@/components/RowInsertSheet";
-import { RedisKeySheet } from "@/components/RedisKeySheet";
-import { ExpandableText } from "@/components/ExpandableText";
-import { ConnectionStatus } from "@/components/ConnectionStatus";
-import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
-import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
-import { handleDragStart } from "@/lib/windowDrag";
-import { SchemaVisualizer } from "@/components/SchemaVisualizer";
-import { CommandPalette } from "@/components/CommandPalette";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
 } from "@/lib/sqlParser";
-import { useSettings } from "@/contexts/SettingsContext";
+import {
+	api,
+	type Connection,
+	type ForgeGraphService,
+	type RedisKeyDetails,
+	type RedisKeyInfo,
+} from "@/lib/tauri";
+import {
+	getForgeGraphDatabases,
+	parseCachedForgeGraphServices,
+} from "@/lib/forgegraph";
+import { handleDragStart } from "@/lib/windowDrag";
+import type { SavedQuery } from "@/types/savedQuery";
+import type { DatabaseTable } from "@/types/table";
+import {
+	createFunctionDefinitionTab,
+	createQueryTab,
+	createSchemaVisualizerTab,
+	createTableDataTab,
+	createTableStructureTab,
+	type ForeignKeyInfo,
+	type FunctionDefinitionTab,
+	type FunctionSummary,
+	formatFunctionSignature,
+	type QueryTab,
+	type SchemaOverview,
+	type SchemaVisualizerTab,
+	type SortConfig,
+	type Tab,
+	type TableColumn,
+	type TableDataTab,
+	type TableStructureData,
+	type TableStructureTab,
+} from "@/types/tabTypes";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -141,6 +147,8 @@ type LoadingPhase =
 	| "connecting"
 	| "loading-schema"
 	| "complete";
+
+type SidebarTab = "objects" | "queries" | "databases";
 
 function stripTrailingSemicolon(query: string): string {
 	return query.trim().replace(/;\s*$/, "");
@@ -172,7 +180,11 @@ function stripLeadingSqlComments(query: string): string {
 
 function isWrappableQuery(query: string): boolean {
 	const sql = stripLeadingSqlComments(query).toUpperCase();
-	return sql.startsWith("SELECT") || sql.startsWith("WITH") || sql.startsWith("VALUES");
+	return (
+		sql.startsWith("SELECT") ||
+		sql.startsWith("WITH") ||
+		sql.startsWith("VALUES")
+	);
 }
 
 function quoteResultColumn(column: string, dbType?: string): string {
@@ -210,6 +222,8 @@ function ContentHeader({
 	onReconnect,
 	onStatusChange,
 	onOpenSettings,
+	isForgeGraph,
+	fgNodeName,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
@@ -217,6 +231,8 @@ function ContentHeader({
 	onReconnect: () => Promise<void>;
 	onStatusChange: (status: "connected" | "disconnected") => void;
 	onOpenSettings: () => void;
+	isForgeGraph?: boolean;
+	fgNodeName?: string;
 }) {
 	const { state } = useSidebar();
 	const isCollapsed = state === "collapsed";
@@ -247,12 +263,19 @@ function ContentHeader({
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
+				{isForgeGraph && (
+					<Badge variant="secondary" className="text-xs">
+						ForgeGraph {fgNodeName ? `· ${fgNodeName}` : ""}
+					</Badge>
+				)}
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
 				</Badge>
-				<Badge variant={connection.ssl ? "default" : "secondary"}>
-					SSL: {connection.ssl ? "Yes" : "No"}
-				</Badge>
+				{!isForgeGraph && (
+					<Badge variant={connection.ssl ? "default" : "secondary"}>
+						SSL: {connection.ssl ? "Yes" : "No"}
+					</Badge>
+				)}
 				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
 					<Gear className="w-4 h-4" />
 				</Button>
@@ -269,6 +292,8 @@ function RedisContentHeader({
 	onReconnect,
 	onStatusChange,
 	onOpenSettings,
+	isForgeGraph,
+	fgNodeName,
 }: {
 	connection: Connection;
 	navigate: (path: string) => void;
@@ -276,6 +301,8 @@ function RedisContentHeader({
 	onReconnect: () => Promise<void>;
 	onStatusChange: (status: "connected" | "disconnected") => void;
 	onOpenSettings: () => void;
+	isForgeGraph?: boolean;
+	fgNodeName?: string;
 }) {
 	return (
 		<header
@@ -293,9 +320,11 @@ function RedisContentHeader({
 					Close Connection
 				</Button>
 				<span className="font-semibold">{connection.name}</span>
-				<span className="text-muted-foreground text-sm">
-					{connection.host}:{connection.port}
-				</span>
+				{!isForgeGraph && connection.host && (
+					<span className="text-muted-foreground text-sm">
+						{connection.host}:{connection.port}
+					</span>
+				)}
 			</div>
 			<div className="flex items-center gap-3">
 				<ConnectionStatus
@@ -304,6 +333,11 @@ function RedisContentHeader({
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
+				{isForgeGraph && (
+					<Badge variant="secondary" className="text-xs">
+						ForgeGraph {fgNodeName ? `· ${fgNodeName}` : ""}
+					</Badge>
+				)}
 				<Badge variant="secondary" className="capitalize">
 					{connection.type}
 				</Badge>
@@ -318,17 +352,29 @@ function RedisContentHeader({
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const navigate = useNavigate();
+	const location = useLocation();
+	const fgStateRaw = location.state as {
+		forgegraph?: boolean;
+		appSlug?: string;
+		appName?: string;
+		stage?: string;
+		kind?: string;
+		nodeName?: string;
+		dbType?: string;
+	} | null;
+	const isForgeGraph = fgStateRaw?.forgegraph === true;
+	const fgState = fgStateRaw;
 	const { openSettings } = useSettings();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
-	const [sidebarTab, setSidebarTab] = useState<"objects" | "queries">(
-		"objects",
-	);
+	const [sidebarTab, setSidebarTab] = useState<SidebarTab>("objects");
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [loadingQueries, setLoadingQueries] = useState(false);
+	const [fgServices, setFgServices] = useState<ForgeGraphService[]>([]);
+	const [fgConfigured, setFgConfigured] = useState(false);
 	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
@@ -349,9 +395,8 @@ export function ConnectionDetails() {
 	const [redisPattern, setRedisPattern] = useState("*");
 	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
 	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-	const [redisKeyDetails, setRedisKeyDetails] = useState<RedisKeyDetails | null>(
-		null,
-	);
+	const [redisKeyDetails, setRedisKeyDetails] =
+		useState<RedisKeyDetails | null>(null);
 	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
 	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
 	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
@@ -493,9 +538,85 @@ export function ConnectionDetails() {
 		return schemaNames.size;
 	}, [tables, schemaOverview]);
 
+	const fgDatabases = useMemo(
+		() => getForgeGraphDatabases(fgServices),
+		[fgServices],
+	);
+
+	const syncForgeGraph = useCallback(async () => {
+		try {
+			const configured = await api.forgegraph.isConfigured();
+			setFgConfigured(configured);
+			if (!configured) {
+				setFgServices([]);
+				return;
+			}
+
+			const cached = await api.forgegraph.sync();
+			setFgServices(parseCachedForgeGraphServices(cached));
+		} catch (error) {
+			console.error("ForgeGraph sync failed:", error);
+			try {
+				const cached = await api.forgegraph.listCached();
+				if (cached.length > 0) {
+					setFgServices(parseCachedForgeGraphServices(cached));
+					setFgConfigured(true);
+				}
+			} catch {
+				setFgServices([]);
+			}
+		}
+	}, []);
+
+	useEffect(() => {
+		syncForgeGraph();
+	}, [syncForgeGraph]);
+
 	useEffect(() => {
 		const fetchConnection = async () => {
 			if (!uuid) return;
+
+			if (uuid.startsWith("fg:") && !isForgeGraph) {
+				toast.error(
+					"ForgeGraph session expired. Please reconnect from the sidebar",
+				);
+				navigate("/");
+				return;
+			}
+
+			// ForgeGraph connections are already pooled from the sidebar;
+			// build a lightweight Connection object from router state.
+			if (isForgeGraph) {
+				const fgConnection: Connection = {
+					id: 0,
+					uuid,
+					type: fgState?.dbType || "postgres",
+					name: `${fgState?.appName ?? "ForgeGraph"} (${fgState?.stage ?? "unknown"})`,
+					host: "",
+					port: 0,
+					database: "",
+					username: "",
+					password: "",
+					ssl: 0,
+					db_type: fgState?.dbType || "postgres",
+					file_path: null,
+					ssh_enabled: 0,
+					ssh_host: "",
+					ssh_port: 22,
+					ssh_user: "",
+					ssh_password: "",
+					ssh_key_path: "",
+					ssh_use_key: 0,
+					created_at: "",
+					updated_at: "",
+				};
+				setConnection(fgConnection);
+				// Skip straight to connecting phase (pool.connect will be
+				// handled in the next effect, which also checks isForgeGraph).
+				setLoadingPhase("connecting");
+				return;
+			}
+
 			setLoadingPhase("fetching-config");
 			try {
 				const data = await api.connections.getByUuid(uuid);
@@ -515,7 +636,7 @@ export function ConnectionDetails() {
 		if (uuid) {
 			fetchConnection();
 		}
-	}, [uuid, navigate]);
+	}, [uuid, navigate, isForgeGraph, fgState]);
 
 	const fetchSchemaOverviewData = useCallback(async () => {
 		if (!uuid) return;
@@ -586,19 +707,30 @@ export function ConnectionDetails() {
 
 		const loadData = async () => {
 			try {
-				const connectResult = await api.pool.connect(uuid!);
-
-				if (connectResult.status === "connected") {
+				// ForgeGraph connections are already pooled by the sidebar's
+				// forgegraph_connect command — skip the pool.connect call.
+				if (isForgeGraph) {
 					setConnectionStatus("connected");
 					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
 						await fetchSchemaOverviewData();
 					}
 				} else {
-					setConnectionStatus("disconnected");
-					toast.error("Connection failed", {
-						description: connectResult.error || "Connection failed",
-					});
+					if (!uuid) return;
+					const connectResult = await api.pool.connect(uuid);
+
+					if (connectResult.status === "connected") {
+						setConnectionStatus("connected");
+						if (connection.type !== "redis") {
+							setLoadingPhase("loading-schema");
+							await fetchSchemaOverviewData();
+						}
+					} else {
+						setConnectionStatus("disconnected");
+						toast.error("Connection failed", {
+							description: connectResult.error || "Connection failed",
+						});
+					}
 				}
 			} catch (error) {
 				setConnectionStatus("disconnected");
@@ -934,7 +1066,16 @@ export function ConnectionDetails() {
 
 	const handleReconnect = useCallback(async () => {
 		if (!uuid) return;
-		const connectResult = await api.pool.connect(uuid);
+		let connectResult: Awaited<ReturnType<typeof api.pool.connect>>;
+		if (isForgeGraph && fgState?.appSlug && fgState.stage && fgState.kind) {
+			connectResult = await api.forgegraph.connect(
+				fgState.appSlug,
+				fgState.stage,
+				fgState.kind,
+			);
+		} else {
+			connectResult = await api.pool.connect(uuid);
+		}
 		if (connectResult.status === "connected") {
 			setConnectionStatus("connected");
 			toast.success("Reconnected successfully");
@@ -947,7 +1088,7 @@ export function ConnectionDetails() {
 			});
 			throw new Error(connectResult.error || "Connection failed");
 		}
-	}, [uuid, connection?.type, fetchSchemaOverviewData]);
+	}, [uuid, connection?.type, fetchSchemaOverviewData, isForgeGraph, fgState]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -1832,6 +1973,17 @@ export function ConnectionDetails() {
 			) {
 				e.preventDefault();
 				setSidebarTab("queries");
+				return;
+			}
+
+			// Cmd+3 - Switch to Databases tab
+			if (
+				e.key === "3" &&
+				(e.metaKey || e.ctrlKey) &&
+				connection?.type !== "redis"
+			) {
+				e.preventDefault();
+				setSidebarTab("databases");
 				return;
 			}
 
@@ -3498,6 +3650,8 @@ export function ConnectionDetails() {
 					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
 					onOpenSettings={openSettings}
+					isForgeGraph={isForgeGraph}
+					fgNodeName={fgState?.nodeName}
 				/>
 
 				<div className="flex-1 p-4 min-w-0 overflow-auto">
@@ -3546,17 +3700,24 @@ export function ConnectionDetails() {
 							</Button>
 						</div>
 					</div>
-					<div className="text-xs text-muted-foreground mt-1">
-						{connection.database}
-					</div>
+					{isForgeGraph && (
+						<Badge variant="secondary" className="text-xs mt-1 w-fit">
+							ForgeGraph {fgState?.nodeName ? `· ${fgState.nodeName}` : ""}
+						</Badge>
+					)}
+					{!isForgeGraph && connection.database && (
+						<div className="text-xs text-muted-foreground mt-1">
+							{connection.database}
+						</div>
+					)}
 				</SidebarHeader>
 				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
 						value={sidebarTab}
-						onValueChange={(v) => setSidebarTab(v as "objects" | "queries")}
+						onValueChange={(v) => setSidebarTab(v as SidebarTab)}
 						className="h-full min-h-0"
 					>
-						<TabsList className="w-full grid grid-cols-2">
+						<TabsList className="w-full grid grid-cols-3">
 							<TabsTrigger value="objects" className="flex items-center gap-2">
 								<Table className="w-4 h-4" />
 								Objects
@@ -3564,6 +3725,10 @@ export function ConnectionDetails() {
 							<TabsTrigger value="queries" className="flex items-center gap-2">
 								<Code className="w-4 h-4" />
 								Queries
+							</TabsTrigger>
+							<TabsTrigger value="databases" className="flex items-center gap-2">
+								<Database className="w-4 h-4" />
+								DBs
 							</TabsTrigger>
 						</TabsList>
 						<TabsContent value="objects" className="mt-2 min-h-0 flex-1">
@@ -3578,14 +3743,15 @@ export function ConnectionDetails() {
 								onOpenTableStructure={handleOpenTableStructure}
 								onOpenFunctionDefinition={handleOpenFunctionDefinition}
 								activeQueryTab={
-									activeTab?.type === "query"
-										? (activeTab as QueryTab)
-										: null
+									activeTab?.type === "query" ? (activeTab as QueryTab) : null
 								}
 								onInsertQueryText={handleInsertQueryText}
 							/>
 						</TabsContent>
-						<TabsContent value="queries" className="mt-2 min-h-0 flex-1 overflow-auto">
+						<TabsContent
+							value="queries"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
 							<SidebarGroup>
 								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
 								<SidebarGroupContent>
@@ -3650,6 +3816,30 @@ export function ConnectionDetails() {
 								</SidebarGroupContent>
 							</SidebarGroup>
 						</TabsContent>
+						<TabsContent
+							value="databases"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
+							{fgConfigured ? (
+								<ForgeGraphTree
+									services={fgDatabases}
+									onSync={async () => {
+										try {
+											const cached = await api.forgegraph.sync();
+											setFgServices(parseCachedForgeGraphServices(cached));
+										} catch (error) {
+											toast.error("ForgeGraph sync failed", {
+												description: String(error),
+											});
+										}
+									}}
+								/>
+							) : (
+								<p className="text-xs text-muted-foreground px-2 py-4 text-center">
+									ForgeGraph is not configured
+								</p>
+							)}
+						</TabsContent>
 					</Tabs>
 				</SidebarContent>
 			</Sidebar>
@@ -3662,6 +3852,8 @@ export function ConnectionDetails() {
 					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
 					onOpenSettings={openSettings}
+					isForgeGraph={isForgeGraph}
+					fgNodeName={fgState?.nodeName}
 				/>
 
 				<TabBar

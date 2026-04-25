@@ -43,7 +43,7 @@ interface CommandPaletteProps {
 	onOpenSchemaVisualizer: () => void;
 	onOpenTableData: (tableName: string) => void;
 	onOpenFunctionDefinition: (functionSummary: FunctionSummary) => void;
-	onSwitchSidebarTab: (tab: "objects" | "queries") => void;
+	onSwitchSidebarTab: (tab: "objects" | "queries" | "databases") => void;
 	onOpenSettings: () => void;
 	tables: DatabaseTable[];
 	functions: FunctionSummary[];
@@ -346,6 +346,16 @@ export function CommandPalette({
 						<Code className="w-4 h-4" />
 						<span>Queries Tab</span>
 						<CommandShortcut>{getShortcutKey("Cmd+2")}</CommandShortcut>
+					</CommandItem>
+					<CommandItem
+						onSelect={() => {
+							onSwitchSidebarTab("databases");
+							onOpenChange(false);
+						}}
+					>
+						<Database className="w-4 h-4" />
+						<span>Databases Tab</span>
+						<CommandShortcut>{getShortcutKey("Cmd+3")}</CommandShortcut>
 					</CommandItem>
 				</CommandGroup>
 
