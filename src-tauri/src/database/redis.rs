@@ -412,6 +412,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![json!({"info": info})],
                         row_count: 1,
+                        rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     });
@@ -421,6 +422,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![],
                         row_count: 0,
+                        rows_affected: None,
                         error: Some(error_msg),
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     });
@@ -434,6 +436,7 @@ impl DatabaseDriver for RedisDriver {
             return Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                rows_affected: None,
                 error: Some("Empty query".to_string()),
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
             });
@@ -450,6 +453,7 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![json_value],
                     row_count: 1,
+                    rows_affected: None,
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 })
@@ -459,6 +463,7 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    rows_affected: None,
                     error: Some(error_msg),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 })

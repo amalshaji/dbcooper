@@ -27,6 +27,7 @@ interface DataTableProps<TData> {
 	sortable?: boolean;
 	sort?: SortState | null;
 	onSortChange?: (sort: SortState | null) => void;
+	isRowHighlighted?: (row: TData) => boolean;
 }
 
 const COLUMN_WIDTH = 150;
@@ -46,6 +47,7 @@ export function DataTable<TData>({
 	sortable = false,
 	sort = null,
 	onSortChange,
+	isRowHighlighted,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -198,13 +200,15 @@ export function DataTable<TData>({
 				)}
 				{virtualRows.map((virtualRow) => {
 					const row = rows[virtualRow.index];
+					const highlighted = isRowHighlighted?.(row.original) ?? false;
 					return (
 						<tr
 							key={row.id}
 							data-index={virtualRow.index}
 							ref={measureRowElement}
 							data-state={row.getIsSelected() && "selected"}
-							className={`hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors ${
+							data-highlighted={highlighted ? "true" : undefined}
+							className={`hover:bg-muted/50 data-[state=selected]:bg-muted data-[highlighted=true]:bg-primary/5 border-b transition-colors ${
 								onRowClick ? "cursor-pointer" : ""
 							}`}
 							onClick={() => onRowClick?.(row.original)}

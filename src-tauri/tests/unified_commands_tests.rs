@@ -532,6 +532,8 @@ async fn test_update_table_row_sqlite() {
     assert!(result.is_ok());
     let query_result = result.unwrap();
     assert!(query_result.error.is_none(), "Update should succeed");
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 
     // Verify the update
     let select = unified_execute_query(

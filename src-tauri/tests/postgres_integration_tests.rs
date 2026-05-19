@@ -245,6 +245,65 @@ async fn test_get_table_data_with_rows() {
 }
 
 #[tokio::test]
+async fn test_get_table_data_defaults_to_primary_key_order() {
+    let driver = create_test_driver();
+    let table_name = test_table_name("pk_order");
+
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{}\" (code TEXT PRIMARY KEY, name TEXT)",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "INSERT INTO \"{}\" (code, name) VALUES ('c', 'Charlie'), ('a', 'Alice'), ('b', 'Bob')",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    let data = driver
+        .get_table_data("public", &table_name, 1, 10, None, None, None)
+        .await
+        .unwrap();
+
+    let codes: Vec<String> = data
+        .data
+        .iter()
+        .map(|row| row.get("code").unwrap().as_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(codes, vec!["a", "b", "c"]);
+
+    let sorted_data = driver
+        .get_table_data(
+            "public",
+            &table_name,
+            1,
+            10,
+            None,
+            Some("name".to_string()),
+            Some("desc".to_string()),
+        )
+        .await
+        .unwrap();
+
+    let names: Vec<String> = sorted_data
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(names, vec!["Charlie", "Bob", "Alice"]);
+
+    // Cleanup
+    drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
 async fn test_get_table_data_pagination() {
     let driver = create_test_driver();
     let table_name = test_table_name("page");
@@ -598,6 +657,44 @@ async fn test_execute_query_update() {
         .unwrap();
     let age = select_result.data[0].get("age").unwrap().as_i64().unwrap();
     assert_eq!(age, 30);
+
+    // Cleanup
+    drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_execute_query_update_reports_rows_affected() {
+    let driver = create_test_driver();
+    let table_name = test_table_name("affected");
+
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{}\" (id SERIAL PRIMARY KEY, name TEXT, age INTEGER)",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(&format!(
+            "INSERT INTO \"{}\" (name, age) VALUES ('Test', 25)",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    let result = driver
+        .execute_query(&format!(
+            "UPDATE \"{}\" SET age = 30 WHERE name = 'Test'",
+            table_name
+        ))
+        .await;
+    assert!(result.is_ok());
+
+    let query_result = result.unwrap();
+    assert!(query_result.error.is_none(), "UPDATE should succeed");
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 
     // Cleanup
     drop_table(&driver, &table_name).await;

@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
-use super::{DatabaseDriver, SqliteConfig};
+use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
     COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
@@ -33,6 +33,21 @@ impl SqliteDriver {
             .connect(&conn_str)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn get_primary_key_columns(
+        pool: &sqlx::SqlitePool,
+        table: &str,
+    ) -> Result<Vec<String>, String> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk",
+        )
+        .bind(table)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(rows.into_iter().map(|(column,)| column).collect())
     }
 
     fn row_to_json(row: &sqlx::sqlite::SqliteRow) -> Value {
@@ -185,24 +200,33 @@ impl DatabaseDriver for SqliteDriver {
             })
             .unwrap_or_default();
 
-        let order_clause = sort_column
-            .as_ref()
-            .map(|col| {
-                // Validate sort_direction to prevent SQL injection
-                let dir = match sort_direction
-                    .as_deref()
-                    .map(|s| s.to_lowercase())
-                    .as_deref()
-                {
-                    Some("asc") => "ASC",
-                    Some("desc") => "DESC",
-                    _ => "ASC", // Default to ASC for invalid/missing values
-                };
-                // Escape double quotes in column name to prevent SQL injection
-                let escaped_col = col.replace('"', "\"\"");
-                format!(" ORDER BY \"{}\" {}", escaped_col, dir)
-            })
-            .unwrap_or_default();
+        let order_clause = if let Some(col) = sort_column.as_ref() {
+            // Validate sort_direction to prevent SQL injection
+            let dir = match sort_direction
+                .as_deref()
+                .map(|s| s.to_lowercase())
+                .as_deref()
+            {
+                Some("asc") => "ASC",
+                Some("desc") => "DESC",
+                _ => "ASC", // Default to ASC for invalid/missing values
+            };
+            // Escape double quotes in column name to prevent SQL injection
+            let escaped_col = col.replace('"', "\"\"");
+            format!(" ORDER BY \"{}\" {}", escaped_col, dir)
+        } else {
+            let primary_key_columns = Self::get_primary_key_columns(&pool, table).await?;
+            if primary_key_columns.is_empty() {
+                String::new()
+            } else {
+                let order_columns = primary_key_columns
+                    .iter()
+                    .map(|col| format!("\"{}\" ASC", col.replace('"', "\"\"")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" ORDER BY {}", order_columns)
+            }
+        };
 
         let count_query = format!(
             "SELECT COUNT(*) as count FROM \"{}\"{}",
@@ -342,26 +366,54 @@ impl DatabaseDriver for SqliteDriver {
         let start_time = std::time::Instant::now();
         let pool = self.get_pool().await?;
 
-        match sqlx::query(query).fetch_all(&pool).await {
-            Ok(rows) => {
-                pool.close().await;
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
-                let row_count = data.len() as i64;
-                Ok(QueryResult {
-                    data,
-                    row_count,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
+        if query_returns_rows(query) {
+            match sqlx::query(query).fetch_all(&pool).await {
+                Ok(rows) => {
+                    pool.close().await;
+                    let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                    let row_count = data.len() as i64;
+                    Ok(QueryResult {
+                        data,
+                        row_count,
+                        rows_affected: None,
+                        error: None,
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
+                }
+                Err(e) => {
+                    pool.close().await;
+                    Ok(QueryResult {
+                        data: vec![],
+                        row_count: 0,
+                        rows_affected: None,
+                        error: Some(e.to_string()),
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
+                }
             }
-            Err(e) => {
-                pool.close().await;
-                Ok(QueryResult {
-                    data: vec![],
-                    row_count: 0,
-                    error: Some(e.to_string()),
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
+        } else {
+            match sqlx::query(query).execute(&pool).await {
+                Ok(result) => {
+                    pool.close().await;
+                    let rows_affected = result.rows_affected();
+                    Ok(QueryResult {
+                        data: vec![],
+                        row_count: rows_affected as i64,
+                        rows_affected: Some(rows_affected),
+                        error: None,
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
+                }
+                Err(e) => {
+                    pool.close().await;
+                    Ok(QueryResult {
+                        data: vec![],
+                        row_count: 0,
+                        rows_affected: None,
+                        error: Some(e.to_string()),
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
+                }
             }
         }
     }

@@ -121,6 +121,7 @@ import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
+import { InlineEditableCell } from "@/components/InlineEditableCell";
 import { RedisKeySheet } from "@/components/RedisKeySheet";
 import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
@@ -200,6 +201,24 @@ function buildWrappedQuery(
 ${normalizedBaseQuery}
 )
 SELECT * FROM user_query${whereClause}${orderClause};`;
+}
+
+function getPrimaryKeyRowKey(
+	row: Record<string, unknown>,
+	columns: TableColumn[],
+): string | null {
+	const primaryKeyColumns = columns.filter((column) => column.primary_key);
+	if (primaryKeyColumns.length === 0) return null;
+
+	return JSON.stringify(
+		primaryKeyColumns.map((column) => [column.name, row[column.name]]),
+	);
+}
+
+function formatQuerySuccessDetail(affectedRows: number | null): string {
+	if (affectedRows === null) return "No rows returned";
+
+	return `${affectedRows} row${affectedRows !== 1 ? "s" : ""} affected`;
 }
 
 // Header component that uses useSidebar for conditional padding
@@ -457,6 +476,10 @@ export function ConnectionDetails() {
 	);
 	const [savingRow, setSavingRow] = useState(false);
 	const [deletingRow, setDeletingRow] = useState(false);
+	const [highlightedTableRow, setHighlightedTableRow] = useState<{
+		tableName: string;
+		rowKey: string;
+	} | null>(null);
 
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
@@ -1051,6 +1074,7 @@ export function ConnectionDetails() {
 					updateTab<QueryTab>(tab.id, {
 						error: result.error,
 						executionTime,
+						affectedRows: null,
 						executing: false,
 					});
 					return;
@@ -1061,6 +1085,7 @@ export function ConnectionDetails() {
 					success: true,
 					error: null,
 					executionTime,
+					affectedRows: null,
 					executing: false,
 					filter: nextFilter,
 					sort: nextSort,
@@ -1072,6 +1097,7 @@ export function ConnectionDetails() {
 							? error.message
 							: "Failed to apply query filter/sort",
 					executionTime: null,
+					affectedRows: null,
 					executing: false,
 				});
 			}
@@ -1207,6 +1233,7 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			affectedRows: null,
 			filterInput: "",
 			filter: "",
 			sort: null,
@@ -1223,6 +1250,7 @@ export function ConnectionDetails() {
 				updateTab<QueryTab>(tab.id, {
 					error: result.error,
 					executionTime,
+					affectedRows: null,
 					executing: false,
 				});
 				return;
@@ -1232,6 +1260,7 @@ export function ConnectionDetails() {
 				results: result.data as Record<string, unknown>[],
 				success: true,
 				executionTime,
+				affectedRows: result.rows_affected ?? null,
 				executing: false,
 				filterInput: "",
 				filter: "",
@@ -1245,6 +1274,7 @@ export function ConnectionDetails() {
 				error:
 					error instanceof Error ? error.message : "Failed to execute query",
 				executionTime: null,
+				affectedRows: null,
 				executing: false,
 			});
 		}
@@ -1265,6 +1295,7 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			affectedRows: null,
 			filterInput: "",
 			filter: "",
 			sort: null,
@@ -1275,6 +1306,7 @@ export function ConnectionDetails() {
 		let lastResult: Record<string, unknown>[] = [];
 		let lastError: string | null = null;
 		let lastBaseQuery: string | null = null;
+		let lastAffectedRows: number | null = null;
 
 		try {
 			for (const statement of statements) {
@@ -1290,6 +1322,7 @@ export function ConnectionDetails() {
 				}
 
 				lastResult = result.data as Record<string, unknown>[];
+				lastAffectedRows = result.rows_affected ?? null;
 				lastBaseQuery = isWrappableQuery(queryToRun)
 					? stripTrailingSemicolon(queryToRun)
 					: null;
@@ -1299,6 +1332,7 @@ export function ConnectionDetails() {
 				updateTab<QueryTab>(tab.id, {
 					error: lastError,
 					executionTime: totalTime,
+					affectedRows: null,
 					executing: false,
 				});
 			} else {
@@ -1306,6 +1340,7 @@ export function ConnectionDetails() {
 					results: lastResult,
 					success: true,
 					executionTime: totalTime,
+					affectedRows: lastAffectedRows,
 					executing: false,
 					filterInput: "",
 					filter: "",
@@ -1318,6 +1353,7 @@ export function ConnectionDetails() {
 				error:
 					error instanceof Error ? error.message : "Failed to execute queries",
 				executionTime: null,
+				affectedRows: null,
 				executing: false,
 			});
 		}
@@ -1476,10 +1512,13 @@ export function ConnectionDetails() {
 				if (result.error) {
 					toast.error("Failed to update row", { description: result.error });
 				} else {
+					const rowKey = getPrimaryKeyRowKey(editingRow, tab.columns);
+					if (rowKey) {
+						setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+					}
 					toast.success("Row updated successfully");
 					setRowEditSheetOpen(false);
 					setEditingRow(null);
-					// Refresh table data
 					fetchTableData(tab);
 				}
 			} catch (error) {
@@ -1492,6 +1531,62 @@ export function ConnectionDetails() {
 			}
 		},
 		[connection, activeTab, editingRow, fetchTableData],
+	);
+
+	const handleInlineCellSave = useCallback(
+		async (
+			row: Record<string, unknown>,
+			columnName: string,
+			value: unknown,
+		) => {
+			if (!connection || !activeTab || activeTab.type !== "table-data") return;
+
+			const tab = activeTab as TableDataTab;
+			const column = tab.columns.find((col) => col.name === columnName);
+			if (!column || column.primary_key) {
+				throw new Error("This column cannot be edited inline");
+			}
+
+			const primaryKeyColumns = tab.columns
+				.filter((col) => col.primary_key)
+				.map((col) => col.name);
+			const primaryKeyValues = primaryKeyColumns.map((col) => row[col]);
+
+			if (primaryKeyColumns.length === 0) {
+				throw new Error("Cannot update row without primary key");
+			}
+
+			const [schema, tableName] = tab.tableName.split(".");
+
+			try {
+				const result = await api.pool.updateTableRow(
+					connection.uuid,
+					schema,
+					tableName,
+					primaryKeyColumns,
+					primaryKeyValues,
+					[{ column: columnName, value, isRawSql: false }],
+				);
+
+				if (result.error) {
+					throw new Error(result.error);
+				}
+
+				const rowKey = getPrimaryKeyRowKey(row, tab.columns);
+				if (rowKey) {
+					setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+				}
+				toast.success("Cell updated successfully");
+				await fetchTableData(tab);
+			} catch (error) {
+				console.error("Failed to update cell:", error);
+				toast.error("Failed to update cell", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+				throw error;
+			}
+		},
+		[connection, activeTab, fetchTableData],
 	);
 
 	const handleDeleteRow = useCallback(async () => {
@@ -1872,6 +1967,8 @@ export function ConnectionDetails() {
 
 		const schema = tab.tableName.split(".")[0];
 		const firstRow = tab.data.data[0];
+		const dbType = connection?.db_type || connection?.type;
+		const hasPrimaryKey = tab.columns.some((col) => col.primary_key);
 		return Object.keys(firstRow).map((key) => {
 			const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
 			const columnInfo = tab.columns.find((col) => col.name === key);
@@ -1896,31 +1993,38 @@ export function ConnectionDetails() {
 						)}
 					</span>
 				),
-				cell: ({ getValue }) => {
+				cell: ({ getValue, row }) => {
 					const value = getValue();
-					if (value === null)
-						return <span className="text-muted-foreground italic">null</span>;
+					const cellContent =
+						value === null ? (
+							<span className="text-muted-foreground italic">null</span>
+						) : null;
 
 					const rawValue =
 						typeof value === "object" ? JSON.stringify(value) : String(value);
 					const displayValue =
 						rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+					const canEditInline =
+						!!columnInfo &&
+						!columnInfo.primary_key &&
+						hasPrimaryKey &&
+						dbType !== "clickhouse";
 
-					if (fkInfo && value !== null) {
-						const refTable = `${schema}.${fkInfo.references_table}`;
-						return (
+					const content =
+						cellContent ??
+						(fkInfo && value !== null ? (
 							<span
-								className="group/fk flex items-center gap-1"
+								className="group/fk flex items-center"
 								title={rawValue}
 							>
-								<span>{displayValue}</span>
+								<span className="truncate">{displayValue}</span>
 								<button
 									type="button"
 									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity cursor-pointer"
 									onClick={(e) => {
 										e.stopPropagation();
 										handleOpenTableDataWithFilter(
-											refTable,
+											`${schema}.${fkInfo.references_table}`,
 											fkInfo.references_column,
 											value,
 										);
@@ -1930,14 +2034,28 @@ export function ConnectionDetails() {
 									<ArrowRight className="w-3.5 h-3.5 text-primary" />
 								</button>
 							</span>
-						);
-					}
+						) : (
+							<span title={rawValue}>{displayValue}</span>
+						));
 
-					return <span title={rawValue}>{displayValue}</span>;
+					return columnInfo ? (
+						<InlineEditableCell
+							value={value}
+							column={columnInfo}
+							disabled={!canEditInline}
+							onSave={(nextValue) =>
+								handleInlineCellSave(row.original, key, nextValue)
+							}
+						>
+							{content}
+						</InlineEditableCell>
+					) : (
+						content
+					);
 				},
 			};
 		});
-	}, [activeTab, handleOpenTableDataWithFilter]);
+	}, [activeTab, connection, handleOpenTableDataWithFilter, handleInlineCellSave]);
 
 	const tableDataPageCount = useMemo(() => {
 		if (!activeTab || activeTab.type !== "table-data") return 0;
@@ -2188,6 +2306,11 @@ export function ConnectionDetails() {
 							sortable
 							sort={tab.sort}
 							onSortChange={handleSortChange}
+							isRowHighlighted={(row) =>
+								highlightedTableRow?.tableName === tab.tableName &&
+								getPrimaryKeyRowKey(row, tab.columns) ===
+									highlightedTableRow.rowKey
+							}
 						/>
 					</div>
 				) : (
@@ -2670,7 +2793,11 @@ export function ConnectionDetails() {
 								{tab.results !== null &&
 									tab.results.length === 0 &&
 									tab.success &&
-									"Query executed successfully - no rows returned"}
+									(tab.affectedRows !== null
+										? `Query executed successfully - ${formatQuerySuccessDetail(
+												tab.affectedRows,
+											)}`
+										: "Query executed successfully - no rows returned")}
 							</CardDescription>
 						</div>
 						{tab.results && tab.results.length > 0 && (
@@ -2827,20 +2954,24 @@ export function ConnectionDetails() {
 											tab.resultBaseQuery ? handleQuerySortChange : undefined
 										}
 										onRowClick={(row) => {
-											const index = tab.results.findIndex((r) => r === row);
+											const index =
+												tab.results?.findIndex((r) => r === row) ?? -1;
 											setSelectedQueryRow({ row, index });
 											setQueryResultSheetOpen(true);
 										}}
 									/>
 								</div>
 							) : tab.success ? (
-								<div className="text-center py-8">
-									<div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
-										<p className="text-sm text-green-800 dark:text-green-200 font-medium">
-											✓ Query executed successfully
+								<div className="flex items-start gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+									<span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border border-green-500 bg-green-50 text-green-600 dark:border-green-500/80 dark:bg-green-950/30 dark:text-green-400">
+										<Check weight="bold" className="h-3 w-3" />
+									</span>
+									<div className="min-w-0">
+										<p className="font-medium text-foreground">
+											Query executed successfully
 										</p>
-										<p className="text-sm text-green-600 dark:text-green-300 mt-1">
-											No rows returned
+										<p className="mt-0.5 text-muted-foreground">
+											{formatQuerySuccessDetail(tab.affectedRows)}
 										</p>
 									</div>
 								</div>

@@ -1,3 +1,4 @@
+use crate::database::query_returns_rows;
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
@@ -475,6 +476,32 @@ pub async fn execute_query(
         .await
         .map_err(|e| e.to_string())?;
 
+    if !query_returns_rows(&query) {
+        return match sqlx::query(&query).execute(&pool).await {
+            Ok(result) => {
+                pool.close().await;
+                let rows_affected = result.rows_affected();
+                Ok(QueryResult {
+                    data: vec![],
+                    row_count: rows_affected as i64,
+                    rows_affected: Some(rows_affected),
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
+            Err(e) => {
+                pool.close().await;
+                Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    rows_affected: None,
+                    error: Some(e.to_string()),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
+        };
+    }
+
     match sqlx::query(&query).fetch_all(&pool).await {
         Ok(rows) => {
             pool.close().await;
@@ -555,6 +582,7 @@ pub async fn execute_query(
             Ok(QueryResult {
                 data,
                 row_count,
+                rows_affected: None,
                 error: None,
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
             })
@@ -564,6 +592,7 @@ pub async fn execute_query(
             Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                rows_affected: None,
                 error: Some(e.to_string()),
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
             })

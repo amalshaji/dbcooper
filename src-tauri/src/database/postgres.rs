@@ -5,7 +5,7 @@ use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::{DatabaseDriver, PostgresConfig};
+use super::{query_returns_rows, DatabaseDriver, PostgresConfig};
 use crate::database::queries::postgres::{
     FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, SCHEMA_OVERVIEW_QUERY,
 };
@@ -93,6 +93,34 @@ impl PostgresDriver {
         Ok(())
     }
 
+    async fn query_error_result(
+        &self,
+        error: sqlx::Error,
+        start_time: std::time::Instant,
+    ) -> Result<QueryResult, String> {
+        let error_str = error.to_string();
+        let should_reset = error_str.contains("Connection reset by peer")
+            || error_str.contains("broken pipe")
+            || error_str.contains("connection closed")
+            || error_str.contains("server closed the connection");
+
+        if should_reset {
+            println!(
+                "[Postgres] Connection error detected, resetting pool: {}",
+                error_str
+            );
+            let _ = self.reset_pool().await;
+        }
+
+        Ok(QueryResult {
+            data: vec![],
+            row_count: 0,
+            rows_affected: None,
+            error: Some(error_str),
+            time_taken_ms: Some(start_time.elapsed().as_millis()),
+        })
+    }
+
     async fn get_pool_with_retry(&self) -> Result<sqlx::PgPool, String> {
         match self.get_pool().await {
             Ok(pool) => Ok(pool),
@@ -102,6 +130,34 @@ impl PostgresDriver {
                 self.get_pool().await
             }
         }
+    }
+
+    async fn get_primary_key_columns(
+        pool: &sqlx::PgPool,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<String>, String> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            r#"
+            SELECT kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+             AND tc.table_name = kcu.table_name
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+              AND tc.table_schema = $1
+              AND tc.table_name = $2
+            ORDER BY kcu.ordinal_position
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+        Ok(rows.into_iter().map(|(column,)| column).collect())
     }
 
     fn row_to_json(row: &sqlx::postgres::PgRow) -> Value {
@@ -269,24 +325,33 @@ impl DatabaseDriver for PostgresDriver {
             })
             .unwrap_or_default();
 
-        let order_clause = sort_column
-            .as_ref()
-            .map(|col| {
-                // Validate sort_direction to prevent SQL injection
-                let dir = match sort_direction
-                    .as_deref()
-                    .map(|s| s.to_lowercase())
-                    .as_deref()
-                {
-                    Some("asc") => "ASC",
-                    Some("desc") => "DESC",
-                    _ => "ASC", // Default to ASC for invalid/missing values
-                };
-                // Escape double quotes in column name to prevent SQL injection
-                let escaped_col = col.replace('"', "\"\"");
-                format!(" ORDER BY \"{}\" {}", escaped_col, dir)
-            })
-            .unwrap_or_default();
+        let order_clause = if let Some(col) = sort_column.as_ref() {
+            // Validate sort_direction to prevent SQL injection
+            let dir = match sort_direction
+                .as_deref()
+                .map(|s| s.to_lowercase())
+                .as_deref()
+            {
+                Some("asc") => "ASC",
+                Some("desc") => "DESC",
+                _ => "ASC", // Default to ASC for invalid/missing values
+            };
+            // Escape double quotes in column name to prevent SQL injection
+            let escaped_col = col.replace('"', "\"\"");
+            format!(" ORDER BY \"{}\" {}", escaped_col, dir)
+        } else {
+            let primary_key_columns = Self::get_primary_key_columns(&pool, schema, table).await?;
+            if primary_key_columns.is_empty() {
+                String::new()
+            } else {
+                let order_columns = primary_key_columns
+                    .iter()
+                    .map(|col| format!("\"{}\" ASC", col.replace('"', "\"\"")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(" ORDER BY {}", order_columns)
+            }
+        };
 
         let count_query = format!(
             "SELECT COUNT(*) as count FROM {}{}",
@@ -483,38 +548,34 @@ impl DatabaseDriver for PostgresDriver {
         let start_time = std::time::Instant::now();
         let pool = self.get_pool_with_retry().await?;
 
-        match sqlx::query(query).fetch_all(&pool).await {
-            Ok(rows) => {
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
-                let row_count = data.len() as i64;
-                Ok(QueryResult {
-                    data,
-                    row_count,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
-            }
-            Err(e) => {
-                let error_str = e.to_string();
-                let should_reset = error_str.contains("Connection reset by peer")
-                    || error_str.contains("broken pipe")
-                    || error_str.contains("connection closed")
-                    || error_str.contains("server closed the connection");
-
-                if should_reset {
-                    println!(
-                        "[Postgres] Connection error detected, resetting pool: {}",
-                        error_str
-                    );
-                    let _ = self.reset_pool().await;
+        if query_returns_rows(query) {
+            match sqlx::query(query).fetch_all(&pool).await {
+                Ok(rows) => {
+                    let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                    let row_count = data.len() as i64;
+                    Ok(QueryResult {
+                        data,
+                        row_count,
+                        rows_affected: None,
+                        error: None,
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
                 }
-
-                Ok(QueryResult {
-                    data: vec![],
-                    row_count: 0,
-                    error: Some(error_str),
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
+                Err(e) => self.query_error_result(e, start_time).await,
+            }
+        } else {
+            match sqlx::query(query).execute(&pool).await {
+                Ok(result) => {
+                    let rows_affected = result.rows_affected();
+                    Ok(QueryResult {
+                        data: vec![],
+                        row_count: rows_affected as i64,
+                        rows_affected: Some(rows_affected),
+                        error: None,
+                        time_taken_ms: Some(start_time.elapsed().as_millis()),
+                    })
+                }
+                Err(e) => self.query_error_result(e, start_time).await,
             }
         }
     }
