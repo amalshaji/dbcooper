@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo } from "react";
 import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-	SheetFooter,
-} from "@/components/ui/sheet";
+	ArrowCounterClockwise,
+	FloppyDisk,
+	Key,
+	Trash,
+	Warning,
+} from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
+import { type DbType, FieldInput } from "@/components/field-inputs";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -17,13 +17,19 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import {
+	Sheet,
+	SheetContent,
+	SheetDescription,
+	SheetFooter,
+	SheetHeader,
+	SheetTitle,
+} from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import { Trash, FloppyDisk, Warning, Key } from "@phosphor-icons/react";
 import type { TableColumn } from "@/types/tabTypes";
-import { FieldInput, type DbType } from "@/components/field-inputs";
 
 interface RowEditSheetProps {
 	open: boolean;
@@ -43,6 +49,16 @@ interface RowEditSheetProps {
 interface FieldValue {
 	value: unknown;
 	isRawSql: boolean;
+}
+
+function getRowFieldValues(
+	row: Record<string, unknown>,
+): Record<string, FieldValue> {
+	const initialValues: Record<string, FieldValue> = {};
+	Object.entries(row).forEach(([key, value]) => {
+		initialValues[key] = { value, isRawSql: false };
+	});
+	return initialValues;
 }
 
 export function RowEditSheet({
@@ -76,11 +92,7 @@ export function RowEditSheet({
 	// Reset edited values when row changes
 	useEffect(() => {
 		if (row) {
-			const initialValues: Record<string, FieldValue> = {};
-			Object.entries(row).forEach(([key, value]) => {
-				initialValues[key] = { value, isRawSql: false };
-			});
-			setEditedValues(initialValues);
+			setEditedValues(getRowFieldValues(row));
 		} else {
 			setEditedValues({});
 		}
@@ -142,6 +154,11 @@ export function RowEditSheet({
 		await onSave(updates);
 	};
 
+	const handleReset = () => {
+		if (!row) return;
+		setEditedValues(getRowFieldValues(row));
+	};
+
 	const handleDelete = async () => {
 		setShowDeleteDialog(false);
 		await onDelete();
@@ -154,9 +171,9 @@ export function RowEditSheet({
 			<Sheet open={open} onOpenChange={onOpenChange}>
 				<SheetContent
 					side="right"
-					className="w-full sm:max-w-lg overflow-y-auto"
+					className="w-full sm:max-w-lg overflow-hidden"
 				>
-					<SheetHeader>
+					<SheetHeader className="shrink-0">
 						<SheetTitle className="flex items-center gap-2">
 							{isClickHouse ? "View Row" : "Edit Row"}
 							<Badge variant="secondary" className="font-mono">
@@ -183,7 +200,7 @@ export function RowEditSheet({
 						</SheetDescription>
 					</SheetHeader>
 
-					<div className="py-6 px-4 space-y-4">
+					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 space-y-4">
 						{columns.map((column) => {
 							const fieldValue = editedValues[column.name] || {
 								value: row?.[column.name] ?? null,
@@ -223,7 +240,7 @@ export function RowEditSheet({
 					</div>
 
 					{!isClickHouse && (
-						<SheetFooter className="flex-row gap-2 justify-between sm:justify-between px-4">
+						<SheetFooter className="sticky bottom-0 z-10 shrink-0 flex-row gap-2 justify-between border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:justify-between">
 							<Button
 								variant="destructive"
 								onClick={() => setShowDeleteDialog(true)}
@@ -232,13 +249,23 @@ export function RowEditSheet({
 								{deleting ? <Spinner /> : <Trash className="w-4 h-4" />}
 								Delete
 							</Button>
-							<Button
-								onClick={handleSave}
-								disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
-							>
-								{saving ? <Spinner /> : <FloppyDisk className="w-4 h-4" />}
-								Save Changes
-							</Button>
+							<div className="flex items-center gap-2">
+								<Button
+									variant="outline"
+									onClick={handleReset}
+									disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
+								>
+									<ArrowCounterClockwise className="w-4 h-4" />
+									Reset
+								</Button>
+								<Button
+									onClick={handleSave}
+									disabled={!hasPrimaryKey || !hasChanges || saving || deleting}
+								>
+									{saving ? <Spinner /> : <FloppyDisk className="w-4 h-4" />}
+									Save Changes
+								</Button>
+							</div>
 						</SheetFooter>
 					)}
 				</SheetContent>

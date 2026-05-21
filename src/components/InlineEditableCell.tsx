@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { PencilSimple } from "@phosphor-icons/react";
+import {
+	ArrowCounterClockwise,
+	Check,
+	PencilSimple,
+} from "@phosphor-icons/react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,6 +83,7 @@ export function InlineEditableCell({
 	const [draftValue, setDraftValue] = useState(stringifyCellValue(value));
 	const [saving, setSaving] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const editorRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!editing) {
@@ -120,18 +125,26 @@ export function InlineEditableCell({
 		}
 	};
 
+	const reset = () => {
+		setDraftValue(stringifyCellValue(value));
+		setEditing(false);
+	};
+
+	const handleEditorBlur = () => {
+		window.requestAnimationFrame(() => {
+			if (!editorRef.current?.contains(document.activeElement)) {
+				reset();
+			}
+		});
+	};
+
 	if (editing) {
 		return (
-			<div
-				className="relative"
-				onClick={(event) => event.stopPropagation()}
-				onDoubleClick={(event) => event.stopPropagation()}
-			>
+			<div ref={editorRef} className="flex min-w-48 items-center">
 				<Input
 					ref={inputRef}
 					value={draftValue}
 					onChange={(event) => setDraftValue(event.target.value)}
-					onBlur={() => void commit()}
 					onKeyDown={(event) => {
 						if (event.key === "Enter") {
 							event.preventDefault();
@@ -144,11 +157,43 @@ export function InlineEditableCell({
 						}
 					}}
 					disabled={saving}
-					className="h-7 pr-8"
+					className="h-7 min-w-0"
+					onBlur={handleEditorBlur}
+					onClick={(event) => event.stopPropagation()}
+					onDoubleClick={(event) => event.stopPropagation()}
 				/>
-				{saving && (
-					<Spinner className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2" />
-				)}
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					title={`Save ${column.name}`}
+					disabled={saving}
+					onBlur={handleEditorBlur}
+					onClick={(event) => {
+						event.stopPropagation();
+						void commit();
+					}}
+				>
+					{saving ? (
+						<Spinner className="h-3 w-3" />
+					) : (
+						<Check className="h-3 w-3" />
+					)}
+				</Button>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					title={`Reset ${column.name}`}
+					disabled={saving}
+					onBlur={handleEditorBlur}
+					onClick={(event) => {
+						event.stopPropagation();
+						reset();
+					}}
+				>
+					<ArrowCounterClockwise className="h-3 w-3" />
+				</Button>
 			</div>
 		);
 	}
