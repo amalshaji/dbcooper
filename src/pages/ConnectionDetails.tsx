@@ -215,6 +215,16 @@ function getPrimaryKeyRowKey(
 	);
 }
 
+function areCellValuesEqual(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+interface PendingInlineCellEdit {
+	row: Record<string, unknown>;
+	columnName: string;
+	value: unknown;
+}
+
 function formatQuerySuccessDetail(affectedRows: number | null): string {
 	if (affectedRows === null) return "No rows returned";
 
@@ -480,6 +490,10 @@ export function ConnectionDetails() {
 		tableName: string;
 		rowKey: string;
 	} | null>(null);
+	const [pendingInlineEditsByTab, setPendingInlineEditsByTab] = useState<
+		Record<string, Record<string, PendingInlineCellEdit>>
+	>({});
+	const [savingInlineEdits, setSavingInlineEdits] = useState(false);
 
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
@@ -1539,7 +1553,7 @@ export function ConnectionDetails() {
 			columnName: string,
 			value: unknown,
 		) => {
-			if (!connection || !activeTab || activeTab.type !== "table-data") return;
+			if (!activeTab || activeTab.type !== "table-data") return;
 
 			const tab = activeTab as TableDataTab;
 			const column = tab.columns.find((col) => col.name === columnName);
@@ -1547,47 +1561,137 @@ export function ConnectionDetails() {
 				throw new Error("This column cannot be edited inline");
 			}
 
-			const primaryKeyColumns = tab.columns
-				.filter((col) => col.primary_key)
-				.map((col) => col.name);
-			const primaryKeyValues = primaryKeyColumns.map((col) => row[col]);
-
-			if (primaryKeyColumns.length === 0) {
+			const rowKey = getPrimaryKeyRowKey(row, tab.columns);
+			if (!rowKey) {
 				throw new Error("Cannot update row without primary key");
 			}
 
-			const [schema, tableName] = tab.tableName.split(".");
+			const editKey = `${rowKey}:${columnName}`;
 
-			try {
+			setPendingInlineEditsByTab((prev) => {
+				const tabEdits = { ...(prev[tab.id] ?? {}) };
+				if (areCellValuesEqual(row[columnName], value)) {
+					delete tabEdits[editKey];
+				} else {
+					tabEdits[editKey] = { row, columnName, value };
+				}
+
+				if (Object.keys(tabEdits).length === 0) {
+					const next = { ...prev };
+					delete next[tab.id];
+					return next;
+				}
+
+				return { ...prev, [tab.id]: tabEdits };
+			});
+			toast.success("Change staged");
+		},
+		[activeTab],
+	);
+
+	const handleSaveInlineChanges = useCallback(async () => {
+		if (!connection || !activeTab || activeTab.type !== "table-data") return;
+
+		const tab = activeTab as TableDataTab;
+		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
+		if (pendingEdits.length === 0) return;
+
+		const primaryKeyColumns = tab.columns
+			.filter((col) => col.primary_key)
+			.map((col) => col.name);
+
+		if (primaryKeyColumns.length === 0) {
+			toast.error("Cannot update rows without primary key");
+			return;
+		}
+
+		const [schema, tableName] = tab.tableName.split(".");
+		const editsByRow = new Map<
+			string,
+			{
+				row: Record<string, unknown>;
+				updates: Array<{ column: string; value: unknown; isRawSql: boolean }>;
+			}
+		>();
+
+		for (const [, edit] of pendingEdits) {
+			const rowKey = getPrimaryKeyRowKey(edit.row, tab.columns);
+			if (!rowKey) continue;
+
+			const groupedEdit = editsByRow.get(rowKey) ?? {
+				row: edit.row,
+				updates: [],
+			};
+			groupedEdit.updates.push({
+				column: edit.columnName,
+				value: edit.value,
+				isRawSql: false,
+			});
+			editsByRow.set(rowKey, groupedEdit);
+		}
+
+		if (editsByRow.size === 0) return;
+
+		setSavingInlineEdits(true);
+		try {
+			for (const [rowKey, editGroup] of editsByRow) {
+				const primaryKeyValues = primaryKeyColumns.map(
+					(col) => editGroup.row[col],
+				);
 				const result = await api.pool.updateTableRow(
 					connection.uuid,
 					schema,
 					tableName,
 					primaryKeyColumns,
 					primaryKeyValues,
-					[{ column: columnName, value, isRawSql: false }],
+					editGroup.updates,
 				);
 
 				if (result.error) {
 					throw new Error(result.error);
 				}
 
-				const rowKey = getPrimaryKeyRowKey(row, tab.columns);
-				if (rowKey) {
-					setHighlightedTableRow({ tableName: tab.tableName, rowKey });
-				}
-				toast.success("Cell updated successfully");
-				await fetchTableData(tab);
-			} catch (error) {
-				console.error("Failed to update cell:", error);
-				toast.error("Failed to update cell", {
-					description: error instanceof Error ? error.message : String(error),
-				});
-				throw error;
+				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
 			}
-		},
-		[connection, activeTab, fetchTableData],
-	);
+
+			setPendingInlineEditsByTab((prev) => {
+				const next = { ...prev };
+				delete next[tab.id];
+				return next;
+			});
+			toast.success(
+				`Committed ${pendingEdits.length} inline change${pendingEdits.length === 1 ? "" : "s"}`,
+			);
+			await fetchTableData(tab);
+		} catch (error) {
+			console.error("Failed to save inline changes:", error);
+			toast.error("Failed to save inline changes", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			setSavingInlineEdits(false);
+		}
+	}, [
+		connection,
+		activeTab,
+		pendingInlineEditsByTab,
+		fetchTableData,
+	]);
+
+	const handleDiscardInlineChanges = useCallback(() => {
+		if (!activeTab || activeTab.type !== "table-data") return;
+
+		const tab = activeTab as TableDataTab;
+		const pendingEdits = pendingInlineEditsByTab[tab.id];
+		if (!pendingEdits || Object.keys(pendingEdits).length === 0) return;
+
+		setPendingInlineEditsByTab((prev) => {
+			const next = { ...prev };
+			delete next[tab.id];
+			return next;
+		});
+		toast.info("Inline changes discarded");
+	}, [activeTab, pendingInlineEditsByTab]);
 
 	const handleDeleteRow = useCallback(async () => {
 		if (
@@ -1994,7 +2098,12 @@ export function ConnectionDetails() {
 					</span>
 				),
 				cell: ({ getValue, row }) => {
-					const value = getValue();
+					const originalValue = getValue();
+					const rowKey = getPrimaryKeyRowKey(row.original, tab.columns);
+					const pendingEdit = rowKey
+						? pendingInlineEditsByTab[tab.id]?.[`${rowKey}:${key}`]
+						: undefined;
+					const value = pendingEdit ? pendingEdit.value : originalValue;
 					const cellContent =
 						value === null ? (
 							<span className="text-muted-foreground italic">null</span>
@@ -2047,7 +2156,11 @@ export function ConnectionDetails() {
 								handleInlineCellSave(row.original, key, nextValue)
 							}
 						>
-							{content}
+							{pendingEdit ? (
+								<span className="text-primary font-medium">{content}</span>
+							) : (
+								content
+							)}
 						</InlineEditableCell>
 					) : (
 						content
@@ -2055,7 +2168,13 @@ export function ConnectionDetails() {
 				},
 			};
 		});
-	}, [activeTab, connection, handleOpenTableDataWithFilter, handleInlineCellSave]);
+	}, [
+		activeTab,
+		connection,
+		pendingInlineEditsByTab,
+		handleOpenTableDataWithFilter,
+		handleInlineCellSave,
+	]);
 
 	const tableDataPageCount = useMemo(() => {
 		if (!activeTab || activeTab.type !== "table-data") return 0;
@@ -2196,8 +2315,14 @@ export function ConnectionDetails() {
 		);
 	}
 
-	const renderTableDataContent = (tab: TableDataTab) => (
-		<Card>
+	const renderTableDataContent = (tab: TableDataTab) => {
+		const pendingInlineChangeCount = Object.keys(
+			pendingInlineEditsByTab[tab.id] ?? {},
+		).length;
+		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
+
+		return (
+			<Card>
 			<CardHeader>
 				<div className="flex items-center justify-between">
 					<div>
@@ -2237,6 +2362,36 @@ export function ConnectionDetails() {
 					</div>
 				</div>
 			</CardHeader>
+			{hasPendingInlineChanges && (
+				<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+					<span className="text-xs font-medium text-foreground">
+						Unsaved changes
+					</span>
+					<div className="flex items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleDiscardInlineChanges}
+							disabled={savingInlineEdits || tab.loading}
+						>
+							<X className="w-4 h-4" />
+							Discard
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => void handleSaveInlineChanges()}
+							disabled={savingInlineEdits || tab.loading}
+						>
+							{savingInlineEdits ? (
+								<Spinner />
+							) : (
+								<FloppyDisk className="w-4 h-4" />
+							)}
+							Commit
+						</Button>
+					</div>
+				</div>
+			)}
 			<div className="px-6 pb-4">
 				<div className="flex items-center gap-2">
 					<Input
@@ -2252,13 +2407,6 @@ export function ConnectionDetails() {
 						}}
 						className="flex-1 font-mono text-xs"
 					/>
-					<Button
-						size="sm"
-						onClick={handleApplyFilter}
-						disabled={tab.loading || !tab.filterInput.trim()}
-					>
-						Apply
-					</Button>
 					{tab.filter && (
 						<Button
 							size="sm"
@@ -2320,7 +2468,8 @@ export function ConnectionDetails() {
 				)}
 			</CardContent>
 		</Card>
-	);
+		);
+	};
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
 		<Card>
@@ -2909,13 +3058,6 @@ export function ConnectionDetails() {
 										}}
 										className="flex-1 font-mono text-xs"
 									/>
-									<Button
-										size="sm"
-										onClick={handleApplyQueryFilter}
-										disabled={tab.executing || !tab.filterInput.trim()}
-									>
-										Apply
-									</Button>
 									{tab.filter && (
 										<Button
 											size="sm"

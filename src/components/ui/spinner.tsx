@@ -1,12 +1,17 @@
-import { cn } from "@/lib/utils";
 import { CircleNotch } from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
 
-function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
+function Spinner({
+	className,
+	weight = "bold",
+	...props
+}: React.ComponentProps<typeof CircleNotch>) {
 	return (
 		<CircleNotch
 			role="status"
 			aria-label="Loading"
-			className={cn("size-4 animate-spin bg-none", className)}
+			weight={weight}
+			className={cn("size-4 animate-spin bg-none text-current", className)}
 			{...props}
 		/>
 	);
