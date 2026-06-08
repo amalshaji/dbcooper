@@ -141,6 +141,18 @@ export interface SavedQueryFormData {
 	query: string;
 }
 
+export interface QueryHistory {
+	id: number;
+	connection_uuid: string;
+	query: string;
+	status: "success" | "error";
+	time_taken_ms: number | null;
+	row_count: number | null;
+	rows_affected: number | null;
+	error: string | null;
+	executed_at: string;
+}
+
 // Redis types
 export interface RedisKeyInfo {
 	key: string;
@@ -622,6 +634,22 @@ export const api = {
 			invoke<SavedQuery>("update_saved_query", { id, data }),
 
 		delete: (id: number) => invoke<boolean>("delete_saved_query", { id }),
+
+		history: (connectionUuid: string) =>
+			invoke<QueryHistory[]>("get_query_history", { connectionUuid }),
+
+		recordHistory: (args: {
+			connectionUuid: string;
+			query: string;
+			status: "success" | "error";
+			timeTakenMs?: number | null;
+			rowCount?: number | null;
+			rowsAffected?: number | null;
+			error?: string | null;
+		}) => invoke<void>("record_query_history", args),
+
+		clearHistory: (connectionUuid: string) =>
+			invoke<boolean>("clear_query_history", { connectionUuid }),
 	},
 
 	settings: {

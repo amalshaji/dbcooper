@@ -83,6 +83,19 @@ pub struct SavedQueryFormData {
     pub query: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct QueryHistory {
+    pub id: i64,
+    pub connection_uuid: String,
+    pub query: String,
+    pub status: String,
+    pub time_taken_ms: Option<i64>,
+    pub row_count: Option<i64>,
+    pub rows_affected: Option<i64>,
+    pub error: Option<String>,
+    pub executed_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableInfo {
     pub schema: String,

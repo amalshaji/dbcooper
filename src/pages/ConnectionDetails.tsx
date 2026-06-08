@@ -27,6 +27,7 @@ import type { SavedQuery } from "@/types/savedQuery";
 import {
 	api,
 	type Connection,
+	type QueryHistory,
 	type RedisKeyDetails,
 	type RedisKeyInfo,
 } from "@/lib/tauri";
@@ -111,6 +112,9 @@ import {
 	Plus,
 	PaintBrush,
 	Gear,
+	ClockCounterClockwise,
+	WarningCircle,
+	Trash,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -345,6 +349,17 @@ function RedisContentHeader({
 	);
 }
 
+// query_history.executed_at is a UTC string from SQLite's datetime('now')
+// with no timezone marker; append "Z" so it parses as UTC, then show local.
+function formatHistoryTime(executedAt: string): string {
+	const iso = executedAt.includes("T")
+		? executedAt
+		: `${executedAt.replace(" ", "T")}Z`;
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return executedAt;
+	return date.toLocaleString();
+}
+
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const navigate = useNavigate();
@@ -354,11 +369,13 @@ export function ConnectionDetails() {
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
-	const [sidebarTab, setSidebarTab] = useState<"objects" | "queries">(
-		"objects",
-	);
+	const [sidebarTab, setSidebarTab] = useState<
+		"objects" | "queries" | "history"
+	>("objects");
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [loadingQueries, setLoadingQueries] = useState(false);
+	const [queryHistory, setQueryHistory] = useState<QueryHistory[]>([]);
+	const [loadingHistory, setLoadingHistory] = useState(false);
 	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
@@ -674,6 +691,51 @@ export function ConnectionDetails() {
 
 		fetchSavedQueries();
 	}, [uuid, sidebarTab]);
+
+	const fetchQueryHistory = useCallback(async () => {
+		if (!uuid) return;
+		try {
+			const data = await api.queries.history(uuid);
+			setQueryHistory(data);
+		} catch (error) {
+			console.error("Failed to fetch query history:", error);
+		}
+	}, [uuid]);
+
+	// Recording lives here, not in the backend pool_execute_query command, on
+	// purpose: that command also serves internal filter/sort/pagination
+	// re-queries (runQueryResultViewQuery), which must NOT pollute history.
+	// Only this layer knows which executeQuery calls are user-initiated runs.
+	// Fire-and-forget; a history failure must never affect the query UX.
+	const recordHistory = useCallback(
+		(
+			query: string,
+			opts: {
+				status: "success" | "error";
+				timeTakenMs?: number | null;
+				rowCount?: number | null;
+				rowsAffected?: number | null;
+				error?: string | null;
+			},
+		) => {
+			if (!uuid) return;
+			api.queries
+				.recordHistory({ connectionUuid: uuid, query, ...opts })
+				// Only live-refresh the panel if it's actually open; otherwise the
+				// tab-switch effect refetches on demand.
+				.then(() => {
+					if (sidebarTab === "history") fetchQueryHistory();
+				})
+				.catch((e) => console.error("Failed to record query history:", e));
+		},
+		[uuid, sidebarTab, fetchQueryHistory],
+	);
+
+	useEffect(() => {
+		if (!uuid || sidebarTab !== "history") return;
+		setLoadingHistory(true);
+		fetchQueryHistory().finally(() => setLoadingHistory(false));
+	}, [uuid, sidebarTab, fetchQueryHistory]);
 
 	const updateTab = useCallback(
 		<T extends Tab>(tabId: string, updates: Partial<T>) => {
@@ -1268,6 +1330,11 @@ export function ConnectionDetails() {
 					affectedRows: null,
 					executing: false,
 				});
+				recordHistory(queryToRun, {
+					status: "error",
+					timeTakenMs: result.time_taken_ms ?? null,
+					error: result.error,
+				});
 				return;
 			}
 
@@ -1284,16 +1351,24 @@ export function ConnectionDetails() {
 					? stripTrailingSemicolon(queryToRun)
 					: null,
 			});
+			recordHistory(queryToRun, {
+				status: "success",
+				timeTakenMs: result.time_taken_ms ?? null,
+				rowCount: result.row_count ?? null,
+				rowsAffected: result.rows_affected ?? null,
+			});
 		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to execute query";
 			updateTab<QueryTab>(tab.id, {
-				error:
-					error instanceof Error ? error.message : "Failed to execute query",
+				error: message,
 				executionTime: null,
 				affectedRows: null,
 				executing: false,
 			});
+			recordHistory(queryToRun, { status: "error", error: message });
 		}
-	}, [activeTab, uuid, updateTab, cursorLine, cursorChar]);
+	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
 
 	const handleRunAllQueries = useCallback(async () => {
 		if (!activeTab || activeTab.type !== "query" || !uuid) return;
@@ -1333,6 +1408,11 @@ export function ConnectionDetails() {
 
 				if (result.error) {
 					lastError = result.error;
+					recordHistory(queryToRun, {
+						status: "error",
+						timeTakenMs: result.time_taken_ms ?? null,
+						error: result.error,
+					});
 					break;
 				}
 
@@ -1341,6 +1421,12 @@ export function ConnectionDetails() {
 				lastBaseQuery = isWrappableQuery(queryToRun)
 					? stripTrailingSemicolon(queryToRun)
 					: null;
+				recordHistory(queryToRun, {
+					status: "success",
+					timeTakenMs: result.time_taken_ms ?? null,
+					rowCount: result.row_count ?? null,
+					rowsAffected: result.rows_affected ?? null,
+				});
 			}
 
 			if (lastError) {
@@ -1372,7 +1458,7 @@ export function ConnectionDetails() {
 				executing: false,
 			});
 		}
-	}, [activeTab, uuid, updateTab]);
+	}, [activeTab, uuid, updateTab, recordHistory]);
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
@@ -3815,10 +3901,12 @@ export function ConnectionDetails() {
 				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
 						value={sidebarTab}
-						onValueChange={(v) => setSidebarTab(v as "objects" | "queries")}
+						onValueChange={(v) =>
+							setSidebarTab(v as "objects" | "queries" | "history")
+						}
 						className="h-full min-h-0"
 					>
-						<TabsList className="w-full grid grid-cols-2">
+						<TabsList className="w-full grid grid-cols-3">
 							<TabsTrigger value="objects" className="flex items-center gap-2">
 								<Table className="w-4 h-4" />
 								Objects
@@ -3826,6 +3914,10 @@ export function ConnectionDetails() {
 							<TabsTrigger value="queries" className="flex items-center gap-2">
 								<Code className="w-4 h-4" />
 								Queries
+							</TabsTrigger>
+							<TabsTrigger value="history" className="flex items-center gap-2">
+								<ClockCounterClockwise className="w-4 h-4" />
+								History
 							</TabsTrigger>
 						</TabsList>
 						<TabsContent value="objects" className="mt-2 min-h-0 flex-1">
@@ -3906,6 +3998,72 @@ export function ConnectionDetails() {
 														</ContextMenuItem>
 													</ContextMenuContent>
 												</ContextMenu>
+											))}
+										</SidebarMenu>
+									)}
+								</SidebarGroupContent>
+							</SidebarGroup>
+						</TabsContent>
+						<TabsContent value="history" className="mt-2 min-h-0 flex-1 overflow-auto">
+							<SidebarGroup>
+								<div className="flex items-center justify-between pr-2">
+									<SidebarGroupLabel>Recent Queries</SidebarGroupLabel>
+									{queryHistory.length > 0 ? (
+										<button
+											type="button"
+											className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+											onClick={async () => {
+												if (!uuid) return;
+												try {
+													await api.queries.clearHistory(uuid);
+													setQueryHistory([]);
+												} catch (e) {
+													console.error("Failed to clear query history:", e);
+												}
+											}}
+										>
+											<Trash className="w-3 h-3" />
+											Clear
+										</button>
+									) : null}
+								</div>
+								<SidebarGroupContent>
+									{loadingHistory ? (
+										<div className="flex items-center justify-center py-4">
+											<Spinner />
+										</div>
+									) : queryHistory.length === 0 ? (
+										<p className="text-xs text-muted-foreground px-2 py-4 text-center">
+											No query history yet
+										</p>
+									) : (
+										<SidebarMenu>
+											{queryHistory.map((item) => (
+												<SidebarMenuItem key={item.id}>
+													<SidebarMenuButton
+														onClick={() => handleOpenQuery(item.query)}
+														className="h-auto flex-col items-start gap-1 py-2"
+														title={item.error ?? item.query}
+													>
+														<div className="flex items-center gap-2 w-full">
+															{item.status === "error" ? (
+																<WarningCircle className="w-4 h-4 text-destructive shrink-0" />
+															) : (
+																<Check className="w-4 h-4 text-green-600 shrink-0" />
+															)}
+															<span className="truncate flex-1 font-mono text-xs">
+																{item.query}
+															</span>
+														</div>
+														<div className="flex items-center gap-2 text-[10px] text-muted-foreground pl-6">
+															<span>{formatHistoryTime(item.executed_at)}</span>
+															{item.status === "success" &&
+															item.time_taken_ms != null ? (
+																<span>· {item.time_taken_ms} ms</span>
+															) : null}
+														</div>
+													</SidebarMenuButton>
+												</SidebarMenuItem>
 											))}
 										</SidebarMenu>
 									)}
