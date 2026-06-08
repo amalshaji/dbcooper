@@ -140,6 +140,7 @@ import {
 	parseStatements as parseSqlStatements,
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useTheme } from "@/contexts/ThemeContext";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -364,6 +365,7 @@ export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const navigate = useNavigate();
 	const { openSettings } = useSettings();
+	const { toggleTheme } = useTheme();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
@@ -4207,6 +4209,7 @@ export function ConnectionDetails() {
 					onOpenFunctionDefinition={handleOpenFunctionDefinition}
 					onSwitchSidebarTab={setSidebarTab}
 					onOpenSettings={openSettings}
+					onToggleTheme={toggleTheme}
 					tables={tables}
 					functions={schemaOverview?.functions || []}
 					connectionType={connection.type}
