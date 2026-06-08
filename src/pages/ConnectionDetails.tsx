@@ -127,6 +127,7 @@ import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
+import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -3133,25 +3134,13 @@ export function ConnectionDetails() {
 	);
 
 	const renderEmptyState = () => (
-		<Card>
-			<CardHeader>
-				<CardTitle>Welcome</CardTitle>
-				<CardDescription>
-					Select an object from the sidebar or create a new query to get started
-				</CardDescription>
-			</CardHeader>
-			<CardContent>
-				<div className="space-y-2">
-					<p className="text-sm text-muted-foreground">
-						Open a table, view, or function from the sidebar, or use the
-						&quot;+&quot; button to create a new SQL query.
-					</p>
-					<p className="text-sm text-muted-foreground">
-						Found {totalObjectCount} objects across {objectSchemaCount} schemas.
-					</p>
-				</div>
-			</CardContent>
-		</Card>
+		<ConnectionWelcome
+			connection={connection}
+			totalObjectCount={totalObjectCount}
+			objectSchemaCount={objectSchemaCount}
+			onNewQuery={handleNewQuery}
+			onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+		/>
 	);
 
 	// ============================================================================

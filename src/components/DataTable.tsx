@@ -7,7 +7,12 @@ import {
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
-import { CaretUp, CaretDown, CaretUpDown } from "@phosphor-icons/react";
+import {
+	CaretUp,
+	CaretDown,
+	CaretUpDown,
+	MagnifyingGlass,
+} from "@phosphor-icons/react";
 
 export interface SortState {
 	column: string;
@@ -184,8 +189,18 @@ export function DataTable<TData>({
 		if (!rows.length) {
 			return (
 				<tr>
-					<td colSpan={columns.length} className="h-32 text-center p-3">
-						No results.
+					<td colSpan={columns.length} className="p-3">
+						<div className="flex flex-col items-center justify-center gap-2.5 py-14 text-center">
+							<div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground/70 ring-1 ring-border">
+								<MagnifyingGlass className="size-5" />
+							</div>
+							<div className="space-y-0.5">
+								<p className="text-sm font-medium text-foreground">No results</p>
+								<p className="text-xs text-muted-foreground">
+									Nothing to show for this query.
+								</p>
+							</div>
+						</div>
 					</td>
 				</tr>
 			);
@@ -265,14 +280,14 @@ export function DataTable<TData>({
 				className="rounded-md border overflow-auto w-full"
 			>
 				<table
-					className="caption-bottom text-xs border-collapse"
+					className="caption-bottom text-xs border-collapse tabular-figures"
 					style={{
 						width: tableWidth,
 						minWidth: "100%",
 						tableLayout: "fixed",
 					}}
 				>
-					<thead className="sticky top-0 bg-background z-10 shadow-sm">
+					<thead className="sticky top-0 bg-background z-10 shadow-[0_6px_10px_-8px_rgb(0_0_0/0.12)]">
 						{headerGroups.map((headerGroup) => (
 							<tr key={headerGroup.id} className="border-b">
 								{paddingLeft > 0 && (
@@ -336,8 +351,9 @@ export function DataTable<TData>({
 
 			{!hidePagination && (
 				<div className="flex items-center justify-between px-2 pt-3 pb-1">
-					<div className="text-sm text-muted-foreground">
-						Page {currentPage} of {pageCount}
+					<div className="text-xs text-muted-foreground tabular-figures">
+						Page <span className="font-medium text-foreground">{currentPage}</span> of{" "}
+						<span className="font-medium text-foreground">{pageCount}</span>
 					</div>
 					<div className="flex items-center space-x-2">
 						<Button

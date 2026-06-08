@@ -1,30 +1,27 @@
+import { ArrowLeft } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function NotFound() {
-  const navigate = useNavigate();
+	const navigate = useNavigate();
 
-  return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-4xl font-bold text-center">404</CardTitle>
-          <CardDescription className="text-center text-lg">
-            Page Not Found
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-center text-muted-foreground">
-            The page you're looking for doesn't exist or has been moved.
-          </p>
-          <div className="flex justify-center">
-            <Button onClick={() => navigate("/")}>
-              Go to Home
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+	return (
+		<div className="flex min-h-screen items-center justify-center bg-background p-6">
+			<div className="w-full max-w-sm text-center">
+				<p className="font-mono text-7xl font-semibold tracking-tighter text-primary tabular-figures">
+					404
+				</p>
+				<h1 className="mt-4 text-lg font-semibold tracking-tight">
+					Page not found
+				</h1>
+				<p className="mt-1.5 text-sm text-muted-foreground">
+					This route doesn&apos;t exist or has moved.
+				</p>
+				<Button className="mt-6" onClick={() => navigate("/")}>
+					<ArrowLeft className="size-4" />
+					Back to connections
+				</Button>
+			</div>
+		</div>
+	);
 }
