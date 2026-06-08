@@ -4047,15 +4047,15 @@ export function ConnectionDetails() {
 													>
 														<div className="flex items-center gap-2 w-full">
 															{item.status === "error" ? (
-																<WarningCircle className="w-4 h-4 text-destructive shrink-0" />
+																<WarningCircle className="w-4 h-4 shrink-0 text-destructive group-hover/menu-button:text-sidebar-accent-foreground" />
 															) : (
-																<Check className="w-4 h-4 text-green-600 shrink-0" />
+																<Check className="w-4 h-4 shrink-0 text-green-600 dark:text-green-500 group-hover/menu-button:text-sidebar-accent-foreground" />
 															)}
 															<span className="truncate flex-1 font-mono text-xs">
 																{item.query}
 															</span>
 														</div>
-														<div className="flex items-center gap-2 text-[10px] text-muted-foreground pl-6">
+														<div className="flex items-center gap-2 text-[10px] text-muted-foreground pl-6 group-hover/menu-button:text-sidebar-accent-foreground">
 															<span>{formatHistoryTime(item.executed_at)}</span>
 															{item.status === "success" &&
 															item.time_taken_ms != null ? (
