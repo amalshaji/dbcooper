@@ -9,3 +9,4 @@
 - Do not add any gap between icon and text in button, as the component already has it
 - Run shadcn commands inside the src/ directory. Use shadcn cli to install components.
 - Make sure components files don't get too big, split into multiple files if needed.
+- Release PRs should have the `release` tag/label.
