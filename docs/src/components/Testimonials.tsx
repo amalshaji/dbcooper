@@ -1,47 +1,31 @@
 const testimonials = [
-	{
-		quote: "The CSV download option is nice",
-		author: "Milind",
-		gradient: "from-violet-500 to-purple-600",
-	},
-	{
-		quote: "Oh! We added this too?",
-		author: "Kishan",
-		gradient: "from-pink-500 to-rose-500",
-	},
-	{
-		quote: "Are you making money with this?",
-		author: "My Mom",
-		gradient: "from-amber-500 to-orange-500",
-	},
+	{ quote: "The CSV download option is nice", author: "Milind", role: "user" },
+	{ quote: "Oh! We added this too?", author: "Kishan", role: "contributor" },
+	{ quote: "Are you making money with this?", author: "My Mom", role: "investor" },
 ];
 
 export function Testimonials() {
 	return (
-		<section className="py-12">
-			<div className="flex flex-col sm:flex-row items-stretch justify-center gap-3">
-				{testimonials.map((testimonial) => (
-					<div
-						key={testimonial.author}
-						className="group relative flex items-center gap-3 px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 hover:border-neutral-200 dark:hover:border-neutral-700 transition-all duration-300"
-					>
-						<div
-							className={`absolute inset-0 rounded-xl bg-gradient-to-br ${testimonial.gradient} opacity-0 group-hover:opacity-5 transition-opacity duration-500`}
-						/>
-						<div
-							className={`relative w-7 h-7 rounded-full bg-gradient-to-br ${testimonial.gradient} flex items-center justify-center text-white text-xs font-medium shrink-0`}
+		<section className="relative border-t border-line py-14">
+			<p className="mono-kicker mb-8">Unsolicited reviews</p>
+			<div className="grid sm:grid-cols-3 gap-px bg-line border border-line">
+				{testimonials.map((t) => (
+					<figure key={t.author} className="bg-paper p-6 flex flex-col gap-4">
+						<svg
+							className="w-7 h-7 text-copper/40"
+							viewBox="0 0 24 24"
+							fill="currentColor"
+							aria-hidden="true"
 						>
-							{testimonial.author.charAt(0)}
-						</div>
-						<div className="relative">
-							<p className="text-sm text-neutral-700 dark:text-neutral-300">
-								"{testimonial.quote}"
-							</p>
-							<p className="text-xs text-neutral-400 dark:text-neutral-500">
-								{testimonial.author}
-							</p>
-						</div>
-					</div>
+							<path d="M9.5 5C6.46 5 4 7.46 4 10.5V19h7v-8H6.5C6.5 8.57 7.85 7 9.5 7V5zm9 0C15.46 5 13 7.46 13 10.5V19h7v-8h-4.5c0-1.43 1.35-3 3-3V5z" />
+						</svg>
+						<blockquote className="font-display text-lg leading-snug text-ink flex-1">
+							{t.quote}
+						</blockquote>
+						<figcaption className="font-mono text-xs text-faint">
+							— {t.author}, <span className="text-copper">{t.role}</span>
+						</figcaption>
+					</figure>
 				))}
 			</div>
 		</section>

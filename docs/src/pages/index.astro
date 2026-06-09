@@ -9,6 +9,8 @@ import { Testimonials } from "../components/Testimonials";
 import { ScreenshotCarousel } from "../components/ScreenshotCarousel";
 import SEO from "../components/SEO.astro";
 import { ThemeSwitcher } from "../components/ThemeSwitcher";
+
+const year = new Date().getFullYear();
 ---
 
 <html lang="en" class="scroll-smooth">
@@ -17,75 +19,153 @@ import { ThemeSwitcher } from "../components/ThemeSwitcher";
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<SEO />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap"
+			rel="stylesheet"
+		/>
 		<script is:inline>
-			(function() {
-				const theme = localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-				if (theme === 'dark') {
-					document.documentElement.classList.add('dark');
+			(function () {
+				const theme =
+					localStorage.getItem("theme") ||
+					(window.matchMedia("(prefers-color-scheme: dark)").matches
+						? "dark"
+						: "light");
+				if (theme === "dark") {
+					document.documentElement.classList.add("dark");
 				}
 			})();
 		</script>
 	</head>
-	<body class="bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 font-['Google_Sans_Flex',system-ui,sans-serif]">
-		<!-- Header -->
-		<header class="max-w-3xl mx-auto px-6 py-6 flex items-center justify-between">
-			<a href="/" class="flex items-center gap-2">
-				<img src="/favicon.svg" alt="" class="w-8 h-8" />
-				<span class="font-semibold">DBcooper</span>
-			</a>
-			<div class="flex items-center gap-6">
-			<nav class="flex items-center gap-4 text-sm">
-				<a href="#features" class="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors">Features</a>
-				<a href="#faq" class="text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white transition-colors">FAQ</a>
-			</nav>
-			<div class="flex items-center gap-4">
-				<a href="https://github.com/amalshaji/dbcooper" target="_blank" class="text-neutral-500 hover:text-neutral-900 dark:hover:text-white">
-					<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+	<body class="bg-paper text-ink antialiased overflow-x-hidden">
+		<!-- ============ HEADER ============ -->
+		<header
+			class="sticky top-0 z-40 border-b border-line bg-paper/80 backdrop-blur-md"
+		>
+			<div
+				class="max-w-6xl mx-auto px-6 md:px-10 h-16 flex items-center justify-between"
+			>
+				<a href="/" class="flex items-center gap-2.5 group">
+					<img src="/favicon.svg" alt="" class="w-7 h-7" />
+					<span class="font-display text-lg font-semibold tracking-tight"
+						>DBcooper</span
+					>
 				</a>
-				<ThemeSwitcher client:load />
+				<div class="flex items-center gap-5 md:gap-7">
+					<nav class="hidden sm:flex items-center gap-6 font-mono text-xs">
+						<a href="#features" class="text-soft hover:text-copper transition-colors"
+							>features</a
+						>
+						<a href="#faq" class="text-soft hover:text-copper transition-colors"
+							>faq</a
+						>
+					</nav>
+					<a
+						href="https://github.com/amalshaji/dbcooper"
+						target="_blank"
+						aria-label="GitHub"
+						class="text-faint hover:text-copper transition-colors"
+					>
+						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"
+							><path
+								d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+							></path></svg
+						>
+					</a>
+					<ThemeSwitcher client:load />
+				</div>
 			</div>
-		</div>
 		</header>
 
-		<main class="max-w-5xl mx-auto px-6">
-			<!-- Hero + Screenshots Row -->
-			<section class="py-16 flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
-				<!-- Hero -->
-				<div class="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left">
-					<h1 class="md:text-3xl text-2xl font-semibold mb-2 whitespace-nowrap sm:whitespace-normal">Database client for developers</h1>
-					<div class="flex items-center justify-center lg:justify-start gap-1 text-neutral-500 dark:text-neutral-400 mb-6">
+		<main class="grid-paper">
+			<div class="max-w-6xl mx-auto px-6 md:px-10 ruled">
+				<!-- ============ HERO ============ -->
+				<section class="relative pt-16 md:pt-24 pb-14">
+					<div class="grid lg:grid-cols-[1.05fr_1.25fr] gap-12 lg:gap-14 items-center">
+						<!-- copy -->
+						<div class="min-w-0">
+							<p class="mono-kicker rise d1">
+								Database client &nbsp;·&nbsp; macOS native
+							</p>
+							<h1
+								class="font-display font-semibold tracking-tight leading-[0.98] text-5xl md:text-6xl xl:text-[4.6rem] mt-5 rise d2"
+							>
+								Talk to your<br />
+								<span class="text-copper italic">databases.</span><span class="caret"
+								></span>
+							</h1>
+							<p
+								class="mt-6 text-base md:text-lg text-soft max-w-md leading-relaxed rise d3"
+							>
+								A fast, beautiful client for PostgreSQL, SQLite, Redis &amp;
+								ClickHouse. Browse data, run SQL, visualize schemas — or just
+								describe what you need and let AI write the query.
+							</p>
+
+							<!-- connection-string flourish -->
+							<div
+								class="mt-6 font-mono text-xs text-faint flex items-center gap-2 rise d3"
+							>
+								<span class="inline-block w-1.5 h-1.5 rounded-full bg-copper"
+								></span>
+								<span class="truncate">postgres://localhost:5432/production</span>
+							</div>
+
+							<div class="mt-8 rise d4">
+								<DownloadButton client:load />
+							</div>
+						</div>
+
+						<!-- screenshot window -->
+						<div class="rise d5 min-w-0">
+							<ScreenshotCarousel client:only="react" />
+						</div>
+					</div>
+				</section>
+
+				<!-- ============ DATABASE LEDGER STRIP ============ -->
+				<section class="relative border-t border-line py-7">
+					<div
+						class="flex flex-col md:flex-row md:items-center gap-5 md:gap-10"
+					>
+						<span class="mono-kicker shrink-0">Connects to</span>
 						<DatabaseIcons client:load />
 					</div>
-					<DownloadButton client:load />
-					<div class="mt-3 text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-						<span class="font-medium text-neutral-700 dark:text-neutral-300">macOS:</span> after
-						installing (before first launch), run
-						<code class="px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-[10px]">xattr -cr /Applications/DBcooper.app</code>
-					</div>
-				</div>
+				</section>
 
-				<!-- Screenshots Carousel -->
-				<div class="flex-1 w-full lg:max-w-2xl">
-					<ScreenshotCarousel client:only="react" />
-				</div>
-			</section>
+				<!-- ============ TESTIMONIALS ============ -->
+				<Testimonials client:load />
 
-			<!-- Testimonials -->
-			<Testimonials client:load />
+				<!-- ============ FEATURES ============ -->
+				<Features client:load />
 
-			<!-- Features -->
-			<Features client:load />
-
-			<!-- FAQ -->
-			<FAQ client:load />
+				<!-- ============ FAQ ============ -->
+				<FAQ client:load />
+			</div>
 		</main>
 
-		<!-- Footer -->
-		<footer class="border-t border-neutral-200 dark:border-neutral-800">
-			<div class="max-w-3xl mx-auto px-6 py-6 text-sm text-neutral-500">
-				© {new Date().getFullYear()} DBcooper
+		<!-- ============ FOOTER ============ -->
+		<footer class="border-t border-line">
+			<div
+				class="max-w-6xl mx-auto px-6 md:px-10 py-10 ruled flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
+			>
+				<div class="flex items-center gap-2.5">
+					<img src="/favicon.svg" alt="" class="w-6 h-6" />
+					<span class="font-display font-semibold">DBcooper</span>
+				</div>
+				<p class="font-mono text-xs text-faint">
+					© {year} · MIT licensed · made for developers
+				</p>
+				<a
+					href="https://github.com/amalshaji/dbcooper"
+					target="_blank"
+					class="font-mono text-xs text-soft hover:text-copper transition-colors"
+					>github ↗</a
+				>
 			</div>
 		</footer>
+
 		<!-- 100% privacy-first analytics -->
 		<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 	</body>

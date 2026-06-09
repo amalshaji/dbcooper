@@ -13,7 +13,7 @@ function PrevArrow({ onClick }: ArrowProps) {
 		<button
 			type="button"
 			onClick={onClick}
-			className="absolute left-2 sm:left-0 top-1/2 -translate-y-1/2 sm:-translate-x-12 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
+			className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-sm flex items-center justify-center text-white/90 transition-all duration-200 hover:scale-105 opacity-0 group-hover/win:opacity-100"
 			aria-label="Previous slide"
 		>
 			<svg
@@ -39,7 +39,7 @@ function NextArrow({ onClick }: ArrowProps) {
 		<button
 			type="button"
 			onClick={onClick}
-			className="absolute right-2 sm:right-0 top-1/2 -translate-y-1/2 sm:translate-x-12 z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-neutral-100/90 dark:bg-neutral-800/90 hover:bg-neutral-200 dark:hover:bg-neutral-700 flex items-center justify-center text-neutral-600 dark:text-neutral-300 transition-all duration-200 hover:scale-105 shadow-md"
+			className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 backdrop-blur-sm flex items-center justify-center text-white/90 transition-all duration-200 hover:scale-105 opacity-0 group-hover/win:opacity-100"
 			aria-label="Next slide"
 		>
 			<svg
@@ -139,7 +139,7 @@ function Lightbox({
 	);
 }
 
-const settings = {
+const baseSettings = {
 	dots: true,
 	infinite: true,
 	speed: 500,
@@ -192,6 +192,7 @@ export function ScreenshotCarousel() {
 		alt: string;
 	} | null>(null);
 	const [isDark, setIsDark] = useState(false);
+	const [current, setCurrent] = useState(0);
 
 	useEffect(() => {
 		// Check system theme preference
@@ -203,61 +204,70 @@ export function ScreenshotCarousel() {
 		setIsDark(!isDark);
 	};
 
+	const settings = {
+		...baseSettings,
+		beforeChange: (_: number, next: number) => setCurrent(next),
+	};
+
 	return (
 		<>
-			<div className="relative sm:px-8 lg:px-14">
-				<Slider {...settings}>
-					{screenshots.map((screenshot) => (
-						<div key={screenshot.light} className="">
+			<div className="relative">
+				{/* macOS window chrome */}
+				<div className="win-chrome group/win">
+					<div className="win-bar">
+						<span className="win-dot" style={{ background: "#ff5f57" }} />
+						<span className="win-dot" style={{ background: "#febc2e" }} />
+						<span className="win-dot" style={{ background: "#28c840" }} />
+						<span className="font-mono text-[11px] text-faint ml-2 truncate">
+							DBcooper — {screenshots[current]?.label}
+						</span>
+						<div className="ml-auto flex items-center gap-1.5 font-mono text-[10px] text-faint">
+							<span>light</span>
 							<button
 								type="button"
-								onClick={() => setLightbox(screenshot)}
-								className="w-full cursor-pointer group bg-transparent border-0 p-0 block"
-								aria-label={`Click to view ${screenshot.alt} in fullscreen`}
+								onClick={toggleTheme}
+								className="relative inline-flex h-4 w-7 items-center rounded-full bg-surface-2 border border-line transition-colors"
+								aria-label="Toggle theme preview"
 							>
-								<div className="relative leading-[0] rounded-xl overflow-hidden">
+								<span
+									className="inline-block h-2.5 w-2.5 transform rounded-full bg-copper transition-transform"
+									style={{
+										transform: isDark
+											? "translateX(13px)"
+											: "translateX(2px)",
+									}}
+								/>
+							</button>
+							<span>dark</span>
+						</div>
+					</div>
+
+					<Slider {...settings}>
+						{screenshots.map((screenshot) => (
+							<div key={screenshot.light}>
+								<button
+									type="button"
+									onClick={() => setLightbox(screenshot)}
+									className="w-full cursor-zoom-in bg-transparent border-0 p-0 block leading-[0]"
+									aria-label={`View ${screenshot.alt} fullscreen`}
+								>
 									<Compare
 										firstImage={screenshot.light}
 										secondImage={screenshot.dark}
 										firstImageAlt={`${screenshot.alt} - Light mode`}
 										secondImageAlt={`${screenshot.alt} - Dark mode`}
 										initialPosition={50}
-										className="rounded-lg shadow-lg group-hover:shadow-xl transition-shadow"
+										className="!rounded-none"
 										isDark={isDark}
 									/>
-									<div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-2 sm:px-3 py-1 bg-black/70 text-white text-xs sm:text-sm rounded-full">
-										{screenshot.label}
-									</div>
-								</div>
-							</button>
-						</div>
-					))}
-				</Slider>
-				<div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6 text-center sm:text-left">
-					<div className="flex items-center gap-2">
-						<span className="text-xs text-neutral-600 dark:text-neutral-300">
-							Light
-						</span>
-						<button
-							type="button"
-							onClick={toggleTheme}
-							className="relative inline-flex h-5 w-9 items-center rounded-full bg-neutral-200 dark:bg-neutral-700 transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2"
-							aria-label="Toggle theme view"
-						>
-							<span
-								className={`inline-block h-3 w-3 transform rounded-full bg-white shadow transition-transform ${
-									isDark ? "translate-x-5" : "translate-x-0.5"
-								}`}
-							/>
-						</button>
-						<span className="text-xs text-neutral-600 dark:text-neutral-300">
-							Dark
-						</span>
-					</div>
-					<span className="text-xs text-neutral-500 dark:text-neutral-400">
-						Toggle to compare themes • Click for fullscreen
-					</span>
+								</button>
+							</div>
+						))}
+					</Slider>
 				</div>
+				<p className="mt-4 text-center font-mono text-[11px] text-faint">
+					toggle theme to compare · click to zoom
+				</p>
 			</div>
 			{lightbox && (
 				<Lightbox

@@ -4,102 +4,107 @@ const faqs = [
 	{
 		question: "Is DBcooper free?",
 		answer:
-			"Yes! DBcooper is completely free and open source. You can find the source code on GitHub.",
+			"Yes — completely free and open source. The full source lives on GitHub under the MIT license.",
 	},
 	{
 		question: "Which databases are supported?",
 		answer:
-			"Currently, DBcooper supports PostgreSQL, SQLite, Redis, and ClickHouse. More database support is planned for future releases.",
+			"PostgreSQL, SQLite, Redis, and ClickHouse today. More engines are planned for future releases.",
 	},
 	{
 		question: "Does it work on Windows or Linux?",
 		answer:
-			"DBcooper is currently available only for macOS. Windows and Linux versions are being considered for future development.",
+			"DBcooper is macOS-only for now. Windows and Linux builds are being considered.",
 	},
 	{
 		question: "How do I connect via SSH tunnel?",
 		answer:
-			"When adding a new connection, enable the SSH tunnel option and provide your SSH host, port, username, and authentication method (password or private key).",
+			"When adding a connection, enable the SSH tunnel option and provide your SSH host, port, username, and authentication method (password or private key).",
 	},
 	{
 		question: "Is my data secure?",
 		answer:
-			"Absolutely. DBcooper runs entirely on your local machine. Your connection credentials and data never leave your computer. We don't collect any telemetry or analytics.",
+			"Absolutely. DBcooper runs entirely on your machine — connection credentials and query results never leave your computer, and there's no telemetry.",
 	},
 	{
 		question: "How do I report bugs or request features?",
 		answer:
-			"Head over to our GitHub repository and open an issue. We appreciate all feedback and contributions from the community!",
+			"Open an issue on the GitHub repository. All feedback and contributions are welcome.",
 	},
 ];
 
 export function FAQ() {
-	const [openIndex, setOpenIndex] = useState<number | null>(null);
+	const [openIndex, setOpenIndex] = useState<number | null>(0);
 
 	return (
-		<section id="faq" className="py-20 border-t border-neutral-100 dark:border-neutral-800">
-			<div className="text-center mb-12">
-				<h2 className="text-2xl font-semibold mb-3">
-					Frequently asked questions
-				</h2>
-				<p className="text-neutral-500 dark:text-neutral-400">
-					Got questions? We've got answers.
-				</p>
-			</div>
+		<section
+			id="faq"
+			className="relative border-t border-line py-20 md:py-24"
+		>
+			<div className="grid lg:grid-cols-[18rem_1fr] gap-10 lg:gap-16">
+				<div>
+					<p className="mono-kicker">§ 02 — Questions</p>
+					<h2 className="font-display text-4xl md:text-5xl font-semibold tracking-tight mt-3">
+						Frequently
+						<br />
+						<span className="italic text-copper">asked.</span>
+					</h2>
+				</div>
 
-			<div className="max-w-2xl mx-auto space-y-3">
-				{faqs.map((faq, index) => (
-					<div
-						key={faq.question}
-						className="group rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800 overflow-hidden transition-all duration-200"
-					>
-						<button
-							type="button"
-							onClick={() => setOpenIndex(openIndex === index ? null : index)}
-							className="w-full flex items-center justify-between p-4 text-left hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 transition-colors"
-						>
-							<span className="font-medium text-neutral-900 dark:text-neutral-100 pr-4">
-								{faq.question}
-							</span>
-							<div
-								className={`flex-shrink-0 w-6 h-6 rounded-full bg-neutral-200 dark:bg-neutral-700 flex items-center justify-center transition-all duration-300 ${
-									openIndex === index
-										? "rotate-180 bg-neutral-900 dark:bg-white"
-										: ""
-								}`}
-							>
-								<svg
-									className={`w-3 h-3 transition-colors ${
-										openIndex === index
-											? "text-white dark:text-neutral-900"
-											: "text-neutral-500 dark:text-neutral-400"
-									}`}
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke="currentColor"
-									strokeWidth={2.5}
-									aria-hidden="true"
+				<div className="border-t border-line-strong">
+					{faqs.map((faq, index) => {
+						const open = openIndex === index;
+						return (
+							<div key={faq.question} className="border-b border-line">
+								<button
+									type="button"
+									onClick={() => setOpenIndex(open ? null : index)}
+									className="w-full flex items-start justify-between gap-6 py-5 text-left group"
 								>
-									<path
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										d="M19.5 8.25l-7.5 7.5-7.5-7.5"
-									/>
-								</svg>
+									<span className="font-mono text-xs text-copper tabular-nums pt-1.5 shrink-0">
+										{String(index + 1).padStart(2, "0")}
+									</span>
+									<span className="font-display text-lg md:text-xl font-medium flex-1 group-hover:text-copper transition-colors">
+										{faq.question}
+									</span>
+									<span
+										className={`shrink-0 mt-1 text-copper transition-transform duration-300 ${
+											open ? "rotate-45" : ""
+										}`}
+									>
+										<svg
+											className="w-5 h-5"
+											fill="none"
+											viewBox="0 0 24 24"
+											stroke="currentColor"
+											strokeWidth={1.6}
+											aria-hidden="true"
+										>
+											<path
+												strokeLinecap="round"
+												strokeLinejoin="round"
+												d="M12 4.5v15m7.5-7.5h-15"
+											/>
+										</svg>
+									</span>
+								</button>
+								<div
+									className={`grid transition-all duration-300 ease-out ${
+										open
+											? "grid-rows-[1fr] opacity-100"
+											: "grid-rows-[0fr] opacity-0"
+									}`}
+								>
+									<div className="overflow-hidden">
+										<p className="text-soft leading-relaxed pb-6 pl-[2.7rem] pr-8 max-w-2xl">
+											{faq.answer}
+										</p>
+									</div>
+								</div>
 							</div>
-						</button>
-
-						<div
-							className={`overflow-hidden transition-all duration-300 ease-out ${
-								openIndex === index ? "max-h-48" : "max-h-0"
-							}`}
-						>
-							<div className="px-4 pb-4 text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
-								{faq.answer}
-							</div>
-						</div>
-					</div>
-				))}
+						);
+					})}
+				</div>
 			</div>
 		</section>
 	);
