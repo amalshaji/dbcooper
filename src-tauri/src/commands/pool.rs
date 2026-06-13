@@ -2,6 +2,8 @@
 //!
 //! Commands for managing the connection pool: connect, disconnect, status, health check.
 
+use std::sync::Arc;
+
 use crate::database::pool_manager::{ConnectionConfig, ConnectionStatus, PoolManager};
 use crate::db::models::TestConnectionResult;
 use serde::{Deserialize, Serialize};
@@ -18,7 +20,7 @@ pub struct ConnectionStatusResponse {
 /// Connect to a database and add to pool
 #[tauri::command]
 pub async fn pool_connect(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
@@ -78,7 +80,7 @@ pub async fn pool_connect(
 /// Disconnect from a database and remove from pool
 #[tauri::command]
 pub async fn pool_disconnect(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     uuid: String,
 ) -> Result<(), String> {
     pool_manager.disconnect(&uuid).await;
@@ -88,7 +90,7 @@ pub async fn pool_disconnect(
 /// Get the current status of a connection
 #[tauri::command]
 pub async fn pool_get_status(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
     let status = pool_manager.get_status(&uuid).await;
@@ -99,7 +101,7 @@ pub async fn pool_get_status(
 /// Perform a health check on a connection
 #[tauri::command]
 pub async fn pool_health_check(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     uuid: String,
 ) -> Result<TestConnectionResult, String> {
     pool_manager.health_check(&uuid).await
@@ -192,7 +194,7 @@ async fn reconnect(
 /// List tables using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_list_tables(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<Vec<crate::db::models::TableInfo>, String> {
@@ -217,7 +219,7 @@ pub async fn pool_list_tables(
 /// Get table data using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_get_table_data(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
@@ -269,7 +271,7 @@ pub async fn pool_get_table_data(
 /// Get table structure using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_get_table_structure(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
@@ -298,7 +300,7 @@ pub async fn pool_get_table_structure(
 /// Execute query using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_execute_query(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     query: String,
@@ -321,7 +323,7 @@ pub async fn pool_execute_query(
 /// Get schema overview using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_get_schema_overview(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<crate::db::models::SchemaOverview, String> {
@@ -343,7 +345,7 @@ pub async fn pool_get_schema_overview(
 /// Get a function definition using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_get_function_definition(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
@@ -379,7 +381,7 @@ use crate::commands::database::{escape_sql_identifier, format_sql_value, validat
 /// Update a row in a table using the pooled connection
 #[tauri::command]
 pub async fn pool_update_table_row(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
@@ -487,7 +489,7 @@ pub async fn pool_update_table_row(
 /// Delete a row from a table using the pooled connection
 #[tauri::command]
 pub async fn pool_delete_table_row(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
@@ -551,7 +553,7 @@ pub async fn pool_delete_table_row(
 /// Insert a new row into a table using the pooled connection
 #[tauri::command]
 pub async fn pool_insert_table_row(
-    pool_manager: State<'_, PoolManager>,
+    pool_manager: State<'_, Arc<PoolManager>>,
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
     schema: String,
