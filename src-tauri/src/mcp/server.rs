@@ -1,5 +1,9 @@
 use std::sync::Arc;
 
+use axum::extract::State;
+use axum::http::{header::AUTHORIZATION, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use sqlx::SqlitePool;
@@ -17,17 +21,35 @@ pub struct McpServerHandle {
     pub cancellation_token: CancellationToken,
 }
 
+/// Reject any request that doesn't present `Authorization: Bearer <token>`.
+async fn require_bearer_token(
+    State(expected): State<Arc<String>>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let provided = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    match provided {
+        Some(token) if token == expected.as_str() => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
 pub async fn start_mcp_server(
     sqlite_pool: SqlitePool,
     pool_manager: Arc<PoolManager>,
     read_only: bool,
+    auth_token: String,
 ) -> Result<McpServerHandle, Box<dyn std::error::Error + Send + Sync>> {
     let ct = CancellationToken::new();
 
     let (listener, port) = bind_with_retry(DEFAULT_PORT, MAX_PORT_ATTEMPTS).await?;
 
-    let config = StreamableHttpServerConfig::default()
-        .with_cancellation_token(ct.child_token());
+    let config = StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token());
 
     let service = StreamableHttpService::new(
         move || {
@@ -41,7 +63,13 @@ pub async fn start_mcp_server(
         config,
     );
 
-    let router = axum::Router::new().nest_service("/mcp", service);
+    let router =
+        axum::Router::new()
+            .nest_service("/mcp", service)
+            .layer(middleware::from_fn_with_state(
+                Arc::new(auth_token),
+                require_bearer_token,
+            ));
 
     let shutdown_ct = ct.clone();
     tokio::spawn(async move {

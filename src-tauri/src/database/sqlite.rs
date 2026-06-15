@@ -366,6 +366,46 @@ impl DatabaseDriver for SqliteDriver {
         }
     }
 
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        let pool = self.get_pool().await?;
+
+        // `query_only` makes the engine reject every write on this connection
+        // (the pool holds a single connection), covering writes hidden behind
+        // mutating pragmas or otherwise.
+        if let Err(e) = sqlx::query("PRAGMA query_only = ON").execute(&pool).await {
+            pool.close().await;
+            return Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                error: Some(e.to_string()),
+                time_taken_ms: Some(start_time.elapsed().as_millis()),
+            });
+        }
+
+        let result = sqlx::query(query).fetch_all(&pool).await;
+        pool.close().await;
+
+        match result {
+            Ok(rows) => {
+                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                let row_count = data.len() as i64;
+                Ok(QueryResult {
+                    data,
+                    row_count,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
+            Err(e) => Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                error: Some(e.to_string()),
+                time_taken_ms: Some(start_time.elapsed().as_millis()),
+            }),
+        }
+    }
+
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
         let pool = self.get_pool().await?;
 

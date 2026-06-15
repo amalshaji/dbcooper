@@ -200,6 +200,28 @@ impl PoolManager {
         }
     }
 
+    /// Ensure a connection exists in the pool, connecting if needed.
+    ///
+    /// Serialized per-UUID via the connect lock so concurrent callers (Tauri
+    /// commands and the MCP server) can't race on the same connection.
+    pub async fn ensure_connected(
+        &self,
+        sqlite_pool: &sqlx::SqlitePool,
+        uuid: &str,
+    ) -> Result<(), String> {
+        let lock = self.get_connect_lock(uuid).await;
+        let _guard = lock.lock().await;
+
+        // Re-check under the lock; another caller may have just connected.
+        if self.get_cached(uuid).await.is_some() {
+            return Ok(());
+        }
+
+        let config = crate::database::utils::get_connection_config(sqlite_pool, uuid).await?;
+        self.connect(uuid, config).await?;
+        Ok(())
+    }
+
     /// Get or create a connection for the given UUID
     pub async fn get_connection(
         &self,
@@ -419,6 +441,19 @@ impl PoolManager {
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver.execute_query(query).await
+    }
+
+    /// Execute a query with read-only enforcement (engine-enforced where possible).
+    pub async fn execute_query_read_only(
+        &self,
+        uuid: &str,
+        query: &str,
+    ) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.execute_query_read_only(query).await
     }
 
     /// Get schema overview using the pooled connection

@@ -1,10 +1,30 @@
 use super::McpServer;
-use crate::database::utils::get_connection_config;
 use rmcp::model::*;
 use rmcp::ErrorData as McpError;
-use serde_json::json;
+use serde_json::{json, Value};
 
 const MAX_ROWS: usize = 1000;
+
+/// Build an object JSON schema from its properties and required keys.
+fn object_schema(properties: Value, required: Value) -> Value {
+    json!({ "type": "object", "properties": properties, "required": required })
+}
+
+/// Schema for tools that take only a `connection_uuid`.
+fn connection_uuid_schema(description: &str) -> Value {
+    object_schema(
+        json!({ "connection_uuid": { "type": "string", "description": description } }),
+        json!(["connection_uuid"]),
+    )
+}
+
+/// Annotations for a tool that only reads and never mutates state.
+fn read_only_annotations() -> ToolAnnotations {
+    ToolAnnotations::new()
+        .read_only(true)
+        .destructive(false)
+        .idempotent(true)
+}
 
 /// Return the list of all tool definitions.
 pub fn tool_definitions() -> Vec<Tool> {
@@ -12,72 +32,42 @@ pub fn tool_definitions() -> Vec<Tool> {
         Tool::new(
             "list_connections",
             "List all saved database connections (credentials are redacted)",
-            object(json!({
-                "type": "object",
-                "properties": {},
-                "required": []
-            })),
+            object(object_schema(json!({}), json!([]))),
         )
-        .with_annotations(
-            ToolAnnotations::new()
-                .read_only(true)
-                .destructive(false)
-                .idempotent(true),
-        ),
+        .with_annotations(read_only_annotations()),
         Tool::new(
             "connect",
             "Connect to a saved database by its UUID",
-            object(json!({
-                "type": "object",
-                "properties": {
-                    "connection_uuid": {
-                        "type": "string",
-                        "description": "UUID of the saved connection"
-                    }
-                },
-                "required": ["connection_uuid"]
-            })),
+            object(connection_uuid_schema("UUID of the saved connection")),
+        )
+        .with_annotations(
+            ToolAnnotations::new()
+                .read_only(false)
+                .destructive(false)
+                .idempotent(true),
         ),
         Tool::new(
             "disconnect",
             "Disconnect from a database",
-            object(json!({
-                "type": "object",
-                "properties": {
-                    "connection_uuid": {
-                        "type": "string",
-                        "description": "UUID of the connection to disconnect"
-                    }
-                },
-                "required": ["connection_uuid"]
-            })),
-        ),
-        Tool::new(
-            "list_tables",
-            "List all tables in a connected database",
-            object(json!({
-                "type": "object",
-                "properties": {
-                    "connection_uuid": {
-                        "type": "string",
-                        "description": "UUID of the connected database"
-                    }
-                },
-                "required": ["connection_uuid"]
-            })),
+            object(connection_uuid_schema("UUID of the connection to disconnect")),
         )
         .with_annotations(
             ToolAnnotations::new()
-                .read_only(true)
+                .read_only(false)
                 .destructive(false)
                 .idempotent(true),
         ),
         Tool::new(
+            "list_tables",
+            "List all tables in a connected database",
+            object(connection_uuid_schema("UUID of the connected database")),
+        )
+        .with_annotations(read_only_annotations()),
+        Tool::new(
             "describe_table",
             "Get table structure including columns, indexes, and foreign keys",
-            object(json!({
-                "type": "object",
-                "properties": {
+            object(object_schema(
+                json!({
                     "connection_uuid": {
                         "type": "string",
                         "description": "UUID of the connected database"
@@ -90,42 +80,22 @@ pub fn tool_definitions() -> Vec<Tool> {
                         "type": "string",
                         "description": "Table name"
                     }
-                },
-                "required": ["connection_uuid", "schema", "table"]
-            })),
+                }),
+                json!(["connection_uuid", "schema", "table"]),
+            )),
         )
-        .with_annotations(
-            ToolAnnotations::new()
-                .read_only(true)
-                .destructive(false)
-                .idempotent(true),
-        ),
+        .with_annotations(read_only_annotations()),
         Tool::new(
             "get_schema_overview",
             "Get full schema overview with all tables, columns, indexes, and relationships",
-            object(json!({
-                "type": "object",
-                "properties": {
-                    "connection_uuid": {
-                        "type": "string",
-                        "description": "UUID of the connected database"
-                    }
-                },
-                "required": ["connection_uuid"]
-            })),
+            object(connection_uuid_schema("UUID of the connected database")),
         )
-        .with_annotations(
-            ToolAnnotations::new()
-                .read_only(true)
-                .destructive(false)
-                .idempotent(true),
-        ),
+        .with_annotations(read_only_annotations()),
         Tool::new(
             "execute_query",
-            "Execute a SQL query against a connected database. Read-only by default (SELECT/WITH/EXPLAIN only).",
-            object(json!({
-                "type": "object",
-                "properties": {
+            "Execute a SQL query against a connected database. Read-only by default (writes are rejected by the database engine).",
+            object(object_schema(
+                json!({
                     "connection_uuid": {
                         "type": "string",
                         "description": "UUID of the connected database"
@@ -134,15 +104,22 @@ pub fn tool_definitions() -> Vec<Tool> {
                         "type": "string",
                         "description": "SQL query to execute"
                     }
-                },
-                "required": ["connection_uuid", "query"]
-            })),
+                }),
+                json!(["connection_uuid", "query"]),
+            )),
+        )
+        .with_annotations(
+            // Worst-case hint: when the server is not in read-only mode this can mutate data.
+            ToolAnnotations::new()
+                .read_only(false)
+                .destructive(true)
+                .idempotent(false),
         ),
     ]
 }
 
 fn get_str_param<'a>(
-    args: &'a Option<serde_json::Map<String, serde_json::Value>>,
+    args: &'a Option<serde_json::Map<String, Value>>,
     key: &str,
 ) -> Result<&'a str, McpError> {
     args.as_ref()
@@ -198,7 +175,7 @@ async fn list_connections(server: &McpServer) -> Result<CallToolResult, McpError
             .await
             .map_err(|e| McpError::internal_error(format!("Database error: {}", e), None))?;
 
-    let safe: Vec<serde_json::Value> = connections
+    let safe: Vec<Value> = connections
         .into_iter()
         .map(|c| {
             json!({
@@ -219,12 +196,8 @@ async fn list_connections(server: &McpServer) -> Result<CallToolResult, McpError
 }
 
 async fn connect(server: &McpServer, uuid: &str) -> Result<CallToolResult, McpError> {
-    let config = get_connection_config(&server.sqlite_pool, uuid)
-        .await
-        .map_err(|e| McpError::internal_error(e, None))?;
-
-    match server.pool_manager.connect(uuid, config).await {
-        Ok(_) => Ok(CallToolResult::success(vec![Content::text(format!(
+    match server.ensure_connected(uuid).await {
+        Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
             "Connected to {} successfully.",
             uuid
         ))])),
@@ -248,8 +221,7 @@ async fn list_tables(server: &McpServer, uuid: &str) -> Result<CallToolResult, M
 
     match server.pool_manager.list_tables(uuid).await {
         Ok(tables) => {
-            let json =
-                serde_json::to_string_pretty(&tables).unwrap_or_else(|_| "[]".to_string());
+            let json = serde_json::to_string_pretty(&tables).unwrap_or_else(|_| "[]".to_string());
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
         Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -289,8 +261,7 @@ async fn get_schema_overview(server: &McpServer, uuid: &str) -> Result<CallToolR
 
     match server.pool_manager.get_schema_overview(uuid).await {
         Ok(overview) => {
-            let json =
-                serde_json::to_string_pretty(&overview).unwrap_or_else(|_| "{}".to_string());
+            let json = serde_json::to_string_pretty(&overview).unwrap_or_else(|_| "{}".to_string());
             Ok(CallToolResult::success(vec![Content::text(json)]))
         }
         Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
@@ -300,118 +271,31 @@ async fn get_schema_overview(server: &McpServer, uuid: &str) -> Result<CallToolR
     }
 }
 
-/// Check if a SQL query is read-only (SELECT, WITH, EXPLAIN, SHOW, DESCRIBE only).
-fn is_read_only_sql_query(query: &str) -> bool {
-    let trimmed = query.trim().to_uppercase();
-    let effective = if trimmed.starts_with("--") {
-        trimmed
-            .lines()
-            .find(|l| !l.trim_start().starts_with("--"))
-            .unwrap_or("")
-            .to_string()
-    } else if trimmed.starts_with("/*") {
-        trimmed
-            .find("*/")
-            .map(|i| trimmed[i + 2..].trim().to_string())
-            .unwrap_or_default()
-    } else {
-        trimmed
-    };
-
-    let first_word = effective
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_uppercase();
-
-    matches!(
-        first_word.as_str(),
-        "SELECT" | "WITH" | "EXPLAIN" | "SHOW" | "DESCRIBE" | "DESC" | "PRAGMA"
-    )
-}
-
-/// Check if a Redis command is read-only.
-fn is_read_only_redis_command(query: &str) -> bool {
-    let command = query
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_uppercase();
-
-    matches!(
-        command.as_str(),
-        // String commands
-        "GET" | "MGET" | "STRLEN" | "GETRANGE" | "SUBSTR"
-        // Key commands
-        | "EXISTS" | "TYPE" | "TTL" | "PTTL" | "KEYS" | "SCAN"
-        | "RANDOMKEY" | "DUMP" | "OBJECT" | "TOUCH"
-        // List commands
-        | "LLEN" | "LRANGE" | "LINDEX" | "LPOS"
-        // Hash commands
-        | "HGET" | "HGETALL" | "HKEYS" | "HVALS" | "HLEN"
-        | "HEXISTS" | "HMGET" | "HSCAN" | "HRANDFIELD"
-        // Set commands
-        | "SCARD" | "SISMEMBER" | "SMISMEMBER" | "SMEMBERS"
-        | "SRANDMEMBER" | "SSCAN" | "SINTER" | "SUNION" | "SDIFF"
-        | "SINTERCARD"
-        // Sorted set commands
-        | "ZCARD" | "ZCOUNT" | "ZRANGE" | "ZRANGEBYSCORE"
-        | "ZREVRANGE" | "ZREVRANGEBYSCORE" | "ZRANK" | "ZREVRANK"
-        | "ZSCORE" | "ZMSCORE" | "ZSCAN" | "ZRANGEBYLEX"
-        | "ZREVRANGEBYLEX" | "ZLEXCOUNT" | "ZRANDMEMBER"
-        // Server / connection commands
-        | "DBSIZE" | "INFO" | "PING" | "ECHO" | "TIME" | "CLIENT"
-        // Stream commands
-        | "XLEN" | "XRANGE" | "XREVRANGE" | "XINFO" | "XREAD" | "XPENDING"
-        // HyperLogLog
-        | "PFCOUNT"
-        // Geo commands
-        | "GEOSEARCH" | "GEOPOS" | "GEODIST" | "GEOHASH"
-        | "GEORADIUS_RO" | "GEORADIUSBYMEMBER_RO"
-        // Memory
-        | "MEMORY"
-        // Misc
-        | "WAIT"
-    )
-}
-
-/// Check if a query/command is read-only for the given database type.
-fn is_read_only(db_type: &str, query: &str) -> bool {
-    match db_type.to_lowercase().as_str() {
-        "redis" => is_read_only_redis_command(query),
-        _ => is_read_only_sql_query(query),
-    }
-}
-
 async fn execute_query(
     server: &McpServer,
     uuid: &str,
     query: &str,
 ) -> Result<CallToolResult, McpError> {
-    if server.read_only {
-        let db_type = if let Some(config) = server.pool_manager.get_config(uuid).await {
-            config.db_type
-        } else {
-            get_connection_config(&server.sqlite_pool, uuid)
-                .await
-                .map(|c| c.db_type)
-                .unwrap_or_default()
-        };
-
-        if !is_read_only(&db_type, query) {
-            let msg = match db_type.to_lowercase().as_str() {
-                "redis" => "Read-only mode: only read commands (GET, KEYS, LLEN, INFO, SCAN, etc.) are allowed. Write commands like SET, DEL, FLUSHDB are blocked.",
-                _ => "Read-only mode: only SELECT, WITH, EXPLAIN, SHOW, and DESCRIBE queries are allowed.",
-            };
-            return Ok(CallToolResult::error(vec![Content::text(msg)]));
-        }
-    }
-
     server.ensure_connected(uuid).await?;
 
-    match server.pool_manager.execute_query(uuid, query).await {
+    // Read-only enforcement lives in the driver/engine, not in a string matcher.
+    let result = if server.read_only {
+        server
+            .pool_manager
+            .execute_query_read_only(uuid, query)
+            .await
+    } else {
+        server.pool_manager.execute_query(uuid, query).await
+    };
+
+    match result {
         Ok(mut result) => {
+            // Engine-level rejections (e.g. a write in read-only mode) come back
+            // as an error on the result; surface them as a tool error.
+            if let Some(err) = result.error.take() {
+                return Ok(CallToolResult::error(vec![Content::text(err)]));
+            }
+
             let truncated = result.data.len() > MAX_ROWS;
             if truncated {
                 result.data.truncate(MAX_ROWS);
@@ -430,87 +314,5 @@ async fn execute_query(
             "Query failed: {}",
             e
         ))])),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_read_only_sql_detection() {
-        assert!(is_read_only_sql_query("SELECT * FROM users"));
-        assert!(is_read_only_sql_query("  select * from users"));
-        assert!(is_read_only_sql_query(
-            "WITH cte AS (SELECT 1) SELECT * FROM cte"
-        ));
-        assert!(is_read_only_sql_query("EXPLAIN SELECT * FROM users"));
-        assert!(is_read_only_sql_query("SHOW tables"));
-        assert!(is_read_only_sql_query("DESCRIBE users"));
-        assert!(is_read_only_sql_query("PRAGMA table_info(users)"));
-
-        assert!(!is_read_only_sql_query("INSERT INTO users VALUES (1)"));
-        assert!(!is_read_only_sql_query("UPDATE users SET name = 'x'"));
-        assert!(!is_read_only_sql_query("DELETE FROM users"));
-        assert!(!is_read_only_sql_query("DROP TABLE users"));
-        assert!(!is_read_only_sql_query("ALTER TABLE users ADD col INT"));
-        assert!(!is_read_only_sql_query("CREATE TABLE t (id INT)"));
-    }
-
-    #[test]
-    fn test_read_only_redis_detection() {
-        // Read-only commands should be allowed
-        assert!(is_read_only_redis_command("GET mykey"));
-        assert!(is_read_only_redis_command("  get mykey"));
-        assert!(is_read_only_redis_command("MGET key1 key2"));
-        assert!(is_read_only_redis_command("KEYS *"));
-        assert!(is_read_only_redis_command("KEYS *harmony*"));
-        assert!(is_read_only_redis_command("SCAN 0 MATCH * COUNT 100"));
-        assert!(is_read_only_redis_command("LLEN queues:high"));
-        assert!(is_read_only_redis_command("LRANGE mylist 0 -1"));
-        assert!(is_read_only_redis_command("HGETALL myhash"));
-        assert!(is_read_only_redis_command("SMEMBERS myset"));
-        assert!(is_read_only_redis_command("ZRANGE myzset 0 -1"));
-        assert!(is_read_only_redis_command("INFO"));
-        assert!(is_read_only_redis_command("INFO server"));
-        assert!(is_read_only_redis_command("DBSIZE"));
-        assert!(is_read_only_redis_command("TTL mykey"));
-        assert!(is_read_only_redis_command("TYPE mykey"));
-        assert!(is_read_only_redis_command("EXISTS mykey"));
-        assert!(is_read_only_redis_command("PING"));
-        assert!(is_read_only_redis_command("XLEN mystream"));
-
-        // Write commands should be blocked
-        assert!(!is_read_only_redis_command("SET mykey value"));
-        assert!(!is_read_only_redis_command("DEL mykey"));
-        assert!(!is_read_only_redis_command("FLUSHDB"));
-        assert!(!is_read_only_redis_command("FLUSHALL"));
-        assert!(!is_read_only_redis_command("LPUSH mylist value"));
-        assert!(!is_read_only_redis_command("RPUSH mylist value"));
-        assert!(!is_read_only_redis_command("HSET myhash field value"));
-        assert!(!is_read_only_redis_command("SADD myset member"));
-        assert!(!is_read_only_redis_command("ZADD myzset 1 member"));
-        assert!(!is_read_only_redis_command("EXPIRE mykey 100"));
-        assert!(!is_read_only_redis_command("RENAME key1 key2"));
-        assert!(!is_read_only_redis_command("MSET key1 v1 key2 v2"));
-        assert!(!is_read_only_redis_command("INCR counter"));
-        assert!(!is_read_only_redis_command("DECR counter"));
-    }
-
-    #[test]
-    fn test_is_read_only_dispatches_by_db_type() {
-        // SQL types use SQL validation
-        assert!(is_read_only("postgres", "SELECT * FROM users"));
-        assert!(!is_read_only("postgres", "LLEN mylist"));
-        assert!(is_read_only("postgresql", "SELECT 1"));
-        assert!(is_read_only("sqlite", "SELECT 1"));
-        assert!(is_read_only("clickhouse", "SHOW TABLES"));
-
-        // Redis uses Redis validation
-        assert!(is_read_only("redis", "LLEN queues:high"));
-        assert!(is_read_only("redis", "GET mykey"));
-        assert!(is_read_only("redis", "KEYS *"));
-        assert!(!is_read_only("redis", "SET mykey value"));
-        assert!(!is_read_only("redis", "DEL mykey"));
     }
 }

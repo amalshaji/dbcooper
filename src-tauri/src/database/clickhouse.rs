@@ -55,6 +55,17 @@ impl ClickhouseDriver {
 
     /// Execute a query and return JSON results using raw HTTP
     async fn execute_query_json(&self, query: &str) -> Result<Vec<Value>, String> {
+        self.execute_query_json_inner(query, false).await
+    }
+
+    /// Execute a query and return JSON results using raw HTTP. When `read_only`
+    /// is set, the request carries ClickHouse's `readonly=1` setting so the
+    /// server rejects writes, DDL, and `SET` regardless of the query text.
+    async fn execute_query_json_inner(
+        &self,
+        query: &str,
+        read_only: bool,
+    ) -> Result<Vec<Value>, String> {
         let url = self.build_url();
         let client = reqwest::Client::new();
 
@@ -68,10 +79,15 @@ impl ClickhouseDriver {
             format!("{} FORMAT JSONEachRow", cleaned_query)
         };
 
+        let mut params: Vec<(&str, &str)> = vec![("database", self.config.database.as_str())];
+        if read_only {
+            params.push(("readonly", "1"));
+        }
+
         let response = client
             .post(&url)
             .basic_auth(&self.config.username, Some(&self.config.password))
-            .query(&[("database", &self.config.database)])
+            .query(&params)
             .body(full_query)
             .send()
             .await
@@ -351,6 +367,28 @@ impl DatabaseDriver for ClickhouseDriver {
             indexes: index_infos,
             foreign_keys,
         })
+    }
+
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        // `readonly=1` is enforced server-side: writes, DDL, and SET are rejected.
+        match self.execute_query_json_inner(query, true).await {
+            Ok(rows) => {
+                let row_count = rows.len() as i64;
+                Ok(QueryResult {
+                    data: rows,
+                    row_count,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
+            Err(e) => Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                error: Some(e),
+                time_taken_ms: Some(start_time.elapsed().as_millis()),
+            }),
+        }
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {

@@ -519,6 +519,49 @@ impl DatabaseDriver for PostgresDriver {
         }
     }
 
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        let pool = self.get_pool_with_retry().await?;
+
+        // Run inside a READ ONLY transaction so the server rejects any write,
+        // including writes hidden in CTEs or executed by `EXPLAIN ANALYZE`.
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+        if let Err(e) = sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await
+        {
+            return Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                error: Some(e.to_string()),
+                time_taken_ms: Some(start_time.elapsed().as_millis()),
+            });
+        }
+
+        let result = sqlx::query(query).fetch_all(&mut *tx).await;
+        // Nothing to persist in a read-only transaction; always roll back.
+        let _ = tx.rollback().await;
+
+        match result {
+            Ok(rows) => {
+                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                let row_count = data.len() as i64;
+                Ok(QueryResult {
+                    data,
+                    row_count,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
+            Err(e) => Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                error: Some(e.to_string()),
+                time_taken_ms: Some(start_time.elapsed().as_millis()),
+            }),
+        }
+    }
+
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
         let pool = self.get_pool_with_retry().await?;
 

@@ -1,3 +1,4 @@
+pub mod control;
 pub mod resources;
 pub mod server;
 pub mod tools;
@@ -5,7 +6,6 @@ pub mod tools;
 use std::sync::Arc;
 
 use crate::database::pool_manager::PoolManager;
-use crate::database::utils::get_connection_config;
 use rmcp::model::*;
 use rmcp::{ErrorData as McpError, ServerHandler};
 use sqlx::SqlitePool;
@@ -26,21 +26,12 @@ impl McpServer {
     }
 
     /// Ensure a connection exists in the pool, connecting if needed.
+    /// Delegates to the pool manager's per-UUID-serialized connect path.
     pub async fn ensure_connected(&self, uuid: &str) -> Result<(), McpError> {
-        if self.pool_manager.get_cached(uuid).await.is_some() {
-            return Ok(());
-        }
-
-        let config = get_connection_config(&self.sqlite_pool, uuid)
-            .await
-            .map_err(|e| McpError::internal_error(e, None))?;
-
         self.pool_manager
-            .connect(uuid, config)
+            .ensure_connected(&self.sqlite_pool, uuid)
             .await
-            .map_err(|e| McpError::internal_error(e, None))?;
-
-        Ok(())
+            .map_err(|e| McpError::internal_error(e, None))
     }
 }
 
@@ -66,7 +57,9 @@ impl ServerHandler for McpServer {
         _request: Option<PaginatedRequestParams>,
         _context: rmcp::service::RequestContext<rmcp::service::RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(tools::tool_definitions())))
+        std::future::ready(Ok(ListToolsResult::with_all_items(
+            tools::tool_definitions(),
+        )))
     }
 
     fn call_tool(
@@ -100,13 +93,10 @@ impl ServerHandler for McpServer {
     ) -> impl std::future::Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_
     {
         std::future::ready(Ok(ListResourceTemplatesResult::with_all_items(vec![
-            RawResourceTemplate::new(
-                "dbcooper://connection/{uuid}/schema",
-                "Connection Schema",
-            )
-            .with_description("Full schema overview for a connected database")
-            .with_mime_type("application/json")
-            .no_annotation(),
+            RawResourceTemplate::new("dbcooper://connection/{uuid}/schema", "Connection Schema")
+                .with_description("Full schema overview for a connected database")
+                .with_mime_type("application/json")
+                .no_annotation(),
         ])))
     }
 }
