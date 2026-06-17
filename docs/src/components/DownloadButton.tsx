@@ -17,6 +17,16 @@ export function DownloadButton() {
 
 	return (
 		<div className="flex flex-col items-start gap-4">
+			{/* Homebrew — recommended install */}
+			<div className="w-full max-w-md rounded-lg border border-line bg-surface/60 p-3 font-mono text-[11px] leading-relaxed text-soft">
+				<span className="text-faint"># install with Homebrew (recommended)</span>
+				<br />
+				<span className="select-all">
+					<span className="text-copper">$</span> brew install --cask --force
+					amalshaji/taps/dbcooper
+				</span>
+			</div>
+
 			<div className="flex flex-wrap items-center gap-3">
 				<a
 					href="https://github.com/amalshaji/dbcooper/releases/latest"
@@ -50,7 +60,7 @@ export function DownloadButton() {
 			{/* macOS gatekeeper note, styled as a terminal comment */}
 			<div className="w-full max-w-md rounded-lg border border-line bg-surface/60 p-3 font-mono text-[11px] leading-relaxed text-soft">
 				<span className="text-faint">
-					# unsigned build — clear quarantine before first launch
+					# direct .dmg download — clear quarantine before first launch
 				</span>
 				<br />
 				<span className="select-all">
