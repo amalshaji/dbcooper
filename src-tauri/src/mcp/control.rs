@@ -46,7 +46,7 @@ impl McpControl {
     }
 
     /// Start the server if it isn't already running. Returns the bound port.
-    /// Read-only mode is always on; writes are rejected by the database engine.
+    /// The server is always read-only; writes are rejected by the database engine.
     pub async fn start(&self) -> Result<u16, String> {
         let mut guard = self.handle.lock().await;
         if let Some(handle) = guard.as_ref() {
@@ -54,14 +54,9 @@ impl McpControl {
         }
 
         let token = get_or_create_token(&self.sqlite_pool).await?;
-        let handle = start_mcp_server(
-            self.sqlite_pool.clone(),
-            self.pool_manager.clone(),
-            true,
-            token,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+        let handle = start_mcp_server(self.sqlite_pool.clone(), self.pool_manager.clone(), token)
+            .await
+            .map_err(|e| e.to_string())?;
 
         let port = handle.port;
         *guard = Some(handle);
@@ -83,57 +78,36 @@ impl McpControl {
 }
 
 pub async fn is_enabled(pool: &SqlitePool) -> bool {
-    get_setting(pool, SETTING_ENABLED).await.as_deref() == Some("true")
+    matches!(
+        crate::db::settings::get(pool, SETTING_ENABLED).await,
+        Ok(Some(v)) if v == "true"
+    )
 }
 
 pub async fn set_enabled(pool: &SqlitePool, enabled: bool) -> Result<(), String> {
-    set_setting(
-        pool,
-        SETTING_ENABLED,
-        if enabled { "true" } else { "false" },
-    )
-    .await
+    let value = if enabled { "true" } else { "false" };
+    crate::db::settings::set(pool, SETTING_ENABLED, value).await
 }
 
 /// Return the stored token, generating and persisting one on first use.
 pub async fn get_or_create_token(pool: &SqlitePool) -> Result<String, String> {
-    if let Some(token) = get_setting(pool, SETTING_TOKEN).await {
+    if let Some(token) = crate::db::settings::get(pool, SETTING_TOKEN).await? {
         if !token.is_empty() {
             return Ok(token);
         }
     }
     let token = generate_token();
-    set_setting(pool, SETTING_TOKEN, &token).await?;
+    crate::db::settings::set(pool, SETTING_TOKEN, &token).await?;
     Ok(token)
 }
 
 pub async fn regenerate_token(pool: &SqlitePool) -> Result<String, String> {
     let token = generate_token();
-    set_setting(pool, SETTING_TOKEN, &token).await?;
+    crate::db::settings::set(pool, SETTING_TOKEN, &token).await?;
     Ok(token)
 }
 
 fn generate_token() -> String {
     // 256 bits of randomness from two v4 UUIDs.
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
-}
-
-async fn get_setting(pool: &SqlitePool, key: &str) -> Option<String> {
-    sqlx::query_as::<_, crate::db::models::Setting>("SELECT key, value FROM settings WHERE key = ?")
-        .bind(key)
-        .fetch_optional(pool)
-        .await
-        .ok()
-        .flatten()
-        .map(|s| s.value)
-}
-
-async fn set_setting(pool: &SqlitePool, key: &str, value: &str) -> Result<(), String> {
-    sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
-        .bind(key)
-        .bind(value)
-        .execute(pool)
-        .await
-        .map(|_| ())
-        .map_err(|e| e.to_string())
 }

@@ -42,7 +42,6 @@ async fn require_bearer_token(
 pub async fn start_mcp_server(
     sqlite_pool: SqlitePool,
     pool_manager: Arc<PoolManager>,
-    read_only: bool,
     auth_token: String,
 ) -> Result<McpServerHandle, Box<dyn std::error::Error + Send + Sync>> {
     let ct = CancellationToken::new();
@@ -52,13 +51,7 @@ pub async fn start_mcp_server(
     let config = StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token());
 
     let service = StreamableHttpService::new(
-        move || {
-            Ok(McpServer::new(
-                sqlite_pool.clone(),
-                pool_manager.clone(),
-                read_only,
-            ))
-        },
+        move || Ok(McpServer::new(sqlite_pool.clone(), pool_manager.clone())),
         Arc::new(LocalSessionManager::default()),
         config,
     );

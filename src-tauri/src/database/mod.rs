@@ -5,6 +5,7 @@ pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
 pub mod redis;
+pub mod redis_read_only;
 pub mod sqlite;
 pub mod utils;
 

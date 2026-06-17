@@ -93,7 +93,7 @@ pub fn tool_definitions() -> Vec<Tool> {
         .with_annotations(read_only_annotations()),
         Tool::new(
             "execute_query",
-            "Execute a SQL query against a connected database. Read-only by default (writes are rejected by the database engine).",
+            "Execute a read-only SQL query against a connected database (writes are rejected by the database engine).",
             object(object_schema(
                 json!({
                     "connection_uuid": {
@@ -108,11 +108,12 @@ pub fn tool_definitions() -> Vec<Tool> {
                 json!(["connection_uuid", "query"]),
             )),
         )
+        // Read-only: the engine rejects writes. Not idempotent — results can
+        // change between calls and queries may have non-deterministic output.
         .with_annotations(
-            // Worst-case hint: when the server is not in read-only mode this can mutate data.
             ToolAnnotations::new()
-                .read_only(false)
-                .destructive(true)
+                .read_only(true)
+                .destructive(false)
                 .idempotent(false),
         ),
     ]
@@ -278,15 +279,12 @@ async fn execute_query(
 ) -> Result<CallToolResult, McpError> {
     server.ensure_connected(uuid).await?;
 
-    // Read-only enforcement lives in the driver/engine, not in a string matcher.
-    let result = if server.read_only {
-        server
-            .pool_manager
-            .execute_query_read_only(uuid, query)
-            .await
-    } else {
-        server.pool_manager.execute_query(uuid, query).await
-    };
+    // The MCP server is always read-only; enforcement lives in the driver/engine,
+    // not in a string matcher.
+    let result = server
+        .pool_manager
+        .execute_query_read_only(uuid, query)
+        .await;
 
     match result {
         Ok(mut result) => {

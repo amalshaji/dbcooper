@@ -375,12 +375,7 @@ impl DatabaseDriver for SqliteDriver {
         // mutating pragmas or otherwise.
         if let Err(e) = sqlx::query("PRAGMA query_only = ON").execute(&pool).await {
             pool.close().await;
-            return Ok(QueryResult {
-                data: vec![],
-                row_count: 0,
-                error: Some(e.to_string()),
-                time_taken_ms: Some(start_time.elapsed().as_millis()),
-            });
+            return Ok(QueryResult::from_error(e.to_string(), start_time));
         }
 
         let result = sqlx::query(query).fetch_all(&pool).await;
@@ -389,20 +384,9 @@ impl DatabaseDriver for SqliteDriver {
         match result {
             Ok(rows) => {
                 let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
-                let row_count = data.len() as i64;
-                Ok(QueryResult {
-                    data,
-                    row_count,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
+                Ok(QueryResult::from_rows(data, start_time))
             }
-            Err(e) => Ok(QueryResult {
-                data: vec![],
-                row_count: 0,
-                error: Some(e.to_string()),
-                time_taken_ms: Some(start_time.elapsed().as_millis()),
-            }),
+            Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
         }
     }
 

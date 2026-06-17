@@ -13,15 +13,13 @@ use sqlx::SqlitePool;
 pub struct McpServer {
     pub sqlite_pool: SqlitePool,
     pub pool_manager: Arc<PoolManager>,
-    pub read_only: bool,
 }
 
 impl McpServer {
-    pub fn new(sqlite_pool: SqlitePool, pool_manager: Arc<PoolManager>, read_only: bool) -> Self {
+    pub fn new(sqlite_pool: SqlitePool, pool_manager: Arc<PoolManager>) -> Self {
         Self {
             sqlite_pool,
             pool_manager,
-            read_only,
         }
     }
 

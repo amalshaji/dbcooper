@@ -373,21 +373,8 @@ impl DatabaseDriver for ClickhouseDriver {
         let start_time = std::time::Instant::now();
         // `readonly=1` is enforced server-side: writes, DDL, and SET are rejected.
         match self.execute_query_json_inner(query, true).await {
-            Ok(rows) => {
-                let row_count = rows.len() as i64;
-                Ok(QueryResult {
-                    data: rows,
-                    row_count,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
-            }
-            Err(e) => Ok(QueryResult {
-                data: vec![],
-                row_count: 0,
-                error: Some(e),
-                time_taken_ms: Some(start_time.elapsed().as_millis()),
-            }),
+            Ok(rows) => Ok(QueryResult::from_rows(rows, start_time)),
+            Err(e) => Ok(QueryResult::from_error(e, start_time)),
         }
     }
 

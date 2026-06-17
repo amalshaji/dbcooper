@@ -142,6 +142,29 @@ pub struct QueryResult {
     pub time_taken_ms: Option<u128>,
 }
 
+impl QueryResult {
+    /// Successful result built from JSON rows, stamped with elapsed time.
+    pub fn from_rows(data: Vec<serde_json::Value>, start: std::time::Instant) -> Self {
+        let row_count = data.len() as i64;
+        Self {
+            data,
+            row_count,
+            error: None,
+            time_taken_ms: Some(start.elapsed().as_millis()),
+        }
+    }
+
+    /// Error result (no rows), stamped with elapsed time.
+    pub fn from_error(message: String, start: std::time::Instant) -> Self {
+        Self {
+            data: vec![],
+            row_count: 0,
+            error: Some(message),
+            time_taken_ms: Some(start.elapsed().as_millis()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestConnectionResult {
     pub success: bool,
