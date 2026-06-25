@@ -91,7 +91,9 @@ const starLabel =
 							></path></svg
 						>
 						{starLabel && (
-							<span class="font-mono text-xs tabular-nums">{starLabel}</span>
+							<span class="relative -top-px font-mono text-xs leading-none tabular-nums">
+								{starLabel}
+							</span>
 						)}
 					</a>
 					<ThemeSwitcher client:load />
