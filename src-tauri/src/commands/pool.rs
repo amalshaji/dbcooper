@@ -63,6 +63,11 @@ pub async fn pool_connect(
         },
     };
 
+    // Serialize with data-op (re)connects for this UUID so a UI-initiated
+    // connect can't race a concurrent ensure_connection/reconnect.
+    let lock = pool_manager.get_connect_lock(&uuid).await;
+    let _guard = lock.lock().await;
+
     match pool_manager.connect(&uuid, config).await {
         Ok(_) => Ok(ConnectionStatusResponse {
             status: ConnectionStatus::Connected,
