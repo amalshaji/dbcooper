@@ -6,7 +6,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+
+/// Evict connections idle longer than this so their SSH tunnels and pooled
+/// connections don't linger for the whole session.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// How often the idle reaper checks for connections to evict.
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 use super::clickhouse::ClickhouseDriver;
 use super::postgres::PostgresDriver;
@@ -55,6 +62,9 @@ struct PoolEntry {
     driver: Arc<Box<dyn DatabaseDriver>>,
     config: ConnectionConfig,
     status: ConnectionStatus,
+    /// Interior-mutable so it can be refreshed on each cache hit (read lock) and
+    /// read by the idle reaper without taking a write lock on the whole map.
+    last_used: std::sync::Mutex<Instant>,
     last_error: Option<String>,
     #[allow(dead_code)]
     ssh_tunnel: Option<SshTunnel>,
@@ -62,7 +72,7 @@ struct PoolEntry {
 
 /// Connection pool manager
 pub struct PoolManager {
-    pools: RwLock<HashMap<String, PoolEntry>>,
+    pools: Arc<RwLock<HashMap<String, PoolEntry>>>,
     /// Mutex per connection UUID to serialize connect/disconnect
     connect_locks: RwLock<HashMap<String, Arc<Mutex<()>>>>,
 }
@@ -76,9 +86,38 @@ impl Default for PoolManager {
 impl PoolManager {
     pub fn new() -> Self {
         Self {
-            pools: RwLock::new(HashMap::new()),
+            pools: Arc::new(RwLock::new(HashMap::new())),
             connect_locks: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Spawn the background idle reaper. Call once from a context with a running
+    /// async runtime (e.g. Tauri's `setup` hook). Evicts connections that have
+    /// been idle longer than `IDLE_TIMEOUT`, dropping their SSH tunnels.
+    pub fn spawn_idle_reaper(&self) {
+        let pools = Arc::clone(&self.pools);
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(IDLE_CHECK_INTERVAL);
+            loop {
+                ticker.tick().await;
+                let mut pools = pools.write().await;
+                pools.retain(|uuid, entry| {
+                    let idle = entry
+                        .last_used
+                        .lock()
+                        .map(|t| t.elapsed())
+                        .unwrap_or_default();
+                    let keep = idle < IDLE_TIMEOUT;
+                    if !keep {
+                        println!(
+                            "[Pool] Evicting idle connection {} (idle for {:?})",
+                            uuid, idle
+                        );
+                    }
+                    keep
+                });
+            }
+        });
     }
 
     /// Get or create a lock for a specific connection UUID
@@ -233,6 +272,7 @@ impl PoolManager {
             driver: driver.clone(),
             config,
             status: status.clone(),
+            last_used: std::sync::Mutex::new(Instant::now()),
             last_error: if test_result.success {
                 None
             } else {
@@ -312,10 +352,17 @@ impl PoolManager {
         }
     }
 
-    /// Get a cached driver if it exists (without creating new connection)
+    /// Get a cached driver if it exists (without creating new connection).
+    /// Refreshes the entry's last-used time so the idle reaper keeps connections
+    /// that are actively in use.
     pub async fn get_cached(&self, uuid: &str) -> Option<Arc<Box<dyn DatabaseDriver>>> {
         let pools = self.pools.read().await;
-        pools.get(uuid).map(|e| e.driver.clone())
+        pools.get(uuid).map(|e| {
+            if let Ok(mut t) = e.last_used.lock() {
+                *t = Instant::now();
+            }
+            e.driver.clone()
+        })
     }
 
     /// Get config for a cached connection

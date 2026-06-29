@@ -146,8 +146,10 @@ pub fn run() {
                 .expect("Failed to initialize database");
             app.manage(pool);
 
-            // Initialize connection pool manager
-            app.manage(PoolManager::new());
+            // Initialize connection pool manager and start its idle reaper.
+            let pool_manager = PoolManager::new();
+            pool_manager.spawn_idle_reaper();
+            app.manage(pool_manager);
 
             Ok(())
         })

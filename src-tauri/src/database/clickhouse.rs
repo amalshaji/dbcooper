@@ -41,11 +41,17 @@ pub struct ClickhouseConfig {
 
 pub struct ClickhouseDriver {
     config: ClickhouseConfig,
+    /// Reused across queries so HTTP keep-alive holds the connection (and, over
+    /// SSH, the forwarded channel) open instead of reconnecting per query.
+    client: reqwest::Client,
 }
 
 impl ClickhouseDriver {
     pub fn new(config: ClickhouseConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: reqwest::Client::new(),
+        }
     }
 
     fn build_url(&self) -> String {
@@ -56,7 +62,7 @@ impl ClickhouseDriver {
     /// Execute a query and return JSON results using raw HTTP
     async fn execute_query_json(&self, query: &str) -> Result<Vec<Value>, String> {
         let url = self.build_url();
-        let client = reqwest::Client::new();
+        let client = &self.client;
 
         // Clean up the query: trim whitespace, remove trailing semicolons
         let cleaned_query = query.trim().trim_end_matches(';').trim();
@@ -97,7 +103,7 @@ impl ClickhouseDriver {
     /// Execute a non-SELECT query
     async fn execute_command(&self, query: &str) -> Result<(), String> {
         let url = self.build_url();
-        let client = reqwest::Client::new();
+        let client = &self.client;
 
         let response = client
             .post(&url)
@@ -188,6 +194,10 @@ impl ClickhouseDriver {
 
 #[async_trait]
 impl DatabaseDriver for ClickhouseDriver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.execute_query_json("SELECT 1").await {
             Ok(_) => Ok(TestConnectionResult {
