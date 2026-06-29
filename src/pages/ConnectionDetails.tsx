@@ -132,6 +132,7 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
+import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -278,7 +279,7 @@ function ContentHeader({
 			<div className="flex items-center gap-3">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
-					initialStatus={connectionStatus}
+					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
@@ -335,7 +336,7 @@ function RedisContentHeader({
 			<div className="flex items-center gap-3">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
-					initialStatus={connectionStatus}
+					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
@@ -389,6 +390,23 @@ export function ConnectionDetails() {
 	const [connectionStatus, setConnectionStatus] = useState<
 		"connected" | "disconnected"
 	>("connected");
+	const [connectionError, setConnectionError] = useState<string | null>(null);
+	// True once we've connected at least once. Distinguishes an initial
+	// connect failure (show takeover screen) from a mid-session drop after
+	// data already loaded (keep the workspace, reconnect via the badge).
+	const [hasEverConnected, setHasEverConnected] = useState(false);
+
+	// Connection state always moves as a unit; funnel every transition through
+	// these two so callers can't set status without its matching error/flag.
+	const markConnected = useCallback(() => {
+		setConnectionStatus("connected");
+		setConnectionError(null);
+		setHasEverConnected(true);
+	}, []);
+	const markDisconnected = useCallback((error: string) => {
+		setConnectionStatus("disconnected");
+		setConnectionError(error);
+	}, []);
 
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
@@ -574,6 +592,15 @@ export function ConnectionDetails() {
 		}
 	}, [uuid, navigate]);
 
+	// Tear down the pooled driver (and any SSH tunnel) when leaving this
+	// connection so connections/tunnels don't leak for the app's lifetime.
+	useEffect(() => {
+		if (!uuid) return;
+		return () => {
+			api.pool.disconnect(uuid).catch(() => {});
+		};
+	}, [uuid]);
+
 	const fetchSchemaOverviewData = useCallback(async () => {
 		if (!uuid) return;
 
@@ -589,7 +616,7 @@ export function ConnectionDetails() {
 				type: (table.type === "view" ? "view" : "table") as "table" | "view",
 			}));
 			setTables(tablesList);
-			setConnectionStatus("connected");
+			markConnected();
 
 			const tableDataMap: Record<string, TableColumn[]> = {};
 			data.tables.forEach((table) => {
@@ -615,16 +642,16 @@ export function ConnectionDetails() {
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
 			setTables([]);
-			setConnectionStatus("disconnected");
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
+			markDisconnected(errorMessage);
 			toast.error("Connection failed", {
 				description: errorMessage,
 			});
 		} finally {
 			setLoadingSchemaOverview(false);
 		}
-	}, [uuid]);
+	}, [uuid, markConnected, markDisconnected]);
 
 	// Reset loading flag when connection changes
 	useEffect(() => {
@@ -646,21 +673,23 @@ export function ConnectionDetails() {
 				const connectResult = await api.pool.connect(uuid!);
 
 				if (connectResult.status === "connected") {
-					setConnectionStatus("connected");
+					markConnected();
 					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
 						await fetchSchemaOverviewData();
 					}
 				} else {
-					setConnectionStatus("disconnected");
+					const message = connectResult.error || "Connection failed";
+					markDisconnected(message);
 					toast.error("Connection failed", {
-						description: connectResult.error || "Connection failed",
+						description: message,
 					});
 				}
 			} catch (error) {
-				setConnectionStatus("disconnected");
+				const message = error instanceof Error ? error.message : String(error);
+				markDisconnected(message);
 				toast.error("Connection failed", {
-					description: error instanceof Error ? error.message : String(error),
+					description: message,
 				});
 			} finally {
 				setLoadingPhase("complete");
@@ -669,7 +698,7 @@ export function ConnectionDetails() {
 
 		loadData().catch((error) => {
 			console.error("Failed to load connection data:", error);
-			setConnectionStatus("disconnected");
+			markDisconnected(error instanceof Error ? error.message : String(error));
 			setLoadingPhase("complete");
 		});
 		// Only depend on connection and loadingPhase, not the callbacks
@@ -1038,18 +1067,20 @@ export function ConnectionDetails() {
 		if (!uuid) return;
 		const connectResult = await api.pool.connect(uuid);
 		if (connectResult.status === "connected") {
-			setConnectionStatus("connected");
+			markConnected();
 			toast.success("Reconnected successfully");
 			if (connection?.type !== "redis") {
 				await fetchSchemaOverviewData();
 			}
 		} else {
+			const message = connectResult.error || "Connection failed";
+			markDisconnected(message);
 			toast.error("Reconnection failed", {
-				description: connectResult.error || "Connection failed",
+				description: message,
 			});
-			throw new Error(connectResult.error || "Connection failed");
+			throw new Error(message);
 		}
-	}, [uuid, connection?.type, fetchSchemaOverviewData]);
+	}, [uuid, connection?.type, fetchSchemaOverviewData, markConnected, markDisconnected]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -3836,6 +3867,24 @@ export function ConnectionDetails() {
 				return renderEmptyState();
 		}
 	};
+
+	// Initial connect failed: show a dedicated error screen instead of the
+	// empty workspace shell. A mid-session drop (after connecting at least
+	// once) keeps the workspace and reconnects via the header status badge.
+	const showDisconnectedScreen =
+		connectionStatus === "disconnected" && !hasEverConnected;
+
+	if (showDisconnectedScreen) {
+		return (
+			<DisconnectedScreen
+				connectionName={connection.name}
+				databaseIcon={getDatabaseIcon()}
+				error={connectionError}
+				onReconnect={handleReconnect}
+				onClose={() => navigate("/")}
+			/>
+		);
+	}
 
 	// Redis-specific layout without sidebar or tabs
 	if (connection.type === "redis") {

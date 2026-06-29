@@ -13,29 +13,25 @@ type Status = "connected" | "disconnected" | "reconnecting";
 
 interface ConnectionStatusProps {
 	connectionUuid: string;
-	initialStatus?: "connected" | "disconnected";
+	status: "connected" | "disconnected";
 	onReconnect?: () => Promise<void>;
 	onStatusChange?: (status: "connected" | "disconnected") => void;
 }
 
 export function ConnectionStatus({
 	connectionUuid,
-	initialStatus = "connected",
+	status: controlledStatus,
 	onReconnect,
 	onStatusChange,
 }: ConnectionStatusProps) {
 	const [isReconnecting, setIsReconnecting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const [currentStatus, setCurrentStatus] = useState<"connected" | "disconnected">(initialStatus);
 	const isMounted = useRef(true);
 	const isCheckingHealth = useRef(false);
 
-	const status: Status = isReconnecting ? "reconnecting" : currentStatus;
-
-	// Sync with initialStatus prop changes
-	useEffect(() => {
-		setCurrentStatus(initialStatus);
-	}, [initialStatus]);
+	// Parent owns the connected/disconnected truth; this component only layers
+	// the transient "reconnecting" state on top and reports changes upward.
+	const status: Status = isReconnecting ? "reconnecting" : controlledStatus;
 
 	const reconnect = useCallback(async () => {
 		if (!isMounted.current) return;
@@ -49,7 +45,6 @@ export function ConnectionStatus({
 				await api.pool.connect(connectionUuid);
 			}
 			if (isMounted.current) {
-				setCurrentStatus("connected");
 				setError(null);
 				onStatusChange?.("connected");
 			}
@@ -72,7 +67,7 @@ export function ConnectionStatus({
 	}, []);
 
 	useEffect(() => {
-		if (currentStatus !== "connected") return;
+		if (controlledStatus !== "connected") return;
 
 		const performHealthCheck = async () => {
 			if (!isMounted.current || isCheckingHealth.current) return;
@@ -82,14 +77,12 @@ export function ConnectionStatus({
 				const result = await api.pool.healthCheck(connectionUuid);
 				if (isMounted.current) {
 					if (!result.success) {
-						setCurrentStatus("disconnected");
 						setError(result.message || "Connection lost");
 						onStatusChange?.("disconnected");
 					}
 				}
 			} catch (err) {
 				if (isMounted.current) {
-					setCurrentStatus("disconnected");
 					setError(err instanceof Error ? err.message : "Health check failed");
 					onStatusChange?.("disconnected");
 				}
@@ -101,7 +94,7 @@ export function ConnectionStatus({
 		const interval = setInterval(performHealthCheck, 15000);
 
 		return () => clearInterval(interval);
-	}, [connectionUuid, currentStatus, onStatusChange]);
+	}, [connectionUuid, controlledStatus, onStatusChange]);
 
 	const statusColors = {
 		connected: "bg-green-500",
