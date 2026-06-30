@@ -202,6 +202,10 @@ pub trait DatabaseDriver: Send + Sync {
     ) -> Result<FunctionDefinition, String> {
         Err("Function definitions are not supported for this database".to_string())
     }
+
+    /// Downcast helper so callers can reach driver-specific methods (e.g. Redis
+    /// key browsing) on a pooled `Box<dyn DatabaseDriver>`.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Configuration for Postgres connections
