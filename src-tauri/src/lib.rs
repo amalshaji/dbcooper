@@ -31,9 +31,11 @@ use commands::queries::{
 use commands::settings::{get_all_settings, get_setting, set_setting};
 use database::pool_manager::PoolManager;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Manager, WebviewUrl};
+use tauri::{Emitter, Manager, WebviewUrl};
 
 const NEW_WINDOW_MENU_ID: &str = "new_window";
+const CLOSE_TAB_MENU_ID: &str = "close_tab";
+const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 
 fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     let label = format!("window-{}", uuid::Uuid::new_v4());
@@ -46,6 +48,20 @@ fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
     }
 
     Ok(())
+}
+
+/// Resolve the window a menu accelerator should act on. Prefers the focused
+/// window (the one the user is interacting with) and falls back to the first
+/// window so single-window setups always have a target.
+fn menu_target_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<tauri::WebviewWindow<R>> {
+    let windows = app.webview_windows();
+    windows
+        .values()
+        .find(|window| window.is_focused().unwrap_or(false))
+        .or_else(|| windows.values().next())
+        .cloned()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -115,6 +131,26 @@ pub fn run() {
                 Some("CmdOrCtrl+Shift+N"),
             )?;
 
+            // Cmd/Ctrl+W closes the active in-app tab (not the window). The
+            // predefined close_window item hard-codes Cmd/Ctrl+W and the native
+            // menu intercepts that accelerator before the webview ever sees it,
+            // so closing a tab ended up closing the whole window (issue #66).
+            let close_tab_menu_item = MenuItem::with_id(
+                app_handle,
+                CLOSE_TAB_MENU_ID,
+                "Close Tab",
+                true,
+                Some("CmdOrCtrl+W"),
+            )?;
+
+            let close_window_menu_item = MenuItem::with_id(
+                app_handle,
+                CLOSE_WINDOW_MENU_ID,
+                "Close Window",
+                true,
+                Some("CmdOrCtrl+Shift+W"),
+            )?;
+
             let file_submenu = Submenu::with_items(
                 app_handle,
                 "File",
@@ -122,16 +158,32 @@ pub fn run() {
                 &[
                     &new_window_menu_item,
                     &PredefinedMenuItem::separator(app_handle)?,
-                    &PredefinedMenuItem::close_window(app_handle, Some("Close Window"))?,
+                    &close_tab_menu_item,
+                    &close_window_menu_item,
                 ],
             )?;
 
             Menu::with_items(app_handle, &[&app_submenu, &file_submenu, &edit_submenu])
         })
         .on_menu_event(|app, event| {
-            if event.id() == NEW_WINDOW_MENU_ID {
+            let id = event.id();
+            if id == NEW_WINDOW_MENU_ID {
                 if let Err(error) = create_new_window(app) {
                     eprintln!("Failed to open new window: {error}");
+                }
+            } else if id == CLOSE_TAB_MENU_ID {
+                // Let the frontend close the active tab; it falls back to
+                // closing the window when no tab is open.
+                if let Some(window) = menu_target_window(app) {
+                    if let Err(error) = window.emit("menu:close-tab", ()) {
+                        eprintln!("Failed to emit close-tab event: {error}");
+                    }
+                }
+            } else if id == CLOSE_WINDOW_MENU_ID {
+                if let Some(window) = menu_target_window(app) {
+                    if let Err(error) = window.close() {
+                        eprintln!("Failed to close window: {error}");
+                    }
                 }
             }
         })
