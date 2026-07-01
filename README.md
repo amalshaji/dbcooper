@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./docs/public/images/logo.png" width="128" alt="DBcooper logo" />
+</p>
+
 # DBcooper
 
 A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
