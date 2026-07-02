@@ -5,7 +5,9 @@ pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
 pub mod redis;
+pub mod redis_read_only;
 pub mod sqlite;
+pub mod utils;
 
 use crate::db::models::{
     FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
@@ -189,6 +191,16 @@ pub trait DatabaseDriver: Send + Sync {
 
     /// Execute a raw SQL query
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String>;
+
+    /// Execute a query under read-only enforcement.
+    ///
+    /// Enforcement is done by the database engine wherever possible (read-only
+    /// transactions, connection flags, server settings) rather than by parsing
+    /// the query string, so writes disguised inside CTEs, `EXPLAIN ANALYZE`,
+    /// mutating pragmas, etc. are rejected by the engine itself. Drivers that
+    /// cannot get an engine-level guarantee (e.g. Redis) fall back to a
+    /// best-effort, subcommand-aware allowlist.
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String>;
 
     /// Get schema overview with all tables and their structures (columns, foreign keys, indexes)
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String>;
