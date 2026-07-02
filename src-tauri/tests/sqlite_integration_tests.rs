@@ -232,6 +232,58 @@ async fn test_get_table_data_with_rows() {
 }
 
 #[tokio::test]
+async fn test_get_table_data_defaults_to_primary_key_order() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+
+    driver
+        .execute_query("CREATE TABLE keyed_users (code TEXT PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+
+    driver
+        .execute_query(
+            "INSERT INTO keyed_users (code, name) VALUES ('c', 'Charlie'), ('a', 'Alice'), ('b', 'Bob')",
+        )
+        .await
+        .unwrap();
+
+    let data = driver
+        .get_table_data("main", "keyed_users", 1, 10, None, None, None)
+        .await
+        .unwrap();
+
+    let codes: Vec<String> = data
+        .data
+        .iter()
+        .map(|row| row.get("code").unwrap().as_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(codes, vec!["a", "b", "c"]);
+
+    let sorted_data = driver
+        .get_table_data(
+            "main",
+            "keyed_users",
+            1,
+            10,
+            None,
+            Some("name".to_string()),
+            Some("desc".to_string()),
+        )
+        .await
+        .unwrap();
+
+    let names: Vec<String> = sorted_data
+        .data
+        .iter()
+        .map(|row| row.get("name").unwrap().as_str().unwrap().to_string())
+        .collect();
+
+    assert_eq!(names, vec!["Charlie", "Bob", "Alice"]);
+}
+
+#[tokio::test]
 async fn test_get_table_data_pagination() {
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let driver = create_driver_with_table(&temp_dir).await;
@@ -467,6 +519,8 @@ async fn test_execute_query_insert() {
 
     let query_result = result.unwrap();
     assert!(query_result.error.is_none());
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 }
 
 #[tokio::test]
@@ -484,7 +538,10 @@ async fn test_execute_query_update() {
         .execute_query("UPDATE users SET age = 30 WHERE name = 'Test'")
         .await;
     assert!(result.is_ok());
-    assert!(result.unwrap().error.is_none());
+    let query_result = result.unwrap();
+    assert!(query_result.error.is_none());
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 
     // Verify update
     let select_result = driver
@@ -510,7 +567,10 @@ async fn test_execute_query_delete() {
         .execute_query("DELETE FROM users WHERE name = 'Test'")
         .await;
     assert!(result.is_ok());
-    assert!(result.unwrap().error.is_none());
+    let query_result = result.unwrap();
+    assert!(query_result.error.is_none());
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 
     // Verify delete
     let select_result = driver.execute_query("SELECT * FROM users").await.unwrap();

@@ -122,12 +122,50 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
   body {
     @apply font-sans bg-background text-foreground text-lg;
   }
-  html {
-    @apply font-sans;
+  /* Themed text selection — warm amber wash so highlights match the accent */
+  ::selection {
+    background-color: color-mix(in oklch, var(--primary) 24%, transparent);
   }
+  /* Tabular figures for dense numeric UI (data grids, counts, pagination) */
+  .tabular-figures {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}
+
+/* Themed scrollbars via WebKit pseudo-elements only; setting the standard
+   `scrollbar-width` would suppress them in newer engines. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklch, var(--foreground) 15%, transparent);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in oklch, var(--foreground) 42%, transparent);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Tauri window drag region styling */

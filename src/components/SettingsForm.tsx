@@ -14,8 +14,7 @@ import {
 	ComboboxList,
 	ComboboxItem,
 } from "@/components/ui/combobox";
-
-type Theme = "light" | "dark" | "system";
+import { useTheme, type Theme } from "@/contexts/ThemeContext";
 
 interface SettingsFormProps {
 	onSaveSuccess?: () => void;
@@ -27,7 +26,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const [saving, setSaving] = useState(false);
 	const [showApiKey, setShowApiKey] = useState(false);
 
-	const [theme, setTheme] = useState<Theme>("system");
+	const { theme, setTheme } = useTheme();
 	const [checkUpdates, setCheckUpdates] = useState(true);
 	const [openaiEndpoint, setOpenaiEndpoint] = useState("");
 	const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -41,7 +40,6 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 		setLoading(true);
 		try {
 			const settings = await api.settings.getAll();
-			setTheme((settings.theme as Theme) || "system");
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
@@ -56,7 +54,6 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const handleSave = async () => {
 		setSaving(true);
 		try {
-			await api.settings.set("theme", theme);
 			await api.settings.set(
 				"check_updates_on_startup",
 				checkUpdates.toString(),
@@ -65,7 +62,6 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			await api.settings.set("openai_api_key", openaiApiKey);
 			await api.settings.set("openai_model", openaiModel);
 
-			applyTheme(theme);
 			toast.success("Settings saved");
 			onSaveSuccess?.();
 		} catch (error) {
@@ -74,20 +70,6 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 		} finally {
 			setSaving(false);
 		}
-	};
-
-	const applyTheme = (t: Theme) => {
-		const root = window.document.documentElement;
-		if (t === "system") {
-			const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
-				.matches
-				? "dark"
-				: "light";
-			root.classList.toggle("dark", systemTheme === "dark");
-		} else {
-			root.classList.toggle("dark", t === "dark");
-		}
-		localStorage.setItem("theme", t);
 	};
 
 	if (loading) {

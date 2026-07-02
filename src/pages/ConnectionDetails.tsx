@@ -27,6 +27,7 @@ import type { SavedQuery } from "@/types/savedQuery";
 import {
 	api,
 	type Connection,
+	type QueryHistory,
 	type RedisKeyDetails,
 	type RedisKeyInfo,
 } from "@/lib/tauri";
@@ -111,6 +112,9 @@ import {
 	Plus,
 	PaintBrush,
 	Gear,
+	ClockCounterClockwise,
+	WarningCircle,
+	Trash,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -121,11 +125,14 @@ import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
+import { InlineEditableCell } from "@/components/InlineEditableCell";
 import { RedisKeySheet } from "@/components/RedisKeySheet";
 import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
+import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
+import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { handleDragStart } from "@/lib/windowDrag";
 import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -134,6 +141,7 @@ import {
 	parseStatements as parseSqlStatements,
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
+import { useTheme } from "@/contexts/ThemeContext";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -202,6 +210,34 @@ ${normalizedBaseQuery}
 SELECT * FROM user_query${whereClause}${orderClause};`;
 }
 
+function getPrimaryKeyRowKey(
+	row: Record<string, unknown>,
+	columns: TableColumn[],
+): string | null {
+	const primaryKeyColumns = columns.filter((column) => column.primary_key);
+	if (primaryKeyColumns.length === 0) return null;
+
+	return JSON.stringify(
+		primaryKeyColumns.map((column) => [column.name, row[column.name]]),
+	);
+}
+
+function areCellValuesEqual(left: unknown, right: unknown): boolean {
+	return JSON.stringify(left) === JSON.stringify(right);
+}
+
+interface PendingInlineCellEdit {
+	row: Record<string, unknown>;
+	columnName: string;
+	value: unknown;
+}
+
+function formatQuerySuccessDetail(affectedRows: number | null): string {
+	if (affectedRows === null) return "No rows returned";
+
+	return `${affectedRows} row${affectedRows !== 1 ? "s" : ""} affected`;
+}
+
 // Header component that uses useSidebar for conditional padding
 function ContentHeader({
 	connection,
@@ -243,7 +279,7 @@ function ContentHeader({
 			<div className="flex items-center gap-3">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
-					initialStatus={connectionStatus}
+					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
@@ -300,7 +336,7 @@ function RedisContentHeader({
 			<div className="flex items-center gap-3">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
-					initialStatus={connectionStatus}
+					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
@@ -315,20 +351,34 @@ function RedisContentHeader({
 	);
 }
 
+// query_history.executed_at is a UTC string from SQLite's datetime('now')
+// with no timezone marker; append "Z" so it parses as UTC, then show local.
+function formatHistoryTime(executedAt: string): string {
+	const iso = executedAt.includes("T")
+		? executedAt
+		: `${executedAt.replace(" ", "T")}Z`;
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return executedAt;
+	return date.toLocaleString();
+}
+
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
 	const navigate = useNavigate();
 	const { openSettings } = useSettings();
+	const { toggleTheme } = useTheme();
 	const [connection, setConnection] = useState<Connection | null>(null);
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
 	const [refreshingTables, setRefreshingTables] = useState(false);
-	const [sidebarTab, setSidebarTab] = useState<"objects" | "queries">(
-		"objects",
-	);
+	const [sidebarTab, setSidebarTab] = useState<
+		"objects" | "queries" | "history"
+	>("objects");
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [loadingQueries, setLoadingQueries] = useState(false);
+	const [queryHistory, setQueryHistory] = useState<QueryHistory[]>([]);
+	const [loadingHistory, setLoadingHistory] = useState(false);
 	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
@@ -340,6 +390,23 @@ export function ConnectionDetails() {
 	const [connectionStatus, setConnectionStatus] = useState<
 		"connected" | "disconnected"
 	>("connected");
+	const [connectionError, setConnectionError] = useState<string | null>(null);
+	// True once we've connected at least once. Distinguishes an initial
+	// connect failure (show takeover screen) from a mid-session drop after
+	// data already loaded (keep the workspace, reconnect via the badge).
+	const [hasEverConnected, setHasEverConnected] = useState(false);
+
+	// Connection state always moves as a unit; funnel every transition through
+	// these two so callers can't set status without its matching error/flag.
+	const markConnected = useCallback(() => {
+		setConnectionStatus("connected");
+		setConnectionError(null);
+		setHasEverConnected(true);
+	}, []);
+	const markDisconnected = useCallback((error: string) => {
+		setConnectionStatus("disconnected");
+		setConnectionError(error);
+	}, []);
 
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
@@ -457,6 +524,14 @@ export function ConnectionDetails() {
 	);
 	const [savingRow, setSavingRow] = useState(false);
 	const [deletingRow, setDeletingRow] = useState(false);
+	const [highlightedTableRow, setHighlightedTableRow] = useState<{
+		tableName: string;
+		rowKey: string;
+	} | null>(null);
+	const [pendingInlineEditsByTab, setPendingInlineEditsByTab] = useState<
+		Record<string, Record<string, PendingInlineCellEdit>>
+	>({});
+	const [savingInlineEdits, setSavingInlineEdits] = useState(false);
 
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
@@ -517,6 +592,15 @@ export function ConnectionDetails() {
 		}
 	}, [uuid, navigate]);
 
+	// Tear down the pooled driver (and any SSH tunnel) when leaving this
+	// connection so connections/tunnels don't leak for the app's lifetime.
+	useEffect(() => {
+		if (!uuid) return;
+		return () => {
+			api.pool.disconnect(uuid).catch(() => {});
+		};
+	}, [uuid]);
+
 	const fetchSchemaOverviewData = useCallback(async () => {
 		if (!uuid) return;
 
@@ -532,7 +616,7 @@ export function ConnectionDetails() {
 				type: (table.type === "view" ? "view" : "table") as "table" | "view",
 			}));
 			setTables(tablesList);
-			setConnectionStatus("connected");
+			markConnected();
 
 			const tableDataMap: Record<string, TableColumn[]> = {};
 			data.tables.forEach((table) => {
@@ -558,16 +642,16 @@ export function ConnectionDetails() {
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
 			setTables([]);
-			setConnectionStatus("disconnected");
 			const errorMessage =
 				error instanceof Error ? error.message : String(error);
+			markDisconnected(errorMessage);
 			toast.error("Connection failed", {
 				description: errorMessage,
 			});
 		} finally {
 			setLoadingSchemaOverview(false);
 		}
-	}, [uuid]);
+	}, [uuid, markConnected, markDisconnected]);
 
 	// Reset loading flag when connection changes
 	useEffect(() => {
@@ -589,21 +673,23 @@ export function ConnectionDetails() {
 				const connectResult = await api.pool.connect(uuid!);
 
 				if (connectResult.status === "connected") {
-					setConnectionStatus("connected");
+					markConnected();
 					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
 						await fetchSchemaOverviewData();
 					}
 				} else {
-					setConnectionStatus("disconnected");
+					const message = connectResult.error || "Connection failed";
+					markDisconnected(message);
 					toast.error("Connection failed", {
-						description: connectResult.error || "Connection failed",
+						description: message,
 					});
 				}
 			} catch (error) {
-				setConnectionStatus("disconnected");
+				const message = error instanceof Error ? error.message : String(error);
+				markDisconnected(message);
 				toast.error("Connection failed", {
-					description: error instanceof Error ? error.message : String(error),
+					description: message,
 				});
 			} finally {
 				setLoadingPhase("complete");
@@ -612,7 +698,7 @@ export function ConnectionDetails() {
 
 		loadData().catch((error) => {
 			console.error("Failed to load connection data:", error);
-			setConnectionStatus("disconnected");
+			markDisconnected(error instanceof Error ? error.message : String(error));
 			setLoadingPhase("complete");
 		});
 		// Only depend on connection and loadingPhase, not the callbacks
@@ -636,6 +722,51 @@ export function ConnectionDetails() {
 
 		fetchSavedQueries();
 	}, [uuid, sidebarTab]);
+
+	const fetchQueryHistory = useCallback(async () => {
+		if (!uuid) return;
+		try {
+			const data = await api.queries.history(uuid);
+			setQueryHistory(data);
+		} catch (error) {
+			console.error("Failed to fetch query history:", error);
+		}
+	}, [uuid]);
+
+	// Recording lives here, not in the backend pool_execute_query command, on
+	// purpose: that command also serves internal filter/sort/pagination
+	// re-queries (runQueryResultViewQuery), which must NOT pollute history.
+	// Only this layer knows which executeQuery calls are user-initiated runs.
+	// Fire-and-forget; a history failure must never affect the query UX.
+	const recordHistory = useCallback(
+		(
+			query: string,
+			opts: {
+				status: "success" | "error";
+				timeTakenMs?: number | null;
+				rowCount?: number | null;
+				rowsAffected?: number | null;
+				error?: string | null;
+			},
+		) => {
+			if (!uuid) return;
+			api.queries
+				.recordHistory({ connectionUuid: uuid, query, ...opts })
+				// Only live-refresh the panel if it's actually open; otherwise the
+				// tab-switch effect refetches on demand.
+				.then(() => {
+					if (sidebarTab === "history") fetchQueryHistory();
+				})
+				.catch((e) => console.error("Failed to record query history:", e));
+		},
+		[uuid, sidebarTab, fetchQueryHistory],
+	);
+
+	useEffect(() => {
+		if (!uuid || sidebarTab !== "history") return;
+		setLoadingHistory(true);
+		fetchQueryHistory().finally(() => setLoadingHistory(false));
+	}, [uuid, sidebarTab, fetchQueryHistory]);
 
 	const updateTab = useCallback(
 		<T extends Tab>(tabId: string, updates: Partial<T>) => {
@@ -936,18 +1067,20 @@ export function ConnectionDetails() {
 		if (!uuid) return;
 		const connectResult = await api.pool.connect(uuid);
 		if (connectResult.status === "connected") {
-			setConnectionStatus("connected");
+			markConnected();
 			toast.success("Reconnected successfully");
 			if (connection?.type !== "redis") {
 				await fetchSchemaOverviewData();
 			}
 		} else {
+			const message = connectResult.error || "Connection failed";
+			markDisconnected(message);
 			toast.error("Reconnection failed", {
-				description: connectResult.error || "Connection failed",
+				description: message,
 			});
-			throw new Error(connectResult.error || "Connection failed");
+			throw new Error(message);
 		}
-	}, [uuid, connection?.type, fetchSchemaOverviewData]);
+	}, [uuid, connection?.type, fetchSchemaOverviewData, markConnected, markDisconnected]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -1051,6 +1184,7 @@ export function ConnectionDetails() {
 					updateTab<QueryTab>(tab.id, {
 						error: result.error,
 						executionTime,
+						affectedRows: null,
 						executing: false,
 					});
 					return;
@@ -1061,6 +1195,7 @@ export function ConnectionDetails() {
 					success: true,
 					error: null,
 					executionTime,
+					affectedRows: null,
 					executing: false,
 					filter: nextFilter,
 					sort: nextSort,
@@ -1072,6 +1207,7 @@ export function ConnectionDetails() {
 							? error.message
 							: "Failed to apply query filter/sort",
 					executionTime: null,
+					affectedRows: null,
 					executing: false,
 				});
 			}
@@ -1207,6 +1343,7 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			affectedRows: null,
 			filterInput: "",
 			filter: "",
 			sort: null,
@@ -1223,7 +1360,13 @@ export function ConnectionDetails() {
 				updateTab<QueryTab>(tab.id, {
 					error: result.error,
 					executionTime,
+					affectedRows: null,
 					executing: false,
+				});
+				recordHistory(queryToRun, {
+					status: "error",
+					timeTakenMs: result.time_taken_ms ?? null,
+					error: result.error,
 				});
 				return;
 			}
@@ -1232,6 +1375,7 @@ export function ConnectionDetails() {
 				results: result.data as Record<string, unknown>[],
 				success: true,
 				executionTime,
+				affectedRows: result.rows_affected ?? null,
 				executing: false,
 				filterInput: "",
 				filter: "",
@@ -1240,15 +1384,24 @@ export function ConnectionDetails() {
 					? stripTrailingSemicolon(queryToRun)
 					: null,
 			});
+			recordHistory(queryToRun, {
+				status: "success",
+				timeTakenMs: result.time_taken_ms ?? null,
+				rowCount: result.row_count ?? null,
+				rowsAffected: result.rows_affected ?? null,
+			});
 		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to execute query";
 			updateTab<QueryTab>(tab.id, {
-				error:
-					error instanceof Error ? error.message : "Failed to execute query",
+				error: message,
 				executionTime: null,
+				affectedRows: null,
 				executing: false,
 			});
+			recordHistory(queryToRun, { status: "error", error: message });
 		}
-	}, [activeTab, uuid, updateTab, cursorLine, cursorChar]);
+	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
 
 	const handleRunAllQueries = useCallback(async () => {
 		if (!activeTab || activeTab.type !== "query" || !uuid) return;
@@ -1265,6 +1418,7 @@ export function ConnectionDetails() {
 			results: null,
 			success: false,
 			executionTime: null,
+			affectedRows: null,
 			filterInput: "",
 			filter: "",
 			sort: null,
@@ -1275,6 +1429,7 @@ export function ConnectionDetails() {
 		let lastResult: Record<string, unknown>[] = [];
 		let lastError: string | null = null;
 		let lastBaseQuery: string | null = null;
+		let lastAffectedRows: number | null = null;
 
 		try {
 			for (const statement of statements) {
@@ -1286,19 +1441,32 @@ export function ConnectionDetails() {
 
 				if (result.error) {
 					lastError = result.error;
+					recordHistory(queryToRun, {
+						status: "error",
+						timeTakenMs: result.time_taken_ms ?? null,
+						error: result.error,
+					});
 					break;
 				}
 
 				lastResult = result.data as Record<string, unknown>[];
+				lastAffectedRows = result.rows_affected ?? null;
 				lastBaseQuery = isWrappableQuery(queryToRun)
 					? stripTrailingSemicolon(queryToRun)
 					: null;
+				recordHistory(queryToRun, {
+					status: "success",
+					timeTakenMs: result.time_taken_ms ?? null,
+					rowCount: result.row_count ?? null,
+					rowsAffected: result.rows_affected ?? null,
+				});
 			}
 
 			if (lastError) {
 				updateTab<QueryTab>(tab.id, {
 					error: lastError,
 					executionTime: totalTime,
+					affectedRows: null,
 					executing: false,
 				});
 			} else {
@@ -1306,6 +1474,7 @@ export function ConnectionDetails() {
 					results: lastResult,
 					success: true,
 					executionTime: totalTime,
+					affectedRows: lastAffectedRows,
 					executing: false,
 					filterInput: "",
 					filter: "",
@@ -1318,10 +1487,11 @@ export function ConnectionDetails() {
 				error:
 					error instanceof Error ? error.message : "Failed to execute queries",
 				executionTime: null,
+				affectedRows: null,
 				executing: false,
 			});
 		}
-	}, [activeTab, uuid, updateTab]);
+	}, [activeTab, uuid, updateTab, recordHistory]);
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
@@ -1476,10 +1646,13 @@ export function ConnectionDetails() {
 				if (result.error) {
 					toast.error("Failed to update row", { description: result.error });
 				} else {
+					const rowKey = getPrimaryKeyRowKey(editingRow, tab.columns);
+					if (rowKey) {
+						setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+					}
 					toast.success("Row updated successfully");
 					setRowEditSheetOpen(false);
 					setEditingRow(null);
-					// Refresh table data
 					fetchTableData(tab);
 				}
 			} catch (error) {
@@ -1493,6 +1666,152 @@ export function ConnectionDetails() {
 		},
 		[connection, activeTab, editingRow, fetchTableData],
 	);
+
+	const handleInlineCellSave = useCallback(
+		async (
+			row: Record<string, unknown>,
+			columnName: string,
+			value: unknown,
+		) => {
+			if (!activeTab || activeTab.type !== "table-data") return;
+
+			const tab = activeTab as TableDataTab;
+			const column = tab.columns.find((col) => col.name === columnName);
+			if (!column || column.primary_key) {
+				throw new Error("This column cannot be edited inline");
+			}
+
+			const rowKey = getPrimaryKeyRowKey(row, tab.columns);
+			if (!rowKey) {
+				throw new Error("Cannot update row without primary key");
+			}
+
+			const editKey = `${rowKey}:${columnName}`;
+
+			setPendingInlineEditsByTab((prev) => {
+				const tabEdits = { ...(prev[tab.id] ?? {}) };
+				if (areCellValuesEqual(row[columnName], value)) {
+					delete tabEdits[editKey];
+				} else {
+					tabEdits[editKey] = { row, columnName, value };
+				}
+
+				if (Object.keys(tabEdits).length === 0) {
+					const next = { ...prev };
+					delete next[tab.id];
+					return next;
+				}
+
+				return { ...prev, [tab.id]: tabEdits };
+			});
+			toast.success("Change staged");
+		},
+		[activeTab],
+	);
+
+	const handleSaveInlineChanges = useCallback(async () => {
+		if (!connection || !activeTab || activeTab.type !== "table-data") return;
+
+		const tab = activeTab as TableDataTab;
+		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
+		if (pendingEdits.length === 0) return;
+
+		const primaryKeyColumns = tab.columns
+			.filter((col) => col.primary_key)
+			.map((col) => col.name);
+
+		if (primaryKeyColumns.length === 0) {
+			toast.error("Cannot update rows without primary key");
+			return;
+		}
+
+		const [schema, tableName] = tab.tableName.split(".");
+		const editsByRow = new Map<
+			string,
+			{
+				row: Record<string, unknown>;
+				updates: Array<{ column: string; value: unknown; isRawSql: boolean }>;
+			}
+		>();
+
+		for (const [, edit] of pendingEdits) {
+			const rowKey = getPrimaryKeyRowKey(edit.row, tab.columns);
+			if (!rowKey) continue;
+
+			const groupedEdit = editsByRow.get(rowKey) ?? {
+				row: edit.row,
+				updates: [],
+			};
+			groupedEdit.updates.push({
+				column: edit.columnName,
+				value: edit.value,
+				isRawSql: false,
+			});
+			editsByRow.set(rowKey, groupedEdit);
+		}
+
+		if (editsByRow.size === 0) return;
+
+		setSavingInlineEdits(true);
+		try {
+			for (const [rowKey, editGroup] of editsByRow) {
+				const primaryKeyValues = primaryKeyColumns.map(
+					(col) => editGroup.row[col],
+				);
+				const result = await api.pool.updateTableRow(
+					connection.uuid,
+					schema,
+					tableName,
+					primaryKeyColumns,
+					primaryKeyValues,
+					editGroup.updates,
+				);
+
+				if (result.error) {
+					throw new Error(result.error);
+				}
+
+				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+			}
+
+			setPendingInlineEditsByTab((prev) => {
+				const next = { ...prev };
+				delete next[tab.id];
+				return next;
+			});
+			toast.success(
+				`Committed ${pendingEdits.length} inline change${pendingEdits.length === 1 ? "" : "s"}`,
+			);
+			await fetchTableData(tab);
+		} catch (error) {
+			console.error("Failed to save inline changes:", error);
+			toast.error("Failed to save inline changes", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			setSavingInlineEdits(false);
+		}
+	}, [
+		connection,
+		activeTab,
+		pendingInlineEditsByTab,
+		fetchTableData,
+	]);
+
+	const handleDiscardInlineChanges = useCallback(() => {
+		if (!activeTab || activeTab.type !== "table-data") return;
+
+		const tab = activeTab as TableDataTab;
+		const pendingEdits = pendingInlineEditsByTab[tab.id];
+		if (!pendingEdits || Object.keys(pendingEdits).length === 0) return;
+
+		setPendingInlineEditsByTab((prev) => {
+			const next = { ...prev };
+			delete next[tab.id];
+			return next;
+		});
+		toast.info("Inline changes discarded");
+	}, [activeTab, pendingInlineEditsByTab]);
 
 	const handleDeleteRow = useCallback(async () => {
 		if (
@@ -1872,6 +2191,8 @@ export function ConnectionDetails() {
 
 		const schema = tab.tableName.split(".")[0];
 		const firstRow = tab.data.data[0];
+		const dbType = connection?.db_type || connection?.type;
+		const hasPrimaryKey = tab.columns.some((col) => col.primary_key);
 		return Object.keys(firstRow).map((key) => {
 			const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
 			const columnInfo = tab.columns.find((col) => col.name === key);
@@ -1896,31 +2217,43 @@ export function ConnectionDetails() {
 						)}
 					</span>
 				),
-				cell: ({ getValue }) => {
-					const value = getValue();
-					if (value === null)
-						return <span className="text-muted-foreground italic">null</span>;
+				cell: ({ getValue, row }) => {
+					const originalValue = getValue();
+					const rowKey = getPrimaryKeyRowKey(row.original, tab.columns);
+					const pendingEdit = rowKey
+						? pendingInlineEditsByTab[tab.id]?.[`${rowKey}:${key}`]
+						: undefined;
+					const value = pendingEdit ? pendingEdit.value : originalValue;
+					const cellContent =
+						value === null ? (
+							<span className="text-muted-foreground italic">null</span>
+						) : null;
 
 					const rawValue =
 						typeof value === "object" ? JSON.stringify(value) : String(value);
 					const displayValue =
 						rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+					const canEditInline =
+						!!columnInfo &&
+						!columnInfo.primary_key &&
+						hasPrimaryKey &&
+						dbType !== "clickhouse";
 
-					if (fkInfo && value !== null) {
-						const refTable = `${schema}.${fkInfo.references_table}`;
-						return (
+					const content =
+						cellContent ??
+						(fkInfo && value !== null ? (
 							<span
-								className="group/fk flex items-center gap-1"
+								className="group/fk flex items-center"
 								title={rawValue}
 							>
-								<span>{displayValue}</span>
+								<span className="truncate">{displayValue}</span>
 								<button
 									type="button"
 									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity cursor-pointer"
 									onClick={(e) => {
 										e.stopPropagation();
 										handleOpenTableDataWithFilter(
-											refTable,
+											`${schema}.${fkInfo.references_table}`,
 											fkInfo.references_column,
 											value,
 										);
@@ -1930,14 +2263,38 @@ export function ConnectionDetails() {
 									<ArrowRight className="w-3.5 h-3.5 text-primary" />
 								</button>
 							</span>
-						);
-					}
+						) : (
+							<span title={rawValue}>{displayValue}</span>
+						));
 
-					return <span title={rawValue}>{displayValue}</span>;
+					return columnInfo ? (
+						<InlineEditableCell
+							value={value}
+							column={columnInfo}
+							disabled={!canEditInline}
+							onSave={(nextValue) =>
+								handleInlineCellSave(row.original, key, nextValue)
+							}
+						>
+							{pendingEdit ? (
+								<span className="text-primary font-medium">{content}</span>
+							) : (
+								content
+							)}
+						</InlineEditableCell>
+					) : (
+						content
+					);
 				},
 			};
 		});
-	}, [activeTab, handleOpenTableDataWithFilter]);
+	}, [
+		activeTab,
+		connection,
+		pendingInlineEditsByTab,
+		handleOpenTableDataWithFilter,
+		handleInlineCellSave,
+	]);
 
 	const tableDataPageCount = useMemo(() => {
 		if (!activeTab || activeTab.type !== "table-data") return 0;
@@ -2078,8 +2435,14 @@ export function ConnectionDetails() {
 		);
 	}
 
-	const renderTableDataContent = (tab: TableDataTab) => (
-		<Card>
+	const renderTableDataContent = (tab: TableDataTab) => {
+		const pendingInlineChangeCount = Object.keys(
+			pendingInlineEditsByTab[tab.id] ?? {},
+		).length;
+		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
+
+		return (
+			<Card>
 			<CardHeader>
 				<div className="flex items-center justify-between">
 					<div>
@@ -2119,6 +2482,36 @@ export function ConnectionDetails() {
 					</div>
 				</div>
 			</CardHeader>
+			{hasPendingInlineChanges && (
+				<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+					<span className="text-xs font-medium text-foreground">
+						Unsaved changes
+					</span>
+					<div className="flex items-center gap-2">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleDiscardInlineChanges}
+							disabled={savingInlineEdits || tab.loading}
+						>
+							<X className="w-4 h-4" />
+							Discard
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => void handleSaveInlineChanges()}
+							disabled={savingInlineEdits || tab.loading}
+						>
+							{savingInlineEdits ? (
+								<Spinner />
+							) : (
+								<FloppyDisk className="w-4 h-4" />
+							)}
+							Commit
+						</Button>
+					</div>
+				</div>
+			)}
 			<div className="px-6 pb-4">
 				<div className="flex items-center gap-2">
 					<Input
@@ -2134,13 +2527,6 @@ export function ConnectionDetails() {
 						}}
 						className="flex-1 font-mono text-xs"
 					/>
-					<Button
-						size="sm"
-						onClick={handleApplyFilter}
-						disabled={tab.loading || !tab.filterInput.trim()}
-					>
-						Apply
-					</Button>
 					{tab.filter && (
 						<Button
 							size="sm"
@@ -2188,6 +2574,11 @@ export function ConnectionDetails() {
 							sortable
 							sort={tab.sort}
 							onSortChange={handleSortChange}
+							isRowHighlighted={(row) =>
+								highlightedTableRow?.tableName === tab.tableName &&
+								getPrimaryKeyRowKey(row, tab.columns) ===
+									highlightedTableRow.rowKey
+							}
 						/>
 					</div>
 				) : (
@@ -2197,7 +2588,8 @@ export function ConnectionDetails() {
 				)}
 			</CardContent>
 		</Card>
-	);
+		);
+	};
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
 		<Card>
@@ -2670,7 +3062,11 @@ export function ConnectionDetails() {
 								{tab.results !== null &&
 									tab.results.length === 0 &&
 									tab.success &&
-									"Query executed successfully - no rows returned"}
+									(tab.affectedRows !== null
+										? `Query executed successfully - ${formatQuerySuccessDetail(
+												tab.affectedRows,
+											)}`
+										: "Query executed successfully - no rows returned")}
 							</CardDescription>
 						</div>
 						{tab.results && tab.results.length > 0 && (
@@ -2782,13 +3178,6 @@ export function ConnectionDetails() {
 										}}
 										className="flex-1 font-mono text-xs"
 									/>
-									<Button
-										size="sm"
-										onClick={handleApplyQueryFilter}
-										disabled={tab.executing || !tab.filterInput.trim()}
-									>
-										Apply
-									</Button>
 									{tab.filter && (
 										<Button
 											size="sm"
@@ -2827,20 +3216,24 @@ export function ConnectionDetails() {
 											tab.resultBaseQuery ? handleQuerySortChange : undefined
 										}
 										onRowClick={(row) => {
-											const index = tab.results.findIndex((r) => r === row);
+											const index =
+												tab.results?.findIndex((r) => r === row) ?? -1;
 											setSelectedQueryRow({ row, index });
 											setQueryResultSheetOpen(true);
 										}}
 									/>
 								</div>
 							) : tab.success ? (
-								<div className="text-center py-8">
-									<div className="rounded-md bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 max-w-md mx-auto">
-										<p className="text-sm text-green-800 dark:text-green-200 font-medium">
-											✓ Query executed successfully
+								<div className="flex items-start gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+									<span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border border-green-500 bg-green-50 text-green-600 dark:border-green-500/80 dark:bg-green-950/30 dark:text-green-400">
+										<Check weight="bold" className="h-3 w-3" />
+									</span>
+									<div className="min-w-0">
+										<p className="font-medium text-foreground">
+											Query executed successfully
 										</p>
-										<p className="text-sm text-green-600 dark:text-green-300 mt-1">
-											No rows returned
+										<p className="mt-0.5 text-muted-foreground">
+											{formatQuerySuccessDetail(tab.affectedRows)}
 										</p>
 									</div>
 								</div>
@@ -2860,25 +3253,13 @@ export function ConnectionDetails() {
 	);
 
 	const renderEmptyState = () => (
-		<Card>
-			<CardHeader>
-				<CardTitle>Welcome</CardTitle>
-				<CardDescription>
-					Select an object from the sidebar or create a new query to get started
-				</CardDescription>
-			</CardHeader>
-			<CardContent>
-				<div className="space-y-2">
-					<p className="text-sm text-muted-foreground">
-						Open a table, view, or function from the sidebar, or use the
-						&quot;+&quot; button to create a new SQL query.
-					</p>
-					<p className="text-sm text-muted-foreground">
-						Found {totalObjectCount} objects across {objectSchemaCount} schemas.
-					</p>
-				</div>
-			</CardContent>
-		</Card>
+		<ConnectionWelcome
+			connection={connection}
+			totalObjectCount={totalObjectCount}
+			objectSchemaCount={objectSchemaCount}
+			onNewQuery={handleNewQuery}
+			onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+		/>
 	);
 
 	// ============================================================================
@@ -3487,6 +3868,24 @@ export function ConnectionDetails() {
 		}
 	};
 
+	// Initial connect failed: show a dedicated error screen instead of the
+	// empty workspace shell. A mid-session drop (after connecting at least
+	// once) keeps the workspace and reconnects via the header status badge.
+	const showDisconnectedScreen =
+		connectionStatus === "disconnected" && !hasEverConnected;
+
+	if (showDisconnectedScreen) {
+		return (
+			<DisconnectedScreen
+				connectionName={connection.name}
+				databaseIcon={getDatabaseIcon()}
+				error={connectionError}
+				onReconnect={handleReconnect}
+				onClose={() => navigate("/")}
+			/>
+		);
+	}
+
 	// Redis-specific layout without sidebar or tabs
 	if (connection.type === "redis") {
 		return (
@@ -3553,10 +3952,12 @@ export function ConnectionDetails() {
 				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
 						value={sidebarTab}
-						onValueChange={(v) => setSidebarTab(v as "objects" | "queries")}
+						onValueChange={(v) =>
+							setSidebarTab(v as "objects" | "queries" | "history")
+						}
 						className="h-full min-h-0"
 					>
-						<TabsList className="w-full grid grid-cols-2">
+						<TabsList className="w-full grid grid-cols-3">
 							<TabsTrigger value="objects" className="flex items-center gap-2">
 								<Table className="w-4 h-4" />
 								Objects
@@ -3564,6 +3965,10 @@ export function ConnectionDetails() {
 							<TabsTrigger value="queries" className="flex items-center gap-2">
 								<Code className="w-4 h-4" />
 								Queries
+							</TabsTrigger>
+							<TabsTrigger value="history" className="flex items-center gap-2">
+								<ClockCounterClockwise className="w-4 h-4" />
+								History
 							</TabsTrigger>
 						</TabsList>
 						<TabsContent value="objects" className="mt-2 min-h-0 flex-1">
@@ -3644,6 +4049,72 @@ export function ConnectionDetails() {
 														</ContextMenuItem>
 													</ContextMenuContent>
 												</ContextMenu>
+											))}
+										</SidebarMenu>
+									)}
+								</SidebarGroupContent>
+							</SidebarGroup>
+						</TabsContent>
+						<TabsContent value="history" className="mt-2 min-h-0 flex-1 overflow-auto">
+							<SidebarGroup>
+								<div className="flex items-center justify-between pr-2">
+									<SidebarGroupLabel>Recent Queries</SidebarGroupLabel>
+									{queryHistory.length > 0 ? (
+										<button
+											type="button"
+											className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+											onClick={async () => {
+												if (!uuid) return;
+												try {
+													await api.queries.clearHistory(uuid);
+													setQueryHistory([]);
+												} catch (e) {
+													console.error("Failed to clear query history:", e);
+												}
+											}}
+										>
+											<Trash className="w-3 h-3" />
+											Clear
+										</button>
+									) : null}
+								</div>
+								<SidebarGroupContent>
+									{loadingHistory ? (
+										<div className="flex items-center justify-center py-4">
+											<Spinner />
+										</div>
+									) : queryHistory.length === 0 ? (
+										<p className="text-xs text-muted-foreground px-2 py-4 text-center">
+											No query history yet
+										</p>
+									) : (
+										<SidebarMenu>
+											{queryHistory.map((item) => (
+												<SidebarMenuItem key={item.id}>
+													<SidebarMenuButton
+														onClick={() => handleOpenQuery(item.query)}
+														className="h-auto flex-col items-start gap-1 py-2"
+														title={item.error ?? item.query}
+													>
+														<div className="flex items-center gap-2 w-full">
+															{item.status === "error" ? (
+																<WarningCircle className="w-4 h-4 shrink-0 text-destructive group-hover/menu-button:text-sidebar-accent-foreground" />
+															) : (
+																<Check className="w-4 h-4 shrink-0 text-green-600 dark:text-green-500 group-hover/menu-button:text-sidebar-accent-foreground" />
+															)}
+															<span className="truncate flex-1 font-mono text-xs">
+																{item.query}
+															</span>
+														</div>
+														<div className="flex items-center gap-2 text-[10px] text-muted-foreground pl-6 group-hover/menu-button:text-sidebar-accent-foreground">
+															<span>{formatHistoryTime(item.executed_at)}</span>
+															{item.status === "success" &&
+															item.time_taken_ms != null ? (
+																<span>· {item.time_taken_ms} ms</span>
+															) : null}
+														</div>
+													</SidebarMenuButton>
+												</SidebarMenuItem>
 											))}
 										</SidebarMenu>
 									)}
@@ -3787,6 +4258,7 @@ export function ConnectionDetails() {
 					onOpenFunctionDefinition={handleOpenFunctionDefinition}
 					onSwitchSidebarTab={setSidebarTab}
 					onOpenSettings={openSettings}
+					onToggleTheme={toggleTheme}
 					tables={tables}
 					functions={schemaOverview?.functions || []}
 					connectionType={connection.type}

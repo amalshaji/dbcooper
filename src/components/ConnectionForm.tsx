@@ -403,24 +403,25 @@ export function ConnectionForm({
 									</Field>
 								)}
 
-								{/* Redis doesn't use username */}
-								{formData.type !== "redis" && (
-									<Field>
-										<FieldLabel htmlFor="connection-username">
-											Username
-										</FieldLabel>
-										<Input
-											id="connection-username"
-											type="text"
-											required
-											value={formData.username}
-											onChange={(e) =>
-												setFormData({ ...formData, username: e.target.value })
-											}
-											placeholder="postgres"
-										/>
-									</Field>
-								)}
+								<Field>
+									<FieldLabel htmlFor="connection-username">
+										{formData.type === "redis"
+											? "Username (Optional)"
+											: "Username"}
+									</FieldLabel>
+									<Input
+										id="connection-username"
+										type="text"
+										required={formData.type !== "redis"}
+										value={formData.username}
+										onChange={(e) =>
+											setFormData({ ...formData, username: e.target.value })
+										}
+										placeholder={
+											formData.type === "redis" ? "default" : "postgres"
+										}
+									/>
+								</Field>
 
 								<Field>
 									<FieldLabel htmlFor="connection-password">

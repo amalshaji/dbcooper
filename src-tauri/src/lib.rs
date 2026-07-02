@@ -27,7 +27,8 @@ use commands::postgres::{
     execute_query, get_table_data, get_table_structure, list_tables, test_connection,
 };
 use commands::queries::{
-    create_saved_query, delete_saved_query, get_saved_queries, update_saved_query,
+    clear_query_history, create_saved_query, delete_saved_query, get_query_history,
+    get_saved_queries, record_query_history, update_saved_query,
 };
 use commands::settings::{get_all_settings, get_setting, set_setting};
 use std::sync::Arc;
@@ -205,6 +206,9 @@ pub fn run() {
             create_saved_query,
             update_saved_query,
             delete_saved_query,
+            record_query_history,
+            get_query_history,
+            clear_query_history,
             get_setting,
             set_setting,
             get_all_settings,

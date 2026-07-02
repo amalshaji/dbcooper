@@ -86,10 +86,10 @@ export function TabBar({
 							}}
 							className={cn(
 								"group relative flex items-center gap-1.5 px-3 py-2 text-xs border-r border-border/50 max-w-[180px] min-w-[100px]",
-								"hover:bg-background/50 transition-colors",
+								"transition-colors",
 								isActive
-									? "bg-background border-t-2 border-t-primary text-foreground"
-									: "text-muted-foreground",
+									? "bg-background text-foreground shadow-[inset_0_2px_0_0_var(--primary)]"
+									: "text-muted-foreground hover:bg-background/50 hover:text-foreground",
 							)}
 						>
 							{getTabIcon(tab)}

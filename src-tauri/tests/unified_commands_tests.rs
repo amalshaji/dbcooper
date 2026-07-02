@@ -40,6 +40,13 @@ async fn test_unified_test_connection_sqlite_success() {
         None,
         None,
         Some(file_path),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await;
 
@@ -59,6 +66,13 @@ async fn test_unified_test_connection_postgres_success() {
         Some("postgres".to_string()),
         Some("postgres".to_string()),
         Some(false),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
         None,
     )
     .await;
@@ -83,10 +97,27 @@ async fn test_unified_test_connection_invalid_db_type() {
         None,
         None,
         None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await;
 
-    assert!(result.is_err(), "Should error on unknown database type");
+    assert!(result.is_ok());
+    let test_result = result.unwrap();
+    assert!(
+        !test_result.success,
+        "Should fail on unknown database type"
+    );
+    assert!(
+        test_result.message.contains("Unsupported database type"),
+        "Error message should mention unsupported type, got: {}",
+        test_result.message
+    );
 }
 
 // ============================================================================
@@ -501,6 +532,8 @@ async fn test_update_table_row_sqlite() {
     assert!(result.is_ok());
     let query_result = result.unwrap();
     assert!(query_result.error.is_none(), "Update should succeed");
+    assert_eq!(query_result.row_count, 1);
+    assert_eq!(query_result.rows_affected, Some(1));
 
     // Verify the update
     let select = unified_execute_query(

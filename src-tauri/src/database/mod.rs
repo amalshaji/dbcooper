@@ -14,6 +14,153 @@ use crate::db::models::{
     TestConnectionResult,
 };
 
+fn is_identifier_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+fn starts_with_keyword(sql: &str, keyword: &str) -> bool {
+    sql.get(..keyword.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(keyword))
+        && sql[keyword.len()..]
+            .chars()
+            .next()
+            .map_or(true, |ch| !is_identifier_char(ch))
+}
+
+fn strip_leading_sql_comments(mut sql: &str) -> &str {
+    loop {
+        sql = sql.trim_start();
+
+        if let Some(rest) = sql.strip_prefix("--") {
+            if let Some(newline_index) = rest.find('\n') {
+                sql = &rest[newline_index + 1..];
+                continue;
+            }
+            return "";
+        }
+
+        if let Some(rest) = sql.strip_prefix("/*") {
+            if let Some(end_index) = rest.find("*/") {
+                sql = &rest[end_index + 2..];
+                continue;
+            }
+            return "";
+        }
+
+        return sql;
+    }
+}
+
+fn contains_keyword_outside_literals(sql: &str, keyword: &str) -> bool {
+    let mut chars = sql.char_indices().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+
+    while let Some((index, ch)) = chars.next() {
+        let next = chars.peek().map(|(_, next_ch)| *next_ch);
+
+        if in_line_comment {
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+
+        if in_block_comment {
+            if ch == '*' && next == Some('/') {
+                chars.next();
+                in_block_comment = false;
+            }
+            continue;
+        }
+
+        if in_single_quote {
+            if ch == '\'' {
+                if next == Some('\'') {
+                    chars.next();
+                } else {
+                    in_single_quote = false;
+                }
+            }
+            continue;
+        }
+
+        if in_double_quote {
+            if ch == '"' {
+                if next == Some('"') {
+                    chars.next();
+                } else {
+                    in_double_quote = false;
+                }
+            }
+            continue;
+        }
+
+        if ch == '-' && next == Some('-') {
+            chars.next();
+            in_line_comment = true;
+            continue;
+        }
+
+        if ch == '/' && next == Some('*') {
+            chars.next();
+            in_block_comment = true;
+            continue;
+        }
+
+        if ch == '\'' {
+            in_single_quote = true;
+            continue;
+        }
+
+        if ch == '"' {
+            in_double_quote = true;
+            continue;
+        }
+
+        let end = index + keyword.len();
+        if sql
+            .get(index..end)
+            .is_some_and(|candidate| candidate.eq_ignore_ascii_case(keyword))
+        {
+            let prev_is_boundary = sql[..index]
+                .chars()
+                .next_back()
+                .map_or(true, |prev| !is_identifier_char(prev));
+            let next_is_boundary = sql[end..]
+                .chars()
+                .next()
+                .map_or(true, |next_ch| !is_identifier_char(next_ch));
+
+            if prev_is_boundary && next_is_boundary {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+pub fn query_returns_rows(query: &str) -> bool {
+    let sql = strip_leading_sql_comments(query);
+
+    if [
+        "SELECT", "WITH", "VALUES", "SHOW", "DESCRIBE", "PRAGMA", "EXPLAIN",
+    ]
+    .iter()
+    .any(|keyword| starts_with_keyword(sql, keyword))
+    {
+        return true;
+    }
+
+    ["INSERT", "UPDATE", "DELETE", "MERGE"]
+        .iter()
+        .any(|keyword| starts_with_keyword(sql, keyword))
+        && contains_keyword_outside_literals(sql, "RETURNING")
+}
+
 /// Common trait for all database drivers
 #[async_trait]
 pub trait DatabaseDriver: Send + Sync {
@@ -91,6 +238,7 @@ pub struct SqliteConfig {
 pub struct RedisConfig {
     pub host: String,
     pub port: i64,
+    pub username: Option<String>,
     pub password: Option<String>,
     pub db: Option<i64>,
     pub tls: bool,

@@ -1,0 +1,39 @@
+name: update-brew-cask
+
+# Bump the DBcooper cask in amalshaji/homebrew-taps whenever a release is
+# published. Uses Homebrew's canonical `brew bump-cask-pr --write-only` to
+# recompute the version + sha256 (downloading the new DMG), then pushes the
+# resulting commit straight to the tap — no intermediate PR to merge.
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  cask:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: macos-latest
+    steps:
+      - name: Bump cask and push to tap
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          brew tap amalshaji/taps
+          tap_dir="$(brew --repository amalshaji/taps)"
+
+          git -C "$tap_dir" config user.name "github-actions[bot]"
+          git -C "$tap_dir" config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Edit only version + sha256 in the tap cask and commit it locally.
+          brew bump-cask-pr \
+            --version="${TAG#v}" \
+            --write-only --commit --no-audit \
+            amalshaji/taps/dbcooper
+
+          # Push the commit straight to the tap's default branch.
+          git -C "$tap_dir" remote set-url origin \
+            "https://x-access-token:${TAP_TOKEN}@github.com/amalshaji/homebrew-taps.git"
+          git -C "$tap_dir" push origin HEAD:main

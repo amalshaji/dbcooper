@@ -539,6 +539,7 @@ impl DatabaseDriver for ClickhouseDriver {
                     Ok(QueryResult {
                         data: rows,
                         row_count,
+                        rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     })
@@ -546,6 +547,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 }),
@@ -556,12 +558,14 @@ impl DatabaseDriver for ClickhouseDriver {
                 Ok(_) => Ok(QueryResult {
                     data: vec![json!({"result": "Query executed successfully"})],
                     row_count: 0,
+                    rows_affected: Some(0),
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 }),
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 }),

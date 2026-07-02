@@ -15,6 +15,7 @@ fn create_test_driver() -> RedisDriver {
     let config = RedisConfig {
         host: "localhost".to_string(),
         port: 6379,
+        username: None,
         password: None,
         db: Some(15), // Use database 15 for tests to avoid conflicts
         tls: false,
@@ -61,6 +62,7 @@ async fn test_connection_failure() {
     let config = RedisConfig {
         host: "localhost".to_string(),
         port: 16379, // Wrong port
+        username: None,
         password: None,
         db: None,
         tls: false,
@@ -100,7 +102,9 @@ async fn test_list_tables_returns_keyspace() {
 async fn test_get_table_data_returns_empty() {
     let driver = create_test_driver();
 
-    let result = driver.get_table_data("redis", "keys", 1, 10, None, None, None).await;
+    let result = driver
+        .get_table_data("redis", "keys", 1, 10, None, None, None)
+        .await;
     assert!(result.is_ok());
 
     let data = result.unwrap();
@@ -474,7 +478,10 @@ async fn test_search_keys_with_limit() {
 
     // Search with limit of 2
     let pattern = format!("{}:*", prefix);
-    let result = driver.search_keys(&pattern, 2, 0, |_, _, _, _| {}).await.unwrap();
+    let result = driver
+        .search_keys(&pattern, 2, 0, |_, _, _, _| {})
+        .await
+        .unwrap();
     assert!(result.keys.len() <= 2, "Should respect limit");
 
     // Cleanup

@@ -71,6 +71,7 @@ export interface QueryTab extends BaseTab {
 	error: string | null;
 	success: boolean;
 	executionTime: number | null;
+	affectedRows: number | null;
 	executing: boolean;
 	filterInput: string;
 	filter: string;
@@ -164,6 +165,7 @@ export function createQueryTab(
 		error: null,
 		success: false,
 		executionTime: null,
+		affectedRows: null,
 		executing: false,
 		filterInput: "",
 		filter: "",

@@ -566,6 +566,58 @@ async fn test_export_connection_format() {
 }
 
 #[tokio::test]
+async fn test_redis_connection_round_trip_preserves_username() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let original_uuid = uuid::Uuid::new_v4().to_string();
+
+    let original: Connection = sqlx::query_as(
+        r#"
+        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type)
+        VALUES (?, 'redis', 'Redis ACL', 'cache.example.com', 6379, '2', 'app-user', 'secret', 1, 'redis')
+        RETURNING *
+        "#,
+    )
+    .bind(&original_uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let imported_uuid = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&imported_uuid)
+    .bind(&original.connection_type)
+    .bind("Redis ACL Copy")
+    .bind(&original.host)
+    .bind(original.port)
+    .bind(&original.database)
+    .bind(&original.username)
+    .bind(&original.password)
+    .bind(original.ssl)
+    .bind(&original.db_type)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let imported: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(&imported_uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(imported.connection_type, "redis");
+    assert_eq!(imported.db_type, "redis");
+    assert_eq!(imported.database, "2");
+    assert_eq!(imported.username, "app-user");
+    assert_eq!(imported.password, "secret");
+    assert_eq!(imported.ssl, 1);
+}
+
+#[tokio::test]
 async fn test_import_connection_creates_new_uuid() {
     let (pool, _temp_file) = create_test_pool().await;
 

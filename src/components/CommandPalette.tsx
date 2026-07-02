@@ -20,6 +20,7 @@ import {
 	Database,
 	X,
 	Gear,
+	CircleHalf,
 } from "@phosphor-icons/react";
 import { formatFunctionSignature, type FunctionSummary, type Tab } from "@/types/tabTypes";
 import type { DatabaseTable } from "@/types/table";
@@ -45,6 +46,7 @@ interface CommandPaletteProps {
 	onOpenFunctionDefinition: (functionSummary: FunctionSummary) => void;
 	onSwitchSidebarTab: (tab: "objects" | "queries") => void;
 	onOpenSettings: () => void;
+	onToggleTheme: () => void;
 	tables: DatabaseTable[];
 	functions: FunctionSummary[];
 	connectionType?: string;
@@ -78,6 +80,7 @@ export function CommandPalette({
 	onOpenFunctionDefinition,
 	onSwitchSidebarTab,
 	onOpenSettings,
+	onToggleTheme,
 	tables,
 	functions,
 	connectionType,
@@ -111,11 +114,20 @@ export function CommandPalette({
 				e.preventDefault();
 				onOpenSettings();
 			}
+			// Cmd+Shift+L to toggle the theme
+			if (
+				(e.key === "l" || e.key === "L") &&
+				(e.metaKey || e.ctrlKey) &&
+				e.shiftKey
+			) {
+				e.preventDefault();
+				onToggleTheme();
+			}
 		};
 
 		document.addEventListener("keydown", down);
 		return () => document.removeEventListener("keydown", down);
-	}, [open, onOpenChange, onOpenSettings]);
+	}, [open, onOpenChange, onOpenSettings, onToggleTheme]);
 
 	return (
 		<CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -352,6 +364,16 @@ export function CommandPalette({
 				<CommandSeparator />
 
 				<CommandGroup heading="Application">
+					<CommandItem
+						onSelect={() => {
+							onToggleTheme();
+							onOpenChange(false);
+						}}
+					>
+						<CircleHalf className="w-4 h-4" />
+						<span>Toggle Theme</span>
+						<CommandShortcut>{getShortcutKey("Cmd+Shift+L")}</CommandShortcut>
+					</CommandItem>
 					<CommandItem
 						onSelect={() => {
 							onOpenSettings();

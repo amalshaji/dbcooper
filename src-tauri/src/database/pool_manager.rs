@@ -6,7 +6,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 use tokio::sync::{Mutex, RwLock};
 
 use super::clickhouse::ClickhouseDriver;
@@ -56,7 +55,6 @@ struct PoolEntry {
     driver: Arc<Box<dyn DatabaseDriver>>,
     config: ConnectionConfig,
     status: ConnectionStatus,
-    last_used: Instant,
     last_error: Option<String>,
     #[allow(dead_code)]
     ssh_tunnel: Option<SshTunnel>,
@@ -172,6 +170,10 @@ impl PoolManager {
                 let redis_config = RedisConfig {
                     host: effective_host,
                     port: effective_port,
+                    username: config
+                        .username
+                        .clone()
+                        .filter(|username| !username.is_empty()),
                     password: config.password.clone(),
                     db: config.database.clone().and_then(|d| d.parse().ok()),
                     tls: config.ssl.unwrap_or(false),
@@ -222,26 +224,6 @@ impl PoolManager {
         Ok(())
     }
 
-    /// Get or create a connection for the given UUID
-    pub async fn get_connection(
-        &self,
-        uuid: &str,
-        config: ConnectionConfig,
-    ) -> Result<Arc<Box<dyn DatabaseDriver>>, String> {
-        // Check if we have an existing connected pool
-        {
-            let pools = self.pools.read().await;
-            if let Some(entry) = pools.get(uuid) {
-                if entry.status == ConnectionStatus::Connected {
-                    return Ok(entry.driver.clone());
-                }
-            }
-        }
-
-        // Need to create or reconnect
-        self.connect(uuid, config).await
-    }
-
     /// Explicitly connect (or reconnect) a connection
     pub async fn connect(
         &self,
@@ -273,7 +255,6 @@ impl PoolManager {
             driver: driver.clone(),
             config,
             status: status.clone(),
-            last_used: Instant::now(),
             last_error: if test_result.success {
                 None
             } else {
@@ -314,23 +295,6 @@ impl PoolManager {
     pub async fn get_last_error(&self, uuid: &str) -> Option<String> {
         let pools = self.pools.read().await;
         pools.get(uuid).and_then(|e| e.last_error.clone())
-    }
-
-    /// Update last used time for a connection
-    pub async fn touch(&self, uuid: &str) {
-        let mut pools = self.pools.write().await;
-        if let Some(entry) = pools.get_mut(uuid) {
-            entry.last_used = Instant::now();
-        }
-    }
-
-    /// Mark a connection as disconnected (e.g., after an error)
-    pub async fn mark_disconnected(&self, uuid: &str, error: Option<String>) {
-        let mut pools = self.pools.write().await;
-        if let Some(entry) = pools.get_mut(uuid) {
-            entry.status = ConnectionStatus::Disconnected;
-            entry.last_error = error;
-        }
     }
 
     /// Perform a health check on a connection

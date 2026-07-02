@@ -1,46 +1,53 @@
 ---
+const SITE = "https://dbcooper.amal.sh";
+
 export interface Props {
   title?: string;
   description?: string;
-  ogUrl?: string;
-  ogTitle?: string;
-  ogDescription?: string;
   ogImage?: string;
-  twitterUrl?: string;
-  twitterTitle?: string;
-  twitterDescription?: string;
-  twitterImage?: string;
 }
 
 const {
-  title = "DBcooper",
-  description = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
-  ogUrl = "https://dbcooper.amal.sh/",
-  ogTitle = "DBcooper",
-  ogDescription = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
-  ogImage = "/screenshots/visual-light.webp",
-  twitterUrl = "https://dbcooper.amal.sh/",
-  twitterTitle = "DBcooper",
-  twitterDescription = "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse with AI-powered SQL generation, intuitive schema visualization, and powerful query tools",
-  twitterImage = "/screenshots/visual-light.webp",
+  title = "DBcooper — database client for developers",
+  description = "A fast, native macOS database client for PostgreSQL, SQLite, Redis, and ClickHouse. Browse data, run SQL, visualize schemas, and generate queries with AI.",
+  ogImage = "/og.png",
 } = Astro.props;
+
+const canonical = SITE + "/";
+// Open Graph requires an absolute image URL.
+const absoluteImage = ogImage.startsWith("http") ? ogImage : SITE + ogImage;
 ---
 
 <!-- Primary Meta Tags -->
 <title>{title}</title>
 <meta name="title" content={title} />
 <meta name="description" content={description} />
+<meta name="theme-color" content="#100d0b" />
+<link rel="canonical" href={canonical} />
 
 <!-- Open Graph / Facebook -->
 <meta property="og:type" content="website" />
-<meta property="og:url" content={ogUrl} />
-<meta property="og:title" content={ogTitle} />
-<meta property="og:description" content={ogDescription} />
-<meta property="og:image" content={ogImage} />
+<meta property="og:site_name" content="DBcooper" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:url" content={canonical} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:image" content={absoluteImage} />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta
+  property="og:image:alt"
+  content="DBcooper — a database client for PostgreSQL, SQLite, Redis, and ClickHouse"
+/>
 
 <!-- X (Twitter) -->
-<meta property="twitter:card" content="summary_large_image" />
-<meta property="twitter:url" content={twitterUrl} />
-<meta property="twitter:title" content={twitterTitle} />
-<meta property="twitter:description" content={twitterDescription} />
-<meta property="twitter:image" content={twitterImage} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:url" content={canonical} />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={absoluteImage} />
+<meta
+  name="twitter:image:alt"
+  content="DBcooper — a database client for PostgreSQL, SQLite, Redis, and ClickHouse"
+/>

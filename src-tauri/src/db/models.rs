@@ -83,6 +83,19 @@ pub struct SavedQueryFormData {
     pub query: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct QueryHistory {
+    pub id: i64,
+    pub connection_uuid: String,
+    pub query: String,
+    pub status: String,
+    pub time_taken_ms: Option<i64>,
+    pub row_count: Option<i64>,
+    pub rows_affected: Option<i64>,
+    pub error: Option<String>,
+    pub executed_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TableInfo {
     pub schema: String,
@@ -137,6 +150,8 @@ pub struct QueryResult {
     pub data: Vec<serde_json::Value>,
     pub row_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows_affected: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_taken_ms: Option<u128>,
@@ -149,6 +164,7 @@ impl QueryResult {
         Self {
             data,
             row_count,
+            rows_affected: None,
             error: None,
             time_taken_ms: Some(start.elapsed().as_millis()),
         }
@@ -159,6 +175,7 @@ impl QueryResult {
         Self {
             data: vec![],
             row_count: 0,
+            rows_affected: None,
             error: Some(message),
             time_taken_ms: Some(start.elapsed().as_millis()),
         }

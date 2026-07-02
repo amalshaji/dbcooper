@@ -307,7 +307,7 @@ export function Connections() {
 						href="https://github.com/amalshaji/dbcooper"
 						target="_blank"
 						rel="noopener noreferrer"
-						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
+						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground transition-colors duration-200"
 						title="View on GitHub"
 					>
 						<GithubLogo className="w-4 h-4" />
@@ -316,7 +316,7 @@ export function Connections() {
 					<button
 						type="button"
 						onClick={() => navigate("/settings")}
-						className="inline-flex hover:cursor-pointer items-center justify-center h-8 w-8 rounded-lg hover:bg-accent/50 transition-all duration-200"
+						className="inline-flex hover:cursor-pointer items-center justify-center h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground transition-colors duration-200"
 						title="Settings"
 					>
 						<Gear className="w-4 h-4" />
@@ -329,13 +329,20 @@ export function Connections() {
 					{connections.length === 0 ? (
 						<div className="flex items-center justify-center min-h-[60vh]">
 							<EmptyState
-								icon={<Database className="w-16 h-16" />}
+								icon={<Database />}
 								title="No connections yet"
 								description="Get started by creating your first database connection. You can connect to PostgreSQL, MySQL, SQLite, or Redis."
-								action={{
-									label: "Create Connection",
-									onClick: () => setIsFormOpen(true),
-								}}
+								actions={[
+									{
+										label: "Import Connections",
+										onClick: handleImportConnections,
+										variant: "outline",
+									},
+									{
+										label: "Create Connection",
+										onClick: () => setIsFormOpen(true),
+									},
+								]}
 							/>
 						</div>
 					) : (
