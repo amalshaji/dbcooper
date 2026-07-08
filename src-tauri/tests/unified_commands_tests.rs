@@ -109,10 +109,7 @@ async fn test_unified_test_connection_invalid_db_type() {
 
     assert!(result.is_ok());
     let test_result = result.unwrap();
-    assert!(
-        !test_result.success,
-        "Should fail on unknown database type"
-    );
+    assert!(!test_result.success, "Should fail on unknown database type");
     assert!(
         test_result.message.contains("Unsupported database type"),
         "Error message should mention unsupported type, got: {}",

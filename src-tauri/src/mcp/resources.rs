@@ -6,10 +6,12 @@ use serde_json::json;
 /// List available resources — returns the static `dbcooper://connections` resource
 /// plus a resource for each currently-connected database's schema.
 pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, McpError> {
-    let mut resources = vec![RawResource::new("dbcooper://connections", "Database Connections")
-        .with_description("All saved database connections (credentials redacted)")
-        .with_mime_type("application/json")
-        .no_annotation()];
+    let mut resources = vec![
+        RawResource::new("dbcooper://connections", "Database Connections")
+            .with_description("All saved database connections (credentials redacted)")
+            .with_mime_type("application/json")
+            .no_annotation(),
+    ];
 
     let connections: Vec<crate::db::models::Connection> =
         sqlx::query_as("SELECT * FROM connections ORDER BY id DESC")
@@ -24,7 +26,10 @@ pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, M
                     format!("dbcooper://connection/{}/schema", conn.uuid),
                     format!("{} Schema", conn.name),
                 )
-                .with_description(format!("Schema overview for {} ({})", conn.name, conn.db_type))
+                .with_description(format!(
+                    "Schema overview for {} ({})",
+                    conn.name, conn.db_type
+                ))
                 .with_mime_type("application/json")
                 .no_annotation(),
             );
