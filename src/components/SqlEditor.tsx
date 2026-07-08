@@ -179,7 +179,7 @@ export function SqlEditor({
 					<Input
 						placeholder={
 							aiConfigured === false
-								? "Configure API in Settings to enable AI"
+								? "Configure AI in Settings to enable generation"
 								: "Describe the SQL you want to generate"
 						}
 						value={instruction}
@@ -211,7 +211,7 @@ export function SqlEditor({
 						{aiConfigured === false && (
 							<TooltipContent>
 								<p>
-									Set API endpoint and key in Settings to enable AI generation
+									Configure an AI provider in Settings to enable generation
 								</p>
 							</TooltipContent>
 						)}

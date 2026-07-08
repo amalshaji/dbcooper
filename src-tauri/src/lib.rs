@@ -1,9 +1,10 @@
+pub mod ai;
 pub mod commands;
 pub mod database;
 pub mod db;
 mod ssh_tunnel;
 
-use commands::ai::{generate_sql, select_tables_for_query};
+use commands::ai::{detect_ai_harnesses, generate_sql, get_ai_status};
 use commands::connections::{
     create_connection, delete_connection, export_connection, get_connection_by_uuid,
     get_connections, import_connections, update_connection,
@@ -28,7 +29,7 @@ use commands::queries::{
     clear_query_history, create_saved_query, delete_saved_query, get_query_history,
     get_saved_queries, record_query_history, update_saved_query,
 };
-use commands::settings::{get_all_settings, get_setting, set_setting};
+use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
 use database::pool_manager::PoolManager;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Manager, WebviewUrl};
@@ -192,8 +193,11 @@ pub fn run() {
             clear_query_history,
             get_setting,
             set_setting,
+            set_settings,
             get_all_settings,
             generate_sql,
+            detect_ai_harnesses,
+            get_ai_status,
             pool_connect,
             pool_disconnect,
             pool_get_status,
@@ -207,7 +211,6 @@ pub fn run() {
             pool_update_table_row,
             pool_delete_table_row,
             pool_insert_table_row,
-            select_tables_for_query,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

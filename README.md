@@ -66,16 +66,16 @@ bun run tauri build
 
 To use AI-powered SQL generation:
 
-1. Go to **Settings** (gear icon) and configure your OpenAI API settings:
-   - **API Key**: Your OpenAI API key (required)
-   - **Endpoint**: Custom endpoint URL (optional, defaults to `https://api.openai.com/v1`)
+1. Go to **Settings** (gear icon) and choose an AI provider:
+   - **OpenAI-compatible API**: configure an API key, endpoint, and model.
+   - **Claude Code**, **Codex CLI**, or **opencode**: DBcooper uses your local CLI install and existing login.
 
 2. In the **Query Editor**, you'll see an instruction input above the SQL editor:
    - Type a natural language description (e.g., "show all users with posts from last week")
    - Click **Generate** or press Enter
-   - Watch as SQL streams into the editor in real-time
+   - Review the generated SQL before running it
 
-The AI uses GPT-4.1 and has access to your database schema (tables and columns) for accurate query generation.
+The AI receives your instruction, existing editor SQL, and selected table/column schema metadata for accurate query generation.
 
 ## Building
 

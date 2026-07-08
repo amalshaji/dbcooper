@@ -26,7 +26,7 @@ const features = [
 	{
 		title: "AI-powered SQL",
 		description:
-			"Describe what you need in plain English and watch the query stream into the editor — schema-aware, ready to run.",
+			"Describe what you need in plain English and generate schema-aware SQL with OpenAI-compatible APIs or your local Claude Code, Codex, and opencode CLIs.",
 		icon: (
 			<path
 				strokeLinecap="round"

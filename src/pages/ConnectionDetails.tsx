@@ -131,6 +131,7 @@ import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
+import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { handleDragStart } from "@/lib/windowDrag";
@@ -142,6 +143,7 @@ import {
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { selectTablesForAI } from "@/lib/aiTableSelection";
 
 type LoadingPhase =
 	| "fetching-config"
@@ -180,7 +182,11 @@ function stripLeadingSqlComments(query: string): string {
 
 function isWrappableQuery(query: string): boolean {
 	const sql = stripLeadingSqlComments(query).toUpperCase();
-	return sql.startsWith("SELECT") || sql.startsWith("WITH") || sql.startsWith("VALUES");
+	return (
+		sql.startsWith("SELECT") ||
+		sql.startsWith("WITH") ||
+		sql.startsWith("VALUES")
+	);
 }
 
 function quoteResultColumn(column: string, dbType?: string): string {
@@ -416,9 +422,8 @@ export function ConnectionDetails() {
 	const [redisPattern, setRedisPattern] = useState("*");
 	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
 	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-	const [redisKeyDetails, setRedisKeyDetails] = useState<RedisKeyDetails | null>(
-		null,
-	);
+	const [redisKeyDetails, setRedisKeyDetails] =
+		useState<RedisKeyDetails | null>(null);
 	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
 	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
 	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
@@ -1080,7 +1085,13 @@ export function ConnectionDetails() {
 			});
 			throw new Error(message);
 		}
-	}, [uuid, connection?.type, fetchSchemaOverviewData, markConnected, markDisconnected]);
+	}, [
+		uuid,
+		connection?.type,
+		fetchSchemaOverviewData,
+		markConnected,
+		markDisconnected,
+	]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -1791,12 +1802,7 @@ export function ConnectionDetails() {
 		} finally {
 			setSavingInlineEdits(false);
 		}
-	}, [
-		connection,
-		activeTab,
-		pendingInlineEditsByTab,
-		fetchTableData,
-	]);
+	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
 		if (!activeTab || activeTab.type !== "table-data") return;
@@ -2242,10 +2248,7 @@ export function ConnectionDetails() {
 					const content =
 						cellContent ??
 						(fkInfo && value !== null ? (
-							<span
-								className="group/fk flex items-center"
-								title={rawValue}
-							>
+							<span className="group/fk flex items-center" title={rawValue}>
 								<span className="truncate">{displayValue}</span>
 								<button
 									type="button"
@@ -2440,154 +2443,132 @@ export function ConnectionDetails() {
 			pendingInlineEditsByTab[tab.id] ?? {},
 		).length;
 		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
+		const hasReturnedRows = (tab.data?.data.length ?? 0) > 0;
+		const showFilterInput = tab.loading || hasReturnedRows;
 
 		return (
 			<Card>
-			<CardHeader>
-				<div className="flex items-center justify-between">
-					<div>
-						<CardTitle>{tab.tableName}</CardTitle>
-						<CardDescription>
-							{tab.data &&
-								(() => {
-									const start = (tab.currentPage - 1) * 100 + 1;
-									const end = Math.min(tab.currentPage * 100, tab.data.total);
-									return `Showing ${start}-${end} of ${tab.data.total} records`;
-								})()}
-						</CardDescription>
+				<CardHeader>
+					<div className="flex items-center justify-between">
+						<div>
+							<CardTitle>{tab.tableName}</CardTitle>
+							<CardDescription>
+								{tab.data &&
+									(() => {
+										const start = (tab.currentPage - 1) * 100 + 1;
+										const end = Math.min(tab.currentPage * 100, tab.data.total);
+										return `Showing ${start}-${end} of ${tab.data.total} records`;
+									})()}
+							</CardDescription>
+						</div>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="default"
+								size="sm"
+								onClick={() => setRowInsertSheetOpen(true)}
+								disabled={tab.loading}
+							>
+								<Plus className="w-4 h-4" />
+								Add Row
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleRefreshTableData}
+								disabled={tab.loading}
+							>
+								{tab.loading ? (
+									<Spinner />
+								) : (
+									<ArrowsClockwise className="w-4 h-4" />
+								)}
+								Refresh Data
+							</Button>
+						</div>
 					</div>
-					<div className="flex items-center gap-2">
-						<Button
-							variant="default"
-							size="sm"
-							onClick={() => setRowInsertSheetOpen(true)}
-							disabled={tab.loading}
-						>
-							<Plus className="w-4 h-4" />
-							Add Row
-						</Button>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleRefreshTableData}
-							disabled={tab.loading}
-						>
-							{tab.loading ? (
-								<Spinner />
-							) : (
-								<ArrowsClockwise className="w-4 h-4" />
-							)}
-							Refresh Data
-						</Button>
-					</div>
-				</div>
-			</CardHeader>
-			{hasPendingInlineChanges && (
-				<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-					<span className="text-xs font-medium text-foreground">
-						Unsaved changes
-					</span>
-					<div className="flex items-center gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleDiscardInlineChanges}
-							disabled={savingInlineEdits || tab.loading}
-						>
-							<X className="w-4 h-4" />
-							Discard
-						</Button>
-						<Button
-							size="sm"
-							onClick={() => void handleSaveInlineChanges()}
-							disabled={savingInlineEdits || tab.loading}
-						>
-							{savingInlineEdits ? (
-								<Spinner />
-							) : (
-								<FloppyDisk className="w-4 h-4" />
-							)}
-							Commit
-						</Button>
-					</div>
-				</div>
-			)}
-			<div className="px-6 pb-4">
-				<div className="flex items-center gap-2">
-					<Input
-						placeholder="Filter: e.g. id = 1 AND status = 'active'"
-						value={tab.filterInput}
-						onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-							handleFilterInputChange(e.target.value)
-						}
-						onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-							if (e.key === "Enter") {
-								handleApplyFilter();
-							}
-						}}
-						className="flex-1 font-mono text-xs"
-					/>
-					{tab.filter && (
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={handleClearFilter}
-							disabled={tab.loading}
-						>
-							Clear
-						</Button>
-					)}
-				</div>
-				{tab.filter && (
-					<div className="mt-2 text-xs text-muted-foreground">
-						Active filter:{" "}
-						<code className="bg-muted px-1 py-0.5 rounded">{tab.filter}</code>
+				</CardHeader>
+				{hasPendingInlineChanges && (
+					<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+						<span className="text-xs font-medium text-foreground">
+							Unsaved changes
+						</span>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleDiscardInlineChanges}
+								disabled={savingInlineEdits || tab.loading}
+							>
+								<X className="w-4 h-4" />
+								Discard
+							</Button>
+							<Button
+								size="sm"
+								onClick={() => void handleSaveInlineChanges()}
+								disabled={savingInlineEdits || tab.loading}
+							>
+								{savingInlineEdits ? (
+									<Spinner />
+								) : (
+									<FloppyDisk className="w-4 h-4" />
+								)}
+								Commit
+							</Button>
+						</div>
 					</div>
 				)}
-			</div>
-			<CardContent className="max-h-[65vh] flex flex-col">
-				{tab.loading ? (
-					<div className="space-y-3 h-full overflow-auto">
-						<div className="flex items-center gap-2">
-							{[...Array(5)].map((_, i) => (
-								<Skeleton key={i} className="h-8 flex-1 rounded" />
-							))}
-						</div>
-						{[...Array(20)].map((_, rowIndex) => (
-							<div key={rowIndex} className="flex items-center gap-2">
-								{[...Array(5)].map((_, colIndex) => (
-									<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+				<TableFilterBar
+					filter={tab.filter}
+					filterInput={tab.filterInput}
+					loading={tab.loading}
+					showInput={showFilterInput}
+					onInputChange={handleFilterInputChange}
+					onApply={handleApplyFilter}
+					onClear={handleClearFilter}
+				/>
+				<CardContent className="max-h-[65vh] flex flex-col">
+					{tab.loading ? (
+						<div className="space-y-3 h-full overflow-auto">
+							<div className="flex items-center gap-2">
+								{[...Array(5)].map((_, i) => (
+									<Skeleton key={i} className="h-8 flex-1 rounded" />
 								))}
 							</div>
-						))}
-					</div>
-				) : tab.data && tab.data.data.length > 0 ? (
-					<div className="h-[65vh] overflow-hidden">
-						<DataTable
-							data={tab.data.data}
-							columns={tableDataColumns}
-							pageCount={tableDataPageCount}
-							currentPage={tab.currentPage}
-							onPageChange={handlePageChange}
-							onRowClick={handleRowClick}
-							virtualize={tab.data.data.length > 100}
-							sortable
-							sort={tab.sort}
-							onSortChange={handleSortChange}
-							isRowHighlighted={(row) =>
-								highlightedTableRow?.tableName === tab.tableName &&
-								getPrimaryKeyRowKey(row, tab.columns) ===
-									highlightedTableRow.rowKey
-							}
-						/>
-					</div>
-				) : (
-					<p className="text-muted-foreground text-center py-8">
-						No data found in this table.
-					</p>
-				)}
-			</CardContent>
-		</Card>
+							{[...Array(20)].map((_, rowIndex) => (
+								<div key={rowIndex} className="flex items-center gap-2">
+									{[...Array(5)].map((_, colIndex) => (
+										<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+									))}
+								</div>
+							))}
+						</div>
+					) : tab.data && tab.data.data.length > 0 ? (
+						<div className="h-[65vh] overflow-hidden">
+							<DataTable
+								data={tab.data.data}
+								columns={tableDataColumns}
+								pageCount={tableDataPageCount}
+								currentPage={tab.currentPage}
+								onPageChange={handlePageChange}
+								onRowClick={handleRowClick}
+								virtualize={tab.data.data.length > 100}
+								sortable
+								sort={tab.sort}
+								onSortChange={handleSortChange}
+								isRowHighlighted={(row) =>
+									highlightedTableRow?.tableName === tab.tableName &&
+									getPrimaryKeyRowKey(row, tab.columns) ===
+										highlightedTableRow.rowKey
+								}
+							/>
+						</div>
+					) : (
+						<p className="text-muted-foreground text-center py-8">
+							No data found in this table.
+						</p>
+					)}
+				</CardContent>
+			</Card>
 		);
 	};
 
@@ -2975,51 +2956,43 @@ export function ConnectionDetails() {
 						onGenerateSQL={async (instruction, existingSQL) => {
 							setIsAiGenerating(true);
 							try {
-								// Use AI to select relevant tables
-								console.log(
-									`[AI] Selecting relevant tables from ${tables.length} available...`,
+								const overviewColumns = new Map(
+									schemaOverview?.tables.map((table) => [
+										`${table.schema}.${table.name}`,
+										table.columns,
+									]) ?? [],
 								);
-								const selectedTableNames = await api.ai.selectTablesForQuery(
+								const tableSchemas = tables.map((table) => {
+									const fullName = `${table.schema}.${table.name}`;
+									return {
+										...table,
+										columns:
+											overviewColumns.get(fullName) ??
+											tableColumns[fullName] ??
+											[],
+									};
+								});
+								const selectedTables = selectTablesForAI(
 									instruction,
-									tables.map((t) => ({ schema: t.schema, name: t.name })),
-								);
-								console.log(
-									`[AI] Selected ${selectedTableNames.length} tables:`,
-									selectedTableNames,
+									existingSQL,
+									tableSchemas,
 								);
 
-								// Parse selected table names (format: "schema.table")
-								const selectedTables = tables.filter((t) =>
-									selectedTableNames.includes(`${t.schema}.${t.name}`),
-								);
-
-								// Use schema overview if available, otherwise use tableColumns cache
-								const columnsToUse = { ...tableColumns };
-
-								if (schemaOverview) {
-									schemaOverview.tables.forEach((table) => {
-										const fullName = `${table.schema}.${table.name}`;
-										if (selectedTableNames.includes(fullName)) {
-											columnsToUse[fullName] = table.columns;
-										}
-									});
-								}
-
-								// Use the columns for generation
 								let accumulatedSQL = "";
 								await generateSQL(
 									connection.db_type || "postgres",
 									instruction,
 									existingSQL,
-									selectedTables.map((t) => ({
-										schema: t.schema,
-										name: t.name,
-										columns: columnsToUse[`${t.schema}.${t.name}`] || [],
+									selectedTables.map((table) => ({
+										schema: table.schema,
+										name: table.name,
+										columns: table.columns ?? [],
 									})),
 									(chunk) => {
 										accumulatedSQL += chunk;
 										handleQueryChange(accumulatedSQL);
 									},
+									(finalSQL) => handleQueryChange(finalSQL),
 								);
 							} catch (error) {
 								console.error("AI generation error:", error);
@@ -3983,14 +3956,15 @@ export function ConnectionDetails() {
 								onOpenTableStructure={handleOpenTableStructure}
 								onOpenFunctionDefinition={handleOpenFunctionDefinition}
 								activeQueryTab={
-									activeTab?.type === "query"
-										? (activeTab as QueryTab)
-										: null
+									activeTab?.type === "query" ? (activeTab as QueryTab) : null
 								}
 								onInsertQueryText={handleInsertQueryText}
 							/>
 						</TabsContent>
-						<TabsContent value="queries" className="mt-2 min-h-0 flex-1 overflow-auto">
+						<TabsContent
+							value="queries"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
 							<SidebarGroup>
 								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
 								<SidebarGroupContent>
@@ -4055,7 +4029,10 @@ export function ConnectionDetails() {
 								</SidebarGroupContent>
 							</SidebarGroup>
 						</TabsContent>
-						<TabsContent value="history" className="mt-2 min-h-0 flex-1 overflow-auto">
+						<TabsContent
+							value="history"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
 							<SidebarGroup>
 								<div className="flex items-center justify-between pr-2">
 									<SidebarGroupLabel>Recent Queries</SidebarGroupLabel>

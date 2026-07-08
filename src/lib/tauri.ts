@@ -153,6 +153,27 @@ export interface QueryHistory {
 	executed_at: string;
 }
 
+export type AiProvider =
+	| "openai"
+	| "claude_code"
+	| "codex_cli"
+	| "opencode_cli";
+
+export interface AiHarnessStatus {
+	provider: AiProvider;
+	name: string;
+	available: boolean;
+	path: string | null;
+	version: string | null;
+	error: string | null;
+}
+
+export interface AiStatus {
+	provider: AiProvider;
+	configured: boolean;
+	error: string | null;
+}
+
 // Redis types
 export interface RedisKeyInfo {
 	key: string;
@@ -658,6 +679,9 @@ export const api = {
 		set: (key: string, value: string) =>
 			invoke<void>("set_setting", { key, value }),
 
+		setMany: (settings: Record<string, string>) =>
+			invoke<void>("set_settings", { settings }),
+
 		getAll: () => invoke<Record<string, string>>("get_all_settings"),
 	},
 
@@ -770,13 +794,7 @@ export const api = {
 	},
 
 	ai: {
-		selectTablesForQuery: (
-			instruction: string,
-			tables: { schema: string; name: string }[],
-		) =>
-			invoke<string[]>("select_tables_for_query", {
-				instruction,
-				tables,
-			}),
+		detectHarnesses: () => invoke<AiHarnessStatus[]>("detect_ai_harnesses"),
+		getStatus: () => invoke<AiStatus>("get_ai_status"),
 	},
 };
