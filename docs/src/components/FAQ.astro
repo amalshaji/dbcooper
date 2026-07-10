@@ -1,0 +1,169 @@
+---
+const faqs = [
+	{
+		question: "Is DBcooper free?",
+		answer: "Yes — completely free and open source. The full source lives on GitHub under the MIT license.",
+	},
+	{
+		question: "Which databases are supported?",
+		answer: "PostgreSQL, SQLite, Redis, and ClickHouse today. More engines are planned for future releases.",
+	},
+	{
+		question: "Does it work on Windows or Linux?",
+		answer: "DBcooper is macOS-only for now. Windows and Linux builds are being considered.",
+	},
+	{
+		question: "How do I connect via SSH tunnel?",
+		answer: "When adding a connection, enable the SSH tunnel option and provide your SSH host, port, username, and authentication method (password or private key).",
+	},
+	{
+		question: "Is my data secure?",
+		answer: "Absolutely. DBcooper runs entirely on your machine — connection credentials and query results never leave your computer, and there's no telemetry.",
+	},
+	{
+		question: "How do I report bugs or request features?",
+		answer: "Open an issue on the GitHub repository. All feedback and contributions are welcome.",
+	},
+];
+---
+
+<section id="faq" class="faq-section">
+	<div class="faq-layout">
+		<div class="faq-heading">
+			<p class="eyebrow">System notes</p>
+			<h2>Frequently<br />asked.</h2>
+			<p>Short answers about support, privacy, and how DBcooper works.</p>
+		</div>
+
+		<div class="faq-list">
+			{faqs.map((faq, index) => (
+				<details class="faq-item" open={index === 0}>
+					<summary>
+						<span class="faq-index">{String(index + 1).padStart(2, "0")}</span>
+						<span class="faq-question">{faq.question}</span>
+						<span class="faq-toggle" aria-hidden="true">
+							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"></path>
+							</svg>
+						</span>
+					</summary>
+					<p class="faq-answer">{faq.answer}</p>
+				</details>
+			))}
+		</div>
+	</div>
+</section>
+
+<style>
+	.faq-section {
+		border-bottom: 1px solid var(--line);
+		padding-block: clamp(80px, 7.5vw, 108px);
+	}
+
+	.faq-layout {
+		display: grid;
+		grid-template-columns: minmax(240px, 0.58fr) minmax(520px, 1.42fr);
+		gap: clamp(52px, 9vw, 138px);
+	}
+
+	.faq-heading > p:last-child {
+		max-width: 320px;
+		margin: 28px 0 4px;
+		color: var(--ink-soft);
+		font-family: var(--font-mono);
+		font-size: 0.86rem;
+		line-height: 1.75;
+	}
+
+	.faq-list {
+		border-top: 1px solid var(--line-strong);
+	}
+
+	.faq-item {
+		border-bottom: 1px solid var(--line);
+		transition: background 180ms ease;
+	}
+
+	.faq-item[open] {
+		background: var(--cyan-wash);
+	}
+
+	.faq-item summary {
+		display: grid;
+		align-items: center;
+		grid-template-columns: 46px 1fr 24px;
+		gap: 20px;
+		cursor: pointer;
+		padding: 24px 18px;
+		list-style: none;
+	}
+
+	.faq-item summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.faq-index {
+		color: var(--cyan);
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+	}
+
+	.faq-question {
+		font-size: 1.08rem;
+		font-weight: 600;
+	}
+
+	.faq-toggle {
+		display: grid;
+		width: 24px;
+		height: 24px;
+		color: var(--cyan);
+		place-items: center;
+		transition: transform 220ms ease;
+	}
+
+	.faq-toggle svg {
+		width: 19px;
+		height: 19px;
+	}
+
+	.faq-item[open] .faq-toggle {
+		transform: rotate(45deg);
+	}
+
+	.faq-answer {
+		max-width: 720px;
+		margin: 0;
+		padding: 0 60px 26px 84px;
+		color: var(--ink-soft);
+		font-size: 0.92rem;
+		line-height: 1.7;
+	}
+
+	@media (max-width: 900px) {
+		.faq-layout {
+			grid-template-columns: minmax(0, 1fr);
+		}
+	}
+
+	@media (max-width: 640px) {
+		.faq-layout {
+			gap: 46px;
+		}
+
+		.faq-item summary {
+			grid-template-columns: 32px 1fr 22px;
+			gap: 12px;
+			padding-inline: 8px;
+		}
+
+		.faq-question {
+			font-size: 0.98rem;
+		}
+
+		.faq-answer {
+			padding: 0 34px 24px 52px;
+			font-size: 0.84rem;
+		}
+	}
+</style>

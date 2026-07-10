@@ -1,0 +1,129 @@
+---
+const { compact = false } = Astro.props;
+---
+
+<div class:list={["install-options", { compact }]}>
+	<div class="install-primary">
+		<p class="install-caption">Recommended</p>
+		<code class="install-command"><span>$</span> brew install --cask --force amalshaji/taps/dbcooper</code>
+	</div>
+
+	<div class="install-secondary">
+		<a
+			class="manual-download"
+			href="https://github.com/amalshaji/dbcooper/releases/latest"
+			target="_blank"
+			rel="noreferrer"
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"></path>
+			</svg>
+			<span>Download .dmg</span>
+		</a>
+		<code class="install-command install-command-secondary"><span>$</span> xattr -cr /Applications/DBcooper.app</code>
+	</div>
+
+	<p class="install-meta">Apple Silicon · Free &amp; open source</p>
+</div>
+
+<style>
+	.install-options {
+		width: min(100%, 520px);
+		margin-top: 30px;
+	}
+
+	.install-options.compact {
+		margin-top: 0;
+	}
+
+	.install-caption {
+		margin: 0 0 7px;
+		color: var(--cyan);
+		font-family: var(--font-mono);
+		font-size: 0.62rem;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+
+	.install-command {
+		display: block;
+		width: 100%;
+		overflow-x: auto;
+		border: 1px solid var(--line);
+		background: rgba(2, 11, 17, 0.72);
+		color: #b7d4dc;
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		line-height: 1.5;
+		padding: 14px 15px;
+		white-space: nowrap;
+	}
+
+	.install-command span {
+		color: var(--cyan);
+	}
+
+	.install-secondary {
+		display: grid;
+		grid-template-columns: max-content minmax(0, 1fr);
+		align-items: center;
+		gap: 10px;
+		margin-top: 10px;
+	}
+
+	.manual-download {
+		display: inline-flex;
+		min-height: 43px;
+		align-items: center;
+		gap: 8px;
+		border: 1px solid var(--line-strong);
+		border-radius: 4px;
+		color: var(--ink-soft);
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+		padding-inline: 13px;
+		transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+	}
+
+	.manual-download:hover {
+		border-color: var(--cyan);
+		background: var(--cyan-wash);
+		color: var(--cyan-bright);
+	}
+
+	.manual-download svg {
+		width: 16px;
+		height: 16px;
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		stroke-width: 1.8;
+	}
+
+	.install-command-secondary {
+		min-width: 0;
+	}
+
+	.install-meta {
+		margin: 11px 0 0;
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 0.64rem;
+	}
+
+	@media (max-width: 640px) {
+		.install-command {
+			overflow-wrap: anywhere;
+			white-space: normal;
+		}
+
+		.install-secondary {
+			grid-template-columns: 1fr;
+		}
+
+		.manual-download {
+			justify-content: center;
+		}
+	}
+</style>

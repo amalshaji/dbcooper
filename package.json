@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "icons": "tauri icon icon.png --ios-color '#061B40'",
     "tauri": "tauri"
   },
   "dependencies": {
