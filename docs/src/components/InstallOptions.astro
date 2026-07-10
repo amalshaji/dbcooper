@@ -1,26 +1,48 @@
 ---
 const { compact = false } = Astro.props;
+const instance = compact ? "install-final" : "install-hero";
 ---
 
 <div class:list={["install-options", { compact }]}>
-	<div class="install-primary">
-		<p class="install-caption">Recommended</p>
-		<code class="install-command"><span>$</span> brew install --cask --force amalshaji/taps/dbcooper</code>
-	</div>
+	<div class="install-method" role="group" aria-label="Install method">
+		<input
+			class="install-radio install-radio-brew"
+			type="radio"
+			name={instance}
+			id={`${instance}-brew`}
+			checked
+		/>
+		<label class="install-tab" for={`${instance}-brew`}>Homebrew</label>
 
-	<div class="install-secondary">
-		<a
-			class="manual-download"
-			href="https://github.com/amalshaji/dbcooper/releases/latest"
-			target="_blank"
-			rel="noreferrer"
-		>
-			<svg viewBox="0 0 24 24" aria-hidden="true">
-				<path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"></path>
-			</svg>
-			<span>Download .dmg</span>
-		</a>
-		<code class="install-command install-command-secondary"><span>$</span> xattr -cr /Applications/DBcooper.app</code>
+		<input
+			class="install-radio install-radio-manual"
+			type="radio"
+			name={instance}
+			id={`${instance}-manual`}
+		/>
+		<label class="install-tab" for={`${instance}-manual`}>Manual</label>
+
+		<div class="install-panels">
+			<div class="install-panel install-panel-brew">
+				<p class="install-caption">Recommended</p>
+				<code class="install-command"><span>$</span> brew install --cask --force amalshaji/taps/dbcooper</code>
+			</div>
+
+			<div class="install-panel install-panel-manual">
+				<a
+					class="manual-download"
+					href="https://github.com/amalshaji/dbcooper/releases/latest"
+					target="_blank"
+					rel="noreferrer"
+				>
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"></path>
+					</svg>
+					<span>Download .dmg</span>
+				</a>
+				<code class="install-command"><span>$</span> xattr -cr /Applications/DBcooper.app</code>
+			</div>
+		</div>
 	</div>
 
 	<p class="install-meta">Apple Silicon · Free &amp; open source</p>
@@ -34,6 +56,65 @@ const { compact = false } = Astro.props;
 
 	.install-options.compact {
 		margin-top: 0;
+	}
+
+	.install-method {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+	}
+
+	.install-radio {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		opacity: 0;
+		pointer-events: none;
+	}
+
+	.install-tab {
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		color: var(--ink-faint);
+		cursor: pointer;
+		font-family: var(--font-mono);
+		font-size: 0.64rem;
+		padding: 7px 11px;
+		transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+	}
+
+	.install-tab:hover {
+		border-color: var(--line-strong);
+		color: var(--ink-soft);
+	}
+
+	.install-radio:focus-visible + .install-tab {
+		outline: 2px solid var(--cyan);
+		outline-offset: 2px;
+	}
+
+	.install-radio:checked + .install-tab {
+		border-color: rgba(255, 99, 82, 0.7);
+		background: rgba(255, 99, 82, 0.1);
+		color: var(--coral);
+	}
+
+	.install-panels {
+		flex-basis: 100%;
+		margin-top: 7px;
+	}
+
+	.install-panel {
+		display: none;
+	}
+
+	.install-radio-brew:checked ~ .install-panels .install-panel-brew {
+		display: block;
+	}
+
+	.install-radio-manual:checked ~ .install-panels .install-panel-manual {
+		display: grid;
 	}
 
 	.install-caption {
@@ -63,16 +144,14 @@ const { compact = false } = Astro.props;
 		color: var(--cyan);
 	}
 
-	.install-secondary {
-		display: grid;
-		grid-template-columns: max-content minmax(0, 1fr);
-		align-items: center;
+	.install-panel-manual {
+		grid-template-columns: minmax(0, 1fr);
 		gap: 10px;
-		margin-top: 10px;
 	}
 
 	.manual-download {
 		display: inline-flex;
+		justify-self: start;
 		min-height: 43px;
 		align-items: center;
 		gap: 8px;
@@ -101,10 +180,6 @@ const { compact = false } = Astro.props;
 		stroke-width: 1.8;
 	}
 
-	.install-command-secondary {
-		min-width: 0;
-	}
-
 	.install-meta {
 		margin: 11px 0 0;
 		color: var(--ink-faint);
@@ -118,12 +193,9 @@ const { compact = false } = Astro.props;
 			white-space: normal;
 		}
 
-		.install-secondary {
-			grid-template-columns: 1fr;
-		}
-
 		.manual-download {
 			justify-content: center;
+			justify-self: stretch;
 		}
 	}
 </style>
