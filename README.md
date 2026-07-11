@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./icon.png" width="128" alt="DBcooper logo" />
+</p>
+
 # DBcooper
 
 A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
@@ -57,6 +61,9 @@ bun install
 
 # Run in development mode
 bun run tauri dev
+
+# Regenerate every platform icon after changing icon.png
+bun run icons
 
 # Build for production
 bun run tauri build

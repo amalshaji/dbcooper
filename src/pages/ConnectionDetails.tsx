@@ -32,6 +32,7 @@ import {
 	type RedisKeyInfo,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
@@ -1117,6 +1118,39 @@ export function ConnectionDetails() {
 		setActiveTabId(tabId);
 	}, []);
 
+	// Cmd/Ctrl+W is wired to a native "Close Tab" menu item that emits
+	// "menu:close-tab". Closing the active tab here (instead of letting the
+	// native menu close the window) fixes the whole app closing on tab close
+	// (issue #66). When no tab is open, fall back to closing the window.
+	const closeActiveTabRef = useRef<() => void>(() => {});
+	closeActiveTabRef.current = () => {
+		if (activeTabId) {
+			handleCloseTab(activeTabId);
+		} else {
+			getCurrentWindow().close();
+		}
+	};
+
+	useEffect(() => {
+		let isMounted = true;
+		let unlisten: (() => void) | undefined;
+
+		listen("menu:close-tab", () => {
+			closeActiveTabRef.current();
+		}).then((fn) => {
+			if (isMounted) {
+				unlisten = fn;
+			} else {
+				fn();
+			}
+		});
+
+		return () => {
+			isMounted = false;
+			unlisten?.();
+		};
+	}, []);
+
 	const handleRefreshTables = async () => {
 		if (!uuid || refreshingTables) return;
 
@@ -2045,12 +2079,10 @@ export function ConnectionDetails() {
 				return;
 			}
 
-			// Cmd+W - Close Tab
-			if (e.key === "w" && (e.metaKey || e.ctrlKey) && activeTabId) {
-				e.preventDefault();
-				handleCloseTab(activeTabId);
-				return;
-			}
+			// Cmd+W (Close Tab) is owned by the native menu accelerator, which
+			// emits "menu:close-tab" to the frontend (see the listener below).
+			// Handling it here too would double-close tabs on platforms where
+			// the webview also receives the key event.
 
 			// Cmd+] - Next Tab
 			if (e.key === "]" && (e.metaKey || e.ctrlKey) && tabs.length > 1) {
@@ -2172,11 +2204,9 @@ export function ConnectionDetails() {
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, [
 		activeTab,
-		activeTabId,
 		tabs,
 		connection,
 		handleNewQuery,
-		handleCloseTab,
 		handleNextTab,
 		handlePreviousTab,
 		handleToggleSidebar,

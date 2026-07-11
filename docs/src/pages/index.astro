@@ -1,186 +1,634 @@
 ---
-/* biome-ignore-all lint/correctness/noUnusedImports: Astro template component usage isn't detected */
 import "../styles/global.css";
-import { DatabaseIcons } from "../components/DatabaseIcons";
-import { DownloadButton } from "../components/DownloadButton";
-import { FAQ } from "../components/FAQ";
-import { Features } from "../components/Features";
-import { Testimonials } from "../components/Testimonials";
-import { ScreenshotCarousel } from "../components/ScreenshotCarousel";
+import appIconUrl from "../../../src-tauri/icons/128x128.png?url";
+import BlueprintFlow from "../components/BlueprintFlow.astro";
+import DatabaseIcons from "../components/DatabaseIcons.astro";
+import FAQ from "../components/FAQ.astro";
+import Features from "../components/Features.astro";
+import InstallOptions from "../components/InstallOptions.astro";
 import SEO from "../components/SEO.astro";
-import { ThemeSwitcher } from "../components/ThemeSwitcher";
 
 const year = new Date().getFullYear();
-
-let stars: number | null = null;
-try {
-	const res = await fetch("https://api.github.com/repos/amalshaji/dbcooper", {
-		headers: { Accept: "application/vnd.github+json" },
-	});
-	if (res.ok) {
-		const data = await res.json();
-		stars = typeof data.stargazers_count === "number" ? data.stargazers_count : null;
-	}
-} catch {}
-
-const starLabel =
-	stars === null
-		? null
-		: stars >= 1000
-			? `${(stars / 1000).toFixed(1).replace(/\.0$/, "")}k`
-			: `${stars}`;
 ---
 
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="icon" type="image/png" href={appIconUrl} />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<SEO />
-		<link rel="preconnect" href="https://fonts.googleapis.com" />
-		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-		<link
-			href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&display=swap"
-			rel="stylesheet"
-		/>
-		<script is:inline>
-			(function () {
-				const theme =
-					localStorage.getItem("theme") ||
-					(window.matchMedia("(prefers-color-scheme: dark)").matches
-						? "dark"
-						: "light");
-				if (theme === "dark") {
-					document.documentElement.classList.add("dark");
-				}
-			})();
-		</script>
 	</head>
-	<body class="bg-paper text-ink antialiased overflow-x-hidden">
-		<!-- ============ HEADER ============ -->
-		<header
-			class="sticky top-0 z-40 border-b border-line bg-paper/80 backdrop-blur-md"
-		>
-			<div
-				class="max-w-6xl mx-auto px-6 md:px-10 h-16 flex items-center justify-between"
-			>
-				<a href="/" class="flex items-center gap-2.5 group">
-					<img src="/favicon.svg" alt="" class="w-7 h-7" />
-					<span class="font-display text-lg font-semibold tracking-tight"
-						>DBcooper</span
-					>
+	<body>
+		<header class="site-header">
+			<div class="site-shell site-header-inner">
+				<a href="#top" class="brand" aria-label="DBcooper home">
+					<img src={appIconUrl} alt="" />
+					<span>DBcooper</span>
 				</a>
-				<div class="flex items-center gap-5 md:gap-7">
-					<nav class="hidden sm:flex items-center gap-6 font-mono text-xs">
-						<a href="#features" class="text-soft hover:text-copper transition-colors"
-							>features</a
-						>
-						<a href="#faq" class="text-soft hover:text-copper transition-colors"
-							>faq</a
-						>
-					</nav>
-					<a
-						href="https://github.com/amalshaji/dbcooper"
-						target="_blank"
-						aria-label="GitHub"
-						class="flex items-center gap-1.5 text-faint hover:text-copper transition-colors"
-					>
-						<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"
-							><path
-								d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
-							></path></svg
-						>
-						{starLabel && (
-							<span class="relative -top-px font-mono text-xs leading-none tabular-nums">
-								{starLabel}
-							</span>
-						)}
-					</a>
-					<ThemeSwitcher client:load />
-				</div>
+				<nav aria-label="Primary navigation">
+					<a href="#features">Features</a>
+					<a href="#databases">Databases</a>
+					<a href="https://github.com/amalshaji/dbcooper" target="_blank" rel="noreferrer">GitHub</a>
+				</nav>
+				<a class="button button-small" href="#install">
+					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14" /></svg>
+					<span>Install with Homebrew</span>
+				</a>
 			</div>
 		</header>
 
-		<main class="grid-paper">
-			<div class="max-w-6xl mx-auto px-6 md:px-10 ruled">
-				<!-- ============ HERO ============ -->
-				<section class="relative pt-16 md:pt-24 pb-14">
-					<div class="grid lg:grid-cols-[1.05fr_1.25fr] gap-12 lg:gap-14 items-center">
-						<!-- copy -->
-						<div class="min-w-0">
-							<p class="mono-kicker rise d1">
-								Database client &nbsp;·&nbsp; macOS native
-							</p>
-							<h1
-								class="font-display font-semibold tracking-tight leading-[0.98] text-5xl md:text-6xl xl:text-[4.6rem] mt-5 rise d2"
-							>
-								Talk to your<br />
-								<span class="text-copper italic">databases.</span><span class="caret"
-								></span>
-							</h1>
-							<p
-								class="mt-6 text-base md:text-lg text-soft max-w-md leading-relaxed rise d3"
-							>
-								A fast, beautiful client for PostgreSQL, SQLite, Redis &amp;
-								ClickHouse. Browse data, run SQL, visualize schemas — or just
-								describe what you need and let AI write the query.
-							</p>
-
-							<div class="mt-8 rise d4">
-								<DownloadButton client:load />
-							</div>
-						</div>
-
-						<!-- screenshot window -->
-						<div class="rise d5 min-w-0">
-							<ScreenshotCarousel client:only="react" />
-						</div>
+		<main>
+			<section id="top" class="hero blueprint-grid">
+				<div class="site-shell hero-inner">
+					<div class="hero-copy">
+						<p class="eyebrow">Native macOS database client</p>
+						<h1>Talk to your<br /><span>databases</span></h1>
+						<p class="hero-lede">Browse data, write SQL, visualize schemas, and generate queries with AI.</p>
+						<InstallOptions />
 					</div>
-				</section>
+					<BlueprintFlow />
+				</div>
 
-				<!-- ============ DATABASE LEDGER STRIP ============ -->
-				<section class="relative border-t border-line py-7">
-					<div
-						class="flex flex-col md:flex-row md:items-center gap-5 md:gap-10"
-					>
-						<span class="mono-kicker shrink-0">Connects to</span>
-						<DatabaseIcons client:load />
+				<div id="databases" class="site-shell database-rail">
+					<span class="rail-label">Built for developers</span>
+					<DatabaseIcons />
+				</div>
+			</section>
+
+			<section class="product-proof">
+				<div class="site-shell">
+					<div class="section-heading section-heading-split">
+						<div>
+							<p class="eyebrow">The working surface</p>
+							<h2>Your data stays<br />in your hands.</h2>
+						</div>
+						<p>Connection credentials and query results stay on your Mac. No account, no cloud sync, no telemetry.</p>
 					</div>
-				</section>
 
-				<!-- ============ TESTIMONIALS ============ -->
-				<Testimonials client:load />
+					<figure class="app-window reveal-window">
+						<img src="/screenshots/simple-dark.webp" alt="DBcooper browsing a PostgreSQL table" loading="eager" />
+						<figcaption>
+							<span>Local workspace</span>
+							<span>PostgreSQL · Connected</span>
+						</figcaption>
+					</figure>
+				</div>
+			</section>
 
-				<!-- ============ FEATURES ============ -->
-				<Features client:load />
+			<section class="workflow blueprint-grid">
+				<div class="site-shell story-row">
+					<div class="story-copy">
+						<p class="step">01 / Describe</p>
+						<h2>Start with the question.</h2>
+						<p>Ask in plain English. DBcooper uses the schema already on your machine to generate SQL you can inspect and run.</p>
+						<ul>
+							<li>Schema-aware generation</li>
+							<li>Streaming SQL output</li>
+							<li>Your own OpenAI key</li>
+						</ul>
+					</div>
+					<figure class="app-window story-window">
+						<img src="/screenshots/query-dark.webp" alt="AI-assisted SQL editor in DBcooper" loading="lazy" />
+					</figure>
+				</div>
 
-				<!-- ============ FAQ ============ -->
-				<FAQ client:load />
+				<div class="site-shell story-row story-row-reverse">
+					<div class="story-copy">
+						<p class="step">02 / Understand</p>
+						<h2>See the structure.</h2>
+						<p>Turn foreign keys into an interactive relationship map. Filter the canvas, inspect columns, and move from schema to table in one click.</p>
+						<ul>
+							<li>Interactive ER diagrams</li>
+							<li>Table and column filters</li>
+							<li>Exportable schema views</li>
+						</ul>
+					</div>
+					<figure class="app-window story-window">
+						<img src="/screenshots/visual-dark.webp" alt="Schema visualizer in DBcooper" loading="lazy" />
+					</figure>
+				</div>
+			</section>
+
+			<div class="site-shell">
+				<Features />
+				<FAQ />
 			</div>
+
+			<section id="install" class="final-cta blueprint-grid">
+				<div class="site-shell final-cta-inner">
+					<div>
+						<p class="eyebrow">Ready when you are</p>
+						<h2>Open the database.<br />Skip the ceremony.</h2>
+					</div>
+					<div class="install-block">
+						<InstallOptions compact />
+					</div>
+				</div>
+			</section>
 		</main>
 
-		<!-- ============ FOOTER ============ -->
-		<footer class="border-t border-line">
-			<div
-				class="max-w-6xl mx-auto px-6 md:px-10 py-10 ruled flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-			>
-				<div class="flex items-center gap-2.5">
-					<img src="/favicon.svg" alt="" class="w-6 h-6" />
-					<span class="font-display font-semibold">DBcooper</span>
-				</div>
-				<p class="font-mono text-xs text-faint">
-					© {year} · MIT licensed · made for developers
-				</p>
-				<a
-					href="https://github.com/amalshaji/dbcooper"
-					target="_blank"
-					class="font-mono text-xs text-soft hover:text-copper transition-colors"
-					>github ↗</a
-				>
+		<footer>
+			<div class="site-shell footer-inner">
+				<a href="#top" class="brand">
+					<img src={appIconUrl} alt="" />
+					<span>DBcooper</span>
+				</a>
+				<p>© {year} · Built for developers who live in data.</p>
+				<a href="https://github.com/amalshaji/dbcooper" target="_blank" rel="noreferrer">GitHub ↗</a>
 			</div>
 		</footer>
 
-		<!-- 100% privacy-first analytics -->
 		<script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 	</body>
 </html>
+
+<style>
+	.site-shell {
+		width: min(100% - 64px, 1360px);
+		margin-inline: auto;
+	}
+
+	.site-header {
+		position: sticky;
+		top: 0;
+		z-index: 50;
+		border-bottom: 1px solid rgba(69, 201, 232, 0.14);
+		background: rgba(4, 19, 29, 0.88);
+		backdrop-filter: blur(18px);
+	}
+
+	.site-header-inner {
+		display: flex;
+		min-height: 76px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 32px;
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 12px;
+		font-size: 1.3rem;
+		font-weight: 720;
+		letter-spacing: -0.025em;
+	}
+
+	.brand img {
+		width: 34px;
+		height: 34px;
+	}
+
+	.site-header nav {
+		display: flex;
+		align-items: center;
+		gap: clamp(24px, 3vw, 46px);
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: 0.8rem;
+	}
+
+	.site-header nav a,
+	footer a {
+		color: var(--ink-soft);
+		transition: color 180ms ease;
+	}
+
+	.site-header nav a:hover,
+	footer a:hover {
+		color: var(--cyan-bright);
+	}
+
+	.button {
+		display: inline-flex;
+		min-height: 44px;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		border-radius: 6px;
+		background: var(--coral);
+		box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) inset, 0 16px 38px -22px rgba(255, 91, 77, 0.9);
+		color: #fff;
+		font-size: 0.82rem;
+		font-weight: 700;
+		padding-inline: 18px;
+		transition: background 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+	}
+
+	.button:hover {
+		background: var(--coral-bright);
+		box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset, 0 22px 46px -22px rgba(255, 91, 77, 0.95);
+		transform: translateY(-2px);
+	}
+
+	.button svg {
+		width: 19px;
+		height: 19px;
+		fill: none;
+		stroke: currentColor;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+		stroke-width: 1.8;
+	}
+
+	.blueprint-grid {
+		position: relative;
+		isolation: isolate;
+		background-color: var(--bg);
+		background-image:
+			linear-gradient(rgba(69, 201, 232, 0.055) 1px, transparent 1px),
+			linear-gradient(90deg, rgba(69, 201, 232, 0.055) 1px, transparent 1px);
+		background-position: center top;
+		background-size: 32px 32px;
+	}
+
+	.blueprint-grid::after {
+		position: absolute;
+		z-index: -1;
+		inset: 0;
+		background: radial-gradient(circle at 72% 28%, rgba(22, 122, 153, 0.15), transparent 36%);
+		content: "";
+		pointer-events: none;
+	}
+
+	.hero {
+		overflow: hidden;
+		border-bottom: 1px solid var(--line);
+	}
+
+	.hero-inner {
+		display: grid;
+		min-height: calc(100svh - 154px);
+		align-items: center;
+		grid-template-columns: minmax(350px, 0.82fr) minmax(540px, 1.18fr);
+		gap: clamp(48px, 7vw, 112px);
+		padding-block: 54px 42px;
+	}
+
+	.hero-copy {
+		max-width: 570px;
+	}
+
+	.hero-lede {
+		max-width: 500px;
+		margin: 30px 0 0;
+		color: var(--ink-soft);
+		font-family: var(--font-mono);
+		font-size: clamp(0.94rem, 1.2vw, 1.08rem);
+		line-height: 1.7;
+	}
+
+	.hero-copy > * {
+		opacity: 0;
+		animation: hero-in 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+
+	.hero-copy > :nth-child(1) { animation-delay: 80ms; }
+	.hero-copy > :nth-child(2) { animation-delay: 160ms; }
+	.hero-copy > :nth-child(3) { animation-delay: 240ms; }
+	.hero-copy > :nth-child(4) { animation-delay: 320ms; }
+
+	.database-rail {
+		display: flex;
+		min-height: 78px;
+		align-items: stretch;
+		border-top: 1px solid var(--line-strong);
+		border-bottom: 1px solid var(--line-strong);
+	}
+
+	.rail-label {
+		display: flex;
+		min-width: 230px;
+		align-items: center;
+		border-right: 1px solid var(--line);
+	}
+
+	.product-proof {
+		position: relative;
+		overflow: hidden;
+		background:
+			radial-gradient(circle at 50% 24%, rgba(20, 113, 139, 0.18), transparent 44%),
+			var(--bg-deep);
+		padding-block: clamp(78px, 7.5vw, 108px);
+	}
+
+	.app-window {
+		position: relative;
+		overflow: hidden;
+		margin: 0;
+		border: 1px solid rgba(137, 170, 182, 0.28);
+		border-radius: 14px;
+		background: #090a0a;
+		box-shadow: 0 42px 90px -38px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(255, 255, 255, 0.025) inset;
+	}
+
+	.app-window img {
+		width: 100%;
+		height: auto;
+	}
+
+	.reveal-window {
+		max-width: 1120px;
+		margin-inline: auto;
+	}
+
+	.reveal-window img {
+		aspect-ratio: 2 / 1;
+		object-fit: cover;
+		object-position: top;
+	}
+
+	.app-window figcaption {
+		display: flex;
+		justify-content: space-between;
+		gap: 24px;
+		border-top: 1px solid rgba(137, 170, 182, 0.16);
+		background: #060909;
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 0.66rem;
+		letter-spacing: 0.08em;
+		padding: 12px 16px;
+		text-transform: uppercase;
+	}
+
+	.workflow {
+		overflow: hidden;
+		border-top: 1px solid var(--line);
+		border-bottom: 1px solid var(--line);
+		padding-block: clamp(82px, 7.5vw, 108px);
+	}
+
+	.story-row {
+		display: grid;
+		align-items: center;
+		grid-template-columns: minmax(260px, 0.68fr) minmax(520px, 1.32fr);
+		gap: clamp(48px, 7vw, 104px);
+	}
+
+	.story-row + .story-row {
+		margin-top: clamp(100px, 14vw, 190px);
+	}
+
+	.story-row-reverse {
+		grid-template-columns: minmax(520px, 1.32fr) minmax(260px, 0.68fr);
+	}
+
+	.story-row-reverse .story-copy {
+		grid-column: 2;
+		grid-row: 1;
+	}
+
+	.story-row-reverse .story-window {
+		grid-column: 1;
+		grid-row: 1;
+	}
+
+	.story-copy h2 {
+		margin-top: 18px;
+	}
+
+	.story-copy > p:not(.step) {
+		margin: 26px 0 0;
+		color: var(--ink-soft);
+		font-size: 1rem;
+		line-height: 1.75;
+	}
+
+	.story-copy ul {
+		display: grid;
+		gap: 12px;
+		margin: 30px 0 0;
+		padding: 0;
+		color: #b4d4dc;
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		list-style: none;
+	}
+
+	.story-copy li::before {
+		margin-right: 10px;
+		color: var(--cyan);
+		content: "→";
+	}
+
+	.story-window {
+		border-color: var(--line-strong);
+	}
+
+	.final-cta {
+		border-bottom: 1px solid var(--line);
+		padding-block: clamp(90px, 10vw, 138px);
+	}
+
+	.final-cta-inner {
+		display: grid;
+		align-items: end;
+		grid-template-columns: 1fr minmax(340px, 0.72fr);
+		gap: 80px;
+	}
+
+	.install-block {
+		min-width: 0;
+		width: 100%;
+	}
+
+	footer {
+		background: var(--bg-deep);
+	}
+
+	.footer-inner {
+		display: flex;
+		min-height: 96px;
+		align-items: center;
+		justify-content: space-between;
+		gap: 32px;
+	}
+
+	.footer-inner .brand {
+		font-size: 1rem;
+	}
+
+	.footer-inner .brand img {
+		width: 28px;
+		height: 28px;
+	}
+
+	.footer-inner p,
+	.footer-inner > a:last-child {
+		margin: 0;
+		color: var(--ink-faint);
+		font-family: var(--font-mono);
+		font-size: 0.68rem;
+	}
+
+	@keyframes hero-in {
+		from { opacity: 0; transform: translateY(18px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	@keyframes window-reveal {
+		from { opacity: 0.25; transform: translateY(48px) scale(0.985); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
+	}
+
+	@supports (animation-timeline: view()) {
+		.reveal-window,
+		.story-window {
+			animation: window-reveal linear both;
+			animation-range: entry 8% cover 34%;
+			animation-timeline: view();
+		}
+	}
+
+	@media (max-width: 1120px) {
+		.hero-inner {
+			min-height: auto;
+			grid-template-columns: minmax(300px, 0.78fr) minmax(480px, 1.22fr);
+			gap: 50px;
+			padding-block: 74px 58px;
+		}
+
+		.hero h1 {
+			font-size: clamp(3.2rem, 5.7vw, 4.4rem);
+		}
+
+		.rail-label {
+			min-width: 185px;
+		}
+
+		.story-row,
+		.story-row-reverse {
+			grid-template-columns: minmax(240px, 0.7fr) minmax(450px, 1.3fr);
+			gap: 54px;
+		}
+	}
+
+	@media (max-width: 900px) {
+		.site-shell {
+			width: min(100% - 40px, 1360px);
+		}
+
+		.site-header nav {
+			display: none;
+		}
+
+		.hero-inner {
+			grid-template-columns: 1fr;
+			gap: 58px;
+			padding-block: 68px 54px;
+		}
+
+		.hero-copy {
+			max-width: 650px;
+		}
+
+		.database-rail {
+			flex-direction: column;
+		}
+
+		.rail-label {
+			min-height: 54px;
+			border-right: 0;
+			border-bottom: 1px solid var(--line);
+		}
+
+		.story-row,
+		.story-row-reverse,
+		.final-cta-inner {
+			grid-template-columns: 1fr;
+		}
+
+		.story-row-reverse .story-copy,
+		.story-row-reverse .story-window {
+			grid-column: auto;
+			grid-row: auto;
+		}
+
+		.story-row-reverse .story-copy {
+			order: 1;
+		}
+
+		.story-row-reverse .story-window {
+			order: 2;
+		}
+
+		.story-copy {
+			max-width: 620px;
+		}
+
+		.final-cta-inner {
+			align-items: start;
+			gap: 46px;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.site-shell {
+			width: min(100% - 30px, 1360px);
+		}
+
+		.site-header-inner {
+			min-height: 66px;
+			gap: 16px;
+		}
+
+		.brand {
+			font-size: 1.05rem;
+		}
+
+		.brand img {
+			width: 30px;
+			height: 30px;
+		}
+
+		.button {
+			min-height: 40px;
+			padding-inline: 13px;
+		}
+
+		.button span {
+			display: none;
+		}
+
+		.hero-inner {
+			gap: 48px;
+			padding-block: 56px 44px;
+		}
+
+		.hero h1 {
+			font-size: clamp(2.85rem, 14vw, 4.2rem);
+		}
+
+		.hero-lede {
+			font-size: 0.85rem;
+		}
+
+		.reveal-window img {
+			aspect-ratio: 4 / 3;
+		}
+
+		.app-window {
+			border-radius: 8px;
+		}
+
+		.app-window figcaption {
+			display: none;
+		}
+
+		.story-row + .story-row {
+			margin-top: 100px;
+		}
+
+		.footer-inner {
+			min-height: 130px;
+			flex-wrap: wrap;
+			padding-block: 28px;
+		}
+
+		.footer-inner p {
+			width: 100%;
+			order: 3;
+		}
+	}
+</style>
