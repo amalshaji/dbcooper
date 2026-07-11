@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:macos-icons": "./scripts/build-macos-icons.sh",
     "lint": "eslint .",
     "preview": "vite preview",
-    "icons": "tauri icon icon.png --ios-color '#061B40'",
+    "icons": "tauri icon icon.png --ios-color '#061B40' && bun run build:macos-icons",
     "tauri": "tauri"
   },
   "dependencies": {
