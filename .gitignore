@@ -15,6 +15,7 @@
 # production
 /build
 /dist
+src-tauri/macos/Assets.car
 
 # misc
 .DS_Store

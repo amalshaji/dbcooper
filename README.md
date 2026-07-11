@@ -62,7 +62,8 @@ bun install
 # Run in development mode
 bun run tauri dev
 
-# Regenerate every platform icon after changing icon.png
+# After changing icon.png or src-tauri/macos/AppIcon.png
+# regenerate every platform icon and the macOS asset catalog
 bun run icons
 
 # Build for production
