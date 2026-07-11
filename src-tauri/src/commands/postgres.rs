@@ -3,7 +3,7 @@ use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
 };
-use crate::ssh_tunnel::SshTunnel;
+use crate::ssh_tunnel::{SshAuth, SshTunnel};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Column, Row, TypeInfo};
@@ -52,16 +52,11 @@ pub async fn test_connection(
         let ssh_key_path_val = ssh_key_path.unwrap_or_default();
         let use_key = ssh_use_key.unwrap_or(false);
 
-        let key_path = if use_key && !ssh_key_path_val.is_empty() {
-            Some(ssh_key_path_val.as_str())
-        } else {
-            None
-        };
-        let password_opt = if !ssh_password_val.is_empty() {
-            Some(ssh_password_val.as_str())
-        } else {
-            None
-        };
+        let auth = SshAuth::from_connection(
+            use_key,
+            Some(ssh_password_val.as_str()),
+            Some(ssh_key_path_val.as_str()),
+        );
 
         // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
         match tokio::time::timeout(
@@ -70,8 +65,7 @@ pub async fn test_connection(
                 &ssh_host_val,
                 ssh_port_val,
                 &ssh_user_val,
-                password_opt,
-                key_path,
+                auth,
                 &host,
                 port as u16,
             ),

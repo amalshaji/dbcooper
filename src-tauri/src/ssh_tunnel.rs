@@ -1,9 +1,11 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, Config, Handle};
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use russh::keys::{check_known_hosts_path, load_secret_key, PrivateKeyWithHashAlg};
 use russh::Disconnect;
+use thiserror::Error;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
@@ -17,33 +19,115 @@ pub struct SshTunnel {
     _shutdown_tx: oneshot::Sender<()>,
 }
 
-/// russh client handler. We only need to accept the server key.
-struct TunnelHandler;
+#[derive(Clone, Copy)]
+pub struct SshAuth<'a> {
+    password: Option<&'a str>,
+    key_passphrase: Option<&'a str>,
+    key_path: Option<&'a str>,
+}
+
+impl<'a> SshAuth<'a> {
+    pub fn from_connection(
+        use_key: bool,
+        credential: Option<&'a str>,
+        key_path: Option<&'a str>,
+    ) -> Self {
+        let credential = credential.filter(|value| !value.is_empty());
+        let key_path = key_path.filter(|value| !value.is_empty());
+
+        if use_key {
+            Self {
+                password: None,
+                key_passphrase: credential,
+                key_path,
+            }
+        } else {
+            Self {
+                password: credential,
+                key_passphrase: None,
+                key_path: None,
+            }
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum TunnelError {
+    #[error(transparent)]
+    Ssh(#[from] russh::Error),
+    #[error("Could not find the home directory needed for SSH host key verification")]
+    NoHomeDirectory,
+    #[error(
+        "SSH host key for {host}:{port} is not trusted ({fingerprint}). Add it to {known_hosts_path} before reconnecting"
+    )]
+    UnknownHostKey {
+        host: String,
+        port: u16,
+        fingerprint: String,
+        known_hosts_path: String,
+    },
+    #[error("SSH host key verification failed for {host}:{port}: {source}")]
+    HostKeyVerification {
+        host: String,
+        port: u16,
+        #[source]
+        source: russh::keys::Error,
+    },
+}
+
+fn verify_server_key_at_path(
+    host: &str,
+    port: u16,
+    server_public_key: &russh::keys::ssh_key::PublicKey,
+    known_hosts_path: &Path,
+) -> Result<(), TunnelError> {
+    match check_known_hosts_path(host, port, server_public_key, known_hosts_path) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(TunnelError::UnknownHostKey {
+            host: host.to_string(),
+            port,
+            fingerprint: server_public_key
+                .fingerprint(Default::default())
+                .to_string(),
+            known_hosts_path: known_hosts_path.display().to_string(),
+        }),
+        Err(source) => Err(TunnelError::HostKeyVerification {
+            host: host.to_string(),
+            port,
+            source,
+        }),
+    }
+}
+
+struct TunnelHandler {
+    ssh_host: String,
+    ssh_port: u16,
+    known_hosts_path: PathBuf,
+}
 
 impl client::Handler for TunnelHandler {
-    type Error = russh::Error;
+    type Error = TunnelError;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        // Accept any host key. This matches the previous libssh2 behavior, which
-        // did not verify the server key. (Adding known_hosts verification is a
-        // possible future security improvement.)
+        verify_server_key_at_path(
+            &self.ssh_host,
+            self.ssh_port,
+            server_public_key,
+            &self.known_hosts_path,
+        )?;
         Ok(true)
     }
 }
 
-/// Authenticate the session: try the private key first (if provided), then
-/// fall back to password. `ssh_password` doubles as the passphrase for an
-/// encrypted private key.
 async fn authenticate(
     session: &mut Handle<TunnelHandler>,
     ssh_user: &str,
-    ssh_password: Option<&str>,
-    ssh_key_path: Option<&str>,
+    auth: SshAuth<'_>,
 ) -> Result<(), String> {
-    if let Some(key_path) = ssh_key_path {
+    if let Some(key_path) = auth.key_path {
         if !key_path.is_empty() {
             let expanded_path = if key_path.starts_with('~') {
                 if let Some(home) = dirs::home_dir() {
@@ -56,8 +140,7 @@ async fn authenticate(
             };
 
             println!("[SSH] Attempting key auth with: {}", expanded_path);
-            // Use the password as the passphrase for encrypted keys.
-            match load_secret_key(&expanded_path, ssh_password) {
+            match load_secret_key(&expanded_path, auth.key_passphrase) {
                 Ok(key) => {
                     let hash_alg = session
                         .best_supported_rsa_hash()
@@ -80,7 +163,7 @@ async fn authenticate(
         }
     }
 
-    if let Some(password) = ssh_password {
+    if let Some(password) = auth.password {
         if !password.is_empty() {
             println!("[SSH] Attempting password authentication");
             match session
@@ -150,8 +233,7 @@ impl SshTunnel {
         ssh_host: &str,
         ssh_port: u16,
         ssh_user: &str,
-        ssh_password: Option<&str>,
-        ssh_key_path: Option<&str>,
+        auth: SshAuth<'_>,
         remote_host: &str,
         remote_port: u16,
     ) -> Result<Self, String> {
@@ -176,12 +258,22 @@ impl SshTunnel {
         );
         // (ssh_host, ssh_port) is resolved via ToSocketAddrs, so hostnames work
         // (the old libssh2 path required a literal IP).
-        let mut session = client::connect(config, (ssh_host, ssh_port), TunnelHandler)
+        let known_hosts_path = dirs::home_dir()
+            .ok_or(TunnelError::NoHomeDirectory)
+            .map_err(|e| e.to_string())?
+            .join(".ssh")
+            .join("known_hosts");
+        let handler = TunnelHandler {
+            ssh_host: ssh_host.to_string(),
+            ssh_port,
+            known_hosts_path,
+        };
+        let mut session = client::connect(config, (ssh_host, ssh_port), handler)
             .await
             .map_err(|e| format!("Failed to connect to SSH server: {}", e))?;
 
         println!("[SSH] Connected, authenticating...");
-        authenticate(&mut session, ssh_user, ssh_password, ssh_key_path).await?;
+        authenticate(&mut session, ssh_user, auth).await?;
         println!("[SSH] Authentication successful");
 
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -236,5 +328,72 @@ impl SshTunnel {
             local_port,
             _shutdown_tx: shutdown_tx,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use russh::keys::parse_public_key_base64;
+
+    const TRUSTED_KEY: &str =
+        "AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ";
+    const OTHER_KEY: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIA6rWI3G2sz07DnfFlrouTcysQlj2P+jpNSOEWD9OJ3X";
+
+    #[test]
+    fn password_auth_does_not_reuse_the_credential_as_a_key_passphrase() {
+        let auth = SshAuth::from_connection(false, Some("password"), Some("~/.ssh/id_ed25519"));
+
+        assert_eq!(auth.password, Some("password"));
+        assert_eq!(auth.key_passphrase, None);
+        assert_eq!(auth.key_path, None);
+    }
+
+    #[test]
+    fn key_auth_uses_the_credential_only_as_the_key_passphrase() {
+        let auth = SshAuth::from_connection(true, Some("passphrase"), Some("~/.ssh/id_ed25519"));
+
+        assert_eq!(auth.password, None);
+        assert_eq!(auth.key_passphrase, Some("passphrase"));
+        assert_eq!(auth.key_path, Some("~/.ssh/id_ed25519"));
+    }
+
+    #[test]
+    fn accepts_a_matching_known_host_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        std::fs::write(
+            &path,
+            format!("[db.example.com]:2222 ssh-ed25519 {TRUSTED_KEY}\n"),
+        )
+        .unwrap();
+        let key = parse_public_key_base64(TRUSTED_KEY).unwrap();
+
+        assert!(verify_server_key_at_path("db.example.com", 2222, &key, &path).is_ok());
+    }
+
+    #[test]
+    fn rejects_an_unknown_host_key_with_its_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        let key = parse_public_key_base64(TRUSTED_KEY).unwrap();
+        let fingerprint = key.fingerprint(Default::default()).to_string();
+
+        let error = verify_server_key_at_path("db.example.com", 22, &key, &path).unwrap_err();
+
+        assert!(error.to_string().contains("not trusted"));
+        assert!(error.to_string().contains(&fingerprint));
+    }
+
+    #[test]
+    fn rejects_a_changed_host_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("known_hosts");
+        std::fs::write(&path, format!("db.example.com ssh-ed25519 {TRUSTED_KEY}\n")).unwrap();
+        let key = parse_public_key_base64(OTHER_KEY).unwrap();
+
+        let error = verify_server_key_at_path("db.example.com", 22, &key, &path).unwrap_err();
+
+        assert!(error.to_string().contains("changed"));
     }
 }

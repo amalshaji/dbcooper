@@ -26,7 +26,7 @@ use crate::db::models::{
     FunctionDefinition, QueryResult, TableDataResponse, TableInfo, TableStructure,
     TestConnectionResult,
 };
-use crate::ssh_tunnel::SshTunnel;
+use crate::ssh_tunnel::{SshAuth, SshTunnel};
 
 /// Connection status enum
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -55,6 +55,7 @@ pub struct ConnectionConfig {
     pub ssh_user: Option<String>,
     pub ssh_password: Option<String>,
     pub ssh_key_path: Option<String>,
+    pub ssh_use_key: bool,
 }
 
 /// Entry in the connection pool
@@ -68,6 +69,21 @@ struct PoolEntry {
     last_error: Option<String>,
     #[allow(dead_code)]
     ssh_tunnel: Option<SshTunnel>,
+}
+
+fn should_keep_entry(entry: &PoolEntry) -> bool {
+    if Arc::strong_count(&entry.driver) > 1 {
+        if let Ok(mut last_used) = entry.last_used.lock() {
+            *last_used = Instant::now();
+        }
+        return true;
+    }
+
+    entry
+        .last_used
+        .lock()
+        .map(|last_used| last_used.elapsed() < IDLE_TIMEOUT)
+        .unwrap_or(true)
 }
 
 /// Connection pool manager
@@ -102,17 +118,9 @@ impl PoolManager {
                 ticker.tick().await;
                 let mut pools = pools.write().await;
                 pools.retain(|uuid, entry| {
-                    let idle = entry
-                        .last_used
-                        .lock()
-                        .map(|t| t.elapsed())
-                        .unwrap_or_default();
-                    let keep = idle < IDLE_TIMEOUT;
+                    let keep = should_keep_entry(entry);
                     if !keep {
-                        println!(
-                            "[Pool] Evicting idle connection {} (idle for {:?})",
-                            uuid, idle
-                        );
+                        println!("[Pool] Evicting idle connection {}", uuid);
                     }
                     keep
                 });
@@ -145,23 +153,18 @@ impl PoolManager {
             let ssh_host = config.ssh_host.as_ref().ok_or("SSH host is required")?;
             let ssh_port = config.ssh_port.unwrap_or(22) as u16;
             let ssh_user = config.ssh_user.as_ref().ok_or("SSH user is required")?;
-            let ssh_password = config.ssh_password.as_ref().map(|s| s.as_str());
-            let ssh_key_path = config.ssh_key_path.as_ref().map(|s| s.as_str());
+            let auth = SshAuth::from_connection(
+                config.ssh_use_key,
+                config.ssh_password.as_deref(),
+                config.ssh_key_path.as_deref(),
+            );
             let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
             let remote_port = config.port.unwrap_or(5432) as u16;
 
             // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
             let tunnel = match tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                SshTunnel::new(
-                    ssh_host,
-                    ssh_port,
-                    ssh_user,
-                    ssh_password,
-                    ssh_key_path,
-                    remote_host,
-                    remote_port,
-                ),
+                SshTunnel::new(ssh_host, ssh_port, ssh_user, auth, remote_host, remote_port),
             )
             .await
             {
@@ -461,5 +464,63 @@ impl PoolManager {
         driver
             .get_function_definition(schema, name, identity_args)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn expired_entry() -> PoolEntry {
+        let driver: Arc<Box<dyn DatabaseDriver>> =
+            Arc::new(Box::new(RedisDriver::new(RedisConfig {
+                host: "localhost".to_string(),
+                port: 6379,
+                username: None,
+                password: None,
+                db: None,
+                tls: false,
+            })));
+
+        PoolEntry {
+            driver,
+            config: ConnectionConfig {
+                db_type: "redis".to_string(),
+                host: Some("localhost".to_string()),
+                port: Some(6379),
+                database: None,
+                username: None,
+                password: None,
+                ssl: Some(false),
+                file_path: None,
+                ssh_enabled: false,
+                ssh_host: None,
+                ssh_port: None,
+                ssh_user: None,
+                ssh_password: None,
+                ssh_key_path: None,
+                ssh_use_key: false,
+            },
+            status: ConnectionStatus::Connected,
+            last_used: std::sync::Mutex::new(Instant::now() - IDLE_TIMEOUT),
+            last_error: None,
+            ssh_tunnel: None,
+        }
+    }
+
+    #[test]
+    fn evicts_an_expired_entry_without_an_active_operation() {
+        let entry = expired_entry();
+
+        assert!(!should_keep_entry(&entry));
+    }
+
+    #[test]
+    fn retains_an_expired_entry_while_an_operation_holds_the_driver() {
+        let entry = expired_entry();
+        let _active_driver = Arc::clone(&entry.driver);
+
+        assert!(should_keep_entry(&entry));
+        assert!(entry.last_used.lock().unwrap().elapsed() < Duration::from_secs(1));
     }
 }
