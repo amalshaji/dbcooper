@@ -1,13 +1,29 @@
 ---
-const productStops = [
-	{ name: "Virtualized grid", detail: "Fast result windows", status: "released" },
+type RoadmapStatus = "released" | "building" | "next" | "exploring";
+type LaneColor = "cyan" | "lime";
+
+interface RoadmapStop {
+	name: string;
+	detail: string;
+	status: RoadmapStatus;
+}
+
+interface RoadmapLane {
+	label: string;
+	subtitle: string;
+	color: LaneColor;
+	stops: RoadmapStop[];
+}
+
+const productStops: RoadmapStop[] = [
+	{ name: "Million-row paging", detail: "Benchmarked first-window load", status: "released" },
 	{ name: "Structured filters", detail: "Safe, visual conditions", status: "released" },
 	{ name: "Contextual AI", detail: "Preview before apply", status: "building" },
 	{ name: "Saved views", detail: "Filters, sort, layout", status: "next" },
 	{ name: "Schema diff", detail: "Review changes locally", status: "exploring" },
 ];
 
-const adapterStops = [
+const adapterStops: RoadmapStop[] = [
 	{ name: "PostgreSQL + SQLite", detail: "Native table and query tools", status: "released" },
 	{ name: "Redis + ClickHouse", detail: "Purpose-built workflows", status: "released" },
 	{ name: "MySQL + MariaDB", detail: "Relational adapter", status: "next" },
@@ -15,9 +31,9 @@ const adapterStops = [
 	{ name: "MongoDB", detail: "Document explorer", status: "exploring" },
 ];
 
-const lanes = [
-	{ label: "Workbench", color: "cyan", stops: productStops },
-	{ label: "Adapters", color: "lime", stops: adapterStops },
+const lanes: RoadmapLane[] = [
+	{ label: "Workbench", subtitle: "Product line", color: "cyan", stops: productStops },
+	{ label: "Adapters", subtitle: "Database line", color: "lime", stops: adapterStops },
 ];
 ---
 
@@ -44,7 +60,7 @@ const lanes = [
 					<div class={`roadmap-lane roadmap-lane-${lane.color}`}>
 						<div class="lane-label">
 							<span>{lane.label}</span>
-							<small>{lane.color === "cyan" ? "Product line" : "Database line"}</small>
+							<small>{lane.subtitle}</small>
 						</div>
 						<div class="lane-track" aria-hidden="true"></div>
 						{lane.stops.map((stop, index) => (
