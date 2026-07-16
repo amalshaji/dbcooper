@@ -3334,7 +3334,7 @@ export function ConnectionDetails() {
 							) : null}
 						</div>
 					) : (
-						<div className="text-center py-8 text-muted-foreground">
+						<div className="pb-10 pt-6 text-center text-muted-foreground">
 							<p>
 								No results yet. Write a SQL query and click &quot;Run
 								Query&quot; to execute it.
