@@ -41,6 +41,16 @@ export function FilterConditionRow({
 	onRemove,
 	onApply,
 }: FilterConditionRowProps) {
+	const inputValue = Array.isArray(condition.value)
+		? condition.value
+				.map((value) =>
+					typeof value === "object" && value !== null ? value.value : String(value),
+				)
+				.join(", ")
+		: typeof condition.value === "object" && condition.value !== null
+			? condition.value.value
+			: String(condition.value ?? "");
+
 	return (
 		<div className="flex items-center gap-2">
 			{showConjunction && (
@@ -93,11 +103,7 @@ export function FilterConditionRow({
 			</Select>
 			{operatorNeedsValue(condition.operator) && (
 				<Input
-					value={
-						Array.isArray(condition.value)
-							? condition.value.join(", ")
-							: String(condition.value ?? "")
-					}
+					value={inputValue}
 					onChange={(event) => onChange({ value: event.target.value })}
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && canApply) onApply();
