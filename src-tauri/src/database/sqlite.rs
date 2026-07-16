@@ -4,14 +4,17 @@ use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
-use super::filter::{compile_filter, CompiledFilter, FilterDialect, FilterValue};
+use super::filter::{
+    build_where_clause, compile_filter, structured_expression, CompiledFilter, FilterDialect,
+    FilterValue,
+};
 use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
     COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, FilterExpression, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
-    TableDataResponse, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
+    TableFilter, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
 use std::collections::HashMap;
 
@@ -195,19 +198,14 @@ impl DatabaseDriver for SqliteDriver {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
-        structured_filter: Option<FilterExpression>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let pool = self.get_pool().await?;
 
         let offset = (page - 1) * limit;
-        if filter.is_some() && structured_filter.is_some() {
-            return Err("Choose either structured filters or an advanced WHERE clause".to_string());
-        }
-
-        let compiled_filter = if let Some(expression) = structured_filter.as_ref() {
+        let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
             let columns = self
                 .get_table_structure("main", table)
                 .await?
@@ -219,24 +217,7 @@ impl DatabaseDriver for SqliteDriver {
         } else {
             None
         };
-        let where_clause = compiled_filter
-            .as_ref()
-            .filter(|filter| !filter.sql.is_empty())
-            .map(|filter| format!(" WHERE {}", filter.sql))
-            .or_else(|| {
-                filter.as_ref().map(|f| {
-                    // Normalize curly/smart quotes to regular ASCII quotes
-                    // macOS often auto-replaces straight quotes with smart quotes
-                    let normalized = f
-                        .replace('\u{2018}', "'") // Left single quotation mark '
-                        .replace('\u{2019}', "'") // Right single quotation mark '
-                        .replace('\u{201C}', "\"") // Left double quotation mark "
-                        .replace('\u{201D}', "\"") // Right double quotation mark "
-                        .replace("\\'", "'"); // Backslash-escaped single quote
-                    format!(" WHERE {}", normalized)
-                })
-            })
-            .unwrap_or_default();
+        let where_clause = build_where_clause(filter.as_ref(), compiled_filter.as_ref());
 
         let order_clause = if let Some(col) = sort_column.as_ref() {
             // Validate sort_direction to prevent SQL injection

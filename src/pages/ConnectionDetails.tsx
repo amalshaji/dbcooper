@@ -132,6 +132,7 @@ import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
+import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
@@ -153,9 +154,8 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { selectTablesForAI } from "@/lib/aiTableSelection";
 import {
-	coerceFilterExpression,
 	createCellFilter,
-	type FilterExpression,
+	getFilterRequest,
 } from "@/lib/resultFilters";
 
 const SchemaVisualizer = lazy(() =>
@@ -809,14 +809,15 @@ export function ConnectionDetails() {
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
+				const filterRequest = getFilterRequest(tab.filterState.applied);
 				const data = await api.pool.getTableData(
 					uuid,
 					schema,
 					tableName,
 					tab.currentPage,
 					100,
-					tab.filter || undefined,
-					tab.structuredFilter || undefined,
+					filterRequest.filter,
+					filterRequest.structuredFilter,
 					tab.sort?.column,
 					tab.sort?.direction,
 				);
@@ -834,6 +835,23 @@ export function ConnectionDetails() {
 		},
 		[uuid, updateTab],
 	);
+	const activeTableDataTab =
+		activeTab?.type === "table-data" ? activeTab : null;
+	const updateTableDataTab = useCallback(
+		(id: string, updates: Partial<TableDataTab>) =>
+			updateTab<TableDataTab>(id, updates),
+		[updateTab],
+	);
+	const {
+		setFilterState: handleTableFilterStateChange,
+		applyFilter: handleApplyFilter,
+		clearFilter: clearTableFilter,
+		filterCell: handleCellFilter,
+	} = useTableDataFilters({
+		tab: activeTableDataTab,
+		updateTab: updateTableDataTab,
+		fetchTableData,
+	});
 
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
@@ -979,8 +997,11 @@ export function ConnectionDetails() {
 		(tableName: string, filterColumn: string, filterValue: unknown) => {
 			const newTab = createTableDataTab(tableName);
 			const condition = createCellFilter(filterColumn, filterValue, false);
-			newTab.structuredFilter = { conjunction: "and", conditions: [condition] };
-			newTab.structuredFilterInput = newTab.structuredFilter;
+			const filter = {
+				kind: "structured" as const,
+				value: { conjunction: "and" as const, conditions: [condition] },
+			};
+			newTab.filterState = { draft: filter, applied: filter };
 
 			setTabs((prev) => [...prev, newTab]);
 			setActiveTabId(newTab.id);
@@ -1199,62 +1220,6 @@ export function ConnectionDetails() {
 		[activeTab, updateTab, fetchTableData],
 	);
 
-	const handleFilterInputChange = useCallback(
-		(value: string) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			updateTab<TableDataTab>(activeTab.id, { filterInput: value });
-		},
-		[activeTab, updateTab],
-	);
-
-	const handleStructuredFilterInputChange = useCallback(
-		(value: FilterExpression) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			updateTab<TableDataTab>(activeTab.id, { structuredFilterInput: value });
-		},
-		[activeTab, updateTab],
-	);
-
-	const handleFilterModeChange = useCallback(
-		(mode: "structured" | "advanced") => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			updateTab<TableDataTab>(activeTab.id, { filterMode: mode });
-		},
-		[activeTab, updateTab],
-	);
-
-	const handleApplyFilter = useCallback(() => {
-		if (!activeTab || activeTab.type !== "table-data") return;
-		const tab = activeTab as TableDataTab;
-		if (tab.filterMode === "advanced") {
-			const nextTab = {
-				...tab,
-				filter: tab.filterInput,
-				structuredFilter: null,
-				currentPage: 1,
-			};
-			updateTab<TableDataTab>(tab.id, nextTab);
-			fetchTableData(nextTab);
-			return;
-		}
-
-		const columnTypes = Object.fromEntries(
-			tab.columns.map((column) => [column.name, column.type]),
-		);
-		const structuredFilter = coerceFilterExpression(
-			tab.structuredFilterInput,
-			columnTypes,
-		);
-		const nextTab = {
-			...tab,
-			filter: "",
-			structuredFilter,
-			currentPage: 1,
-		};
-		updateTab<TableDataTab>(tab.id, nextTab);
-		fetchTableData(nextTab);
-	}, [activeTab, updateTab, fetchTableData]);
-
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
 			if (!uuid) return;
@@ -1336,20 +1301,7 @@ export function ConnectionDetails() {
 		if (!activeTab) return;
 
 		if (activeTab.type === "table-data") {
-			const tab = activeTab as TableDataTab;
-			updateTab<TableDataTab>(tab.id, {
-				filter: "",
-				filterInput: "",
-				structuredFilter: null,
-				structuredFilterInput: { conjunction: "and", conditions: [] },
-				currentPage: 1,
-			});
-			fetchTableData({
-				...tab,
-				filter: "",
-				structuredFilter: null,
-				currentPage: 1,
-			});
+			clearTableFilter();
 			return;
 		}
 
@@ -1363,30 +1315,7 @@ export function ConnectionDetails() {
 			});
 			void runQueryResultViewQuery(tab, "", tab.sort);
 		}
-	}, [activeTab, updateTab, fetchTableData, runQueryResultViewQuery]);
-
-	const handleCellFilter = useCallback(
-		(column: string, value: unknown, exclude: boolean) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			const tab = activeTab as TableDataTab;
-			const condition = createCellFilter(column, value, exclude);
-			const structuredFilter: FilterExpression = {
-				conjunction: tab.structuredFilter?.conjunction ?? "and",
-				conditions: [...(tab.structuredFilter?.conditions ?? []), condition],
-			};
-			const nextTab = {
-				...tab,
-				filterMode: "structured" as const,
-				filter: "",
-				structuredFilter,
-				structuredFilterInput: structuredFilter,
-				currentPage: 1,
-			};
-			updateTab<TableDataTab>(tab.id, nextTab);
-			fetchTableData(nextTab);
-		},
-		[activeTab, updateTab, fetchTableData],
-	);
+	}, [activeTab, updateTab, clearTableFilter, runQueryResultViewQuery]);
 
 	const handleSortChange = useCallback(
 		(sort: { column: string; direction: "asc" | "desc" } | null) => {
@@ -2242,8 +2171,7 @@ export function ConnectionDetails() {
 				e.key === "x" &&
 				(e.metaKey || e.ctrlKey) &&
 				e.shiftKey &&
-				((activeTab?.type === "table-data" && activeTab.filter) ||
-					(activeTab?.type === "table-data" && activeTab.structuredFilter) ||
+				((activeTab?.type === "table-data" && activeTab.filterState.applied) ||
 					(activeTab?.type === "query" && activeTab.filter))
 			) {
 				e.preventDefault();
@@ -2642,17 +2570,11 @@ export function ConnectionDetails() {
 					</div>
 				)}
 				<TableFilterBar
-					mode={tab.filterMode}
-					filter={tab.filter}
-					filterInput={tab.filterInput}
-					structuredFilter={tab.structuredFilter}
-					structuredFilterInput={tab.structuredFilterInput}
+					state={tab.filterState}
 					columns={tab.columns}
 					loading={tab.loading}
 					showInput={showFilterInput}
-					onModeChange={handleFilterModeChange}
-					onInputChange={handleFilterInputChange}
-					onStructuredInputChange={handleStructuredFilterInputChange}
+					onStateChange={handleTableFilterStateChange}
 					onApply={handleApplyFilter}
 					onClear={handleClearFilter}
 				/>
@@ -3160,7 +3082,7 @@ export function ConnectionDetails() {
 							<CardDescription>
 								{tab.results !== null &&
 									tab.results.length > 0 &&
-									`${tab.filter || tab.structuredFilter ? "Filtered " : ""}returned ${
+									`${tab.filter ? "Filtered " : ""}returned ${
 										tab.results.length
 									} row${tab.results.length !== 1 ? "s" : ""}`}
 								{tab.results !== null &&

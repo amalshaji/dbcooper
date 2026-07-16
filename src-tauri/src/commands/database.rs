@@ -307,14 +307,14 @@ pub async fn unified_get_table_data(
     let driver = create_driver(
         &db_type, host, port, database, username, password, ssl, file_path,
     )?;
+    let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
     driver
         .get_table_data(
             &schema,
             &table,
             page,
             limit,
-            filter,
-            structured_filter,
+            table_filter,
             sort_column,
             sort_direction,
         )
