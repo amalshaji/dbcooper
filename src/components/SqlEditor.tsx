@@ -1,20 +1,20 @@
-import { useMemo, useEffect, useState, useRef } from "react";
-import CodeMirror from "@uiw/react-codemirror";
-import { sql, type SQLConfig } from "@codemirror/lang-sql";
-import { rosePineDawn, barf } from "thememirror";
-import { keymap } from "@codemirror/view";
-import { EditorView } from "@codemirror/view";
+import { type SQLConfig, sql } from "@codemirror/lang-sql";
 import { EditorState, Prec } from "@codemirror/state";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { EditorView, keymap } from "@codemirror/view";
 import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
+import CodeMirror from "@uiw/react-codemirror";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { barf, rosePineDawn } from "thememirror";
+import { SqlAIPreview } from "@/components/SqlAIPreview";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { SqlAIPreview } from "@/components/SqlAIPreview";
+import { aiDraftReducer, initialAiDraftState } from "@/lib/aiDraftState";
 
 interface TableSchema {
 	schema: string;
@@ -37,8 +37,7 @@ interface SqlEditorProps {
 		instruction: string,
 		existingSQL: string,
 		onPreview: (sql: string) => void,
-	) => Promise<void>;
-	generating?: boolean;
+	) => Promise<string>;
 	aiConfigured?: boolean | null;
 	onCursorActivity?: (line: number, char: number) => void;
 	cursorWarning?: string | null;
@@ -51,7 +50,6 @@ export function SqlEditor({
 	height = "300px",
 	tables = [],
 	onGenerateSQL,
-	generating = false,
 	aiConfigured = null,
 	onCursorActivity,
 	cursorWarning = null,
@@ -60,8 +58,12 @@ export function SqlEditor({
 	const [isDark, setIsDark] = useState(false);
 	const [containerWidth, setContainerWidth] = useState<number | null>(null);
 	const [instruction, setInstruction] = useState("");
-	const [aiPreview, setAiPreview] = useState<string | null>(null);
+	const [aiDraft, dispatchAiDraft] = useReducer(
+		aiDraftReducer,
+		initialAiDraftState,
+	);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const generating = aiDraft.status === "generating";
 
 	useEffect(() => {
 		const checkTheme = () => {
@@ -171,8 +173,18 @@ export function SqlEditor({
 
 	const handleGenerate = async () => {
 		if (instruction.trim() && onGenerateSQL) {
-			setAiPreview("");
-			await onGenerateSQL(instruction, value, setAiPreview);
+			dispatchAiDraft({ type: "start" });
+			try {
+				const generatedSQL = await onGenerateSQL(instruction, value, (sql) =>
+					dispatchAiDraft({ type: "preview", sql }),
+				);
+				dispatchAiDraft({ type: "complete", sql: generatedSQL });
+			} catch (error) {
+				dispatchAiDraft({
+					type: "fail",
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
 		}
 	};
 
@@ -247,19 +259,20 @@ export function SqlEditor({
 					</div>
 				</div>
 			)}
-			{aiPreview !== null && (
+			{aiDraft.status !== "idle" && (
 				<SqlAIPreview
-					sql={aiPreview}
+					draft={aiDraft}
 					hasExistingSql={Boolean(value.trim())}
-					generating={generating}
-					onDiscard={() => setAiPreview(null)}
+					onDiscard={() => dispatchAiDraft({ type: "discard" })}
 					onAppend={() => {
-						onChange(`${value.trimEnd()}\n\n${aiPreview}`);
-						setAiPreview(null);
+						if (aiDraft.status !== "ready") return;
+						onChange(`${value.trimEnd()}\n\n${aiDraft.sql}`);
+						dispatchAiDraft({ type: "discard" });
 					}}
 					onReplace={() => {
-						onChange(aiPreview);
-						setAiPreview(null);
+						if (aiDraft.status !== "ready") return;
+						onChange(aiDraft.sql);
+						dispatchAiDraft({ type: "discard" });
 					}}
 				/>
 			)}
