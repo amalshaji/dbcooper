@@ -118,6 +118,7 @@ export interface TableDataResponse {
 export interface QueryResult {
 	data: Record<string, unknown>[];
 	row_count: number;
+	truncated: boolean;
 	rows_affected?: number;
 	error?: string;
 	time_taken_ms?: number;

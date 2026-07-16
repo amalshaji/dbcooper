@@ -550,6 +550,62 @@ async fn test_execute_query_select() {
 }
 
 #[tokio::test]
+async fn test_execute_query_bounds_large_result_sets() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    driver
+        .execute_query("CREATE TABLE large_results (id INTEGER PRIMARY KEY)")
+        .await
+        .unwrap();
+    driver
+        .execute_query(
+            "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 10001) INSERT INTO large_results SELECT id FROM rows",
+        )
+        .await
+        .unwrap();
+
+    let result = driver
+        .execute_query("SELECT id FROM large_results ORDER BY id")
+        .await
+        .unwrap();
+
+    assert_eq!(result.data.len(), 10_000);
+    assert!(result.truncated);
+}
+
+#[tokio::test]
+#[ignore = "million-row performance benchmark"]
+async fn benchmark_million_row_table_window() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    driver
+        .execute_query("CREATE TABLE million_rows (id INTEGER PRIMARY KEY, value TEXT)")
+        .await
+        .unwrap();
+    driver
+        .execute_query(
+            "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 1000000) INSERT INTO million_rows SELECT id, printf('row-%d', id) FROM rows",
+        )
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let result = driver
+        .get_table_data("main", "million_rows", 1, 100, None, None, None, None)
+        .await
+        .unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(result.total, 1_000_000);
+    assert_eq!(result.data.len(), 100);
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "million-row page exceeded the 5 second budget: {elapsed:?}"
+    );
+    eprintln!("million-row table window loaded in {elapsed:?}");
+}
+
+#[tokio::test]
 async fn test_execute_query_insert() {
     let temp_dir = tempdir().expect("Failed to create temp directory");
     let driver = create_driver_with_table(&temp_dir).await;

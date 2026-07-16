@@ -1480,6 +1480,11 @@ export function ConnectionDetails() {
 
 		try {
 			const result = await api.pool.executeQuery(uuid, queryToRun);
+			if (result.truncated) {
+				toast.warning("Result limited to 10,000 rows", {
+					description: "Refine the query to load a smaller result window.",
+				});
+			}
 
 			// Use backend timing if available, otherwise use 0
 			const executionTime = result.time_taken_ms ?? 0;
@@ -1565,6 +1570,11 @@ export function ConnectionDetails() {
 				if (!queryToRun) continue;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
+				if (result.truncated) {
+					toast.warning("Result limited to 10,000 rows", {
+						description: "Refine the query to load a smaller result window.",
+					});
+				}
 				totalTime += result.time_taken_ms ?? 0;
 
 				if (result.error) {

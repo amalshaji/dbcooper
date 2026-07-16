@@ -13,6 +13,8 @@ use crate::db::models::{
     TestConnectionResult,
 };
 
+pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
+
 fn is_identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
 }
