@@ -135,6 +135,21 @@ export function TableFilterBar({
 									onApply={onApply}
 								/>
 							))}
+						</div>
+					) : (
+						<Input
+							placeholder="status = 'active' AND created_at > now() - interval '7 days'"
+							value={filterInput}
+							onChange={(event) => onInputChange(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter" && canApply) onApply();
+							}}
+							className="font-mono text-xs"
+						/>
+					)}
+
+					<div className="flex items-center justify-between">
+						{mode === "structured" && (
 							<Button
 								variant="ghost"
 								size="sm"
@@ -151,21 +166,13 @@ export function TableFilterBar({
 							>
 								<Plus /> Add condition
 							</Button>
-						</div>
-					) : (
-						<Input
-							placeholder="status = 'active' AND created_at > now() - interval '7 days'"
-							value={filterInput}
-							onChange={(event) => onInputChange(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" && canApply) onApply();
-							}}
-							className="font-mono text-xs"
-						/>
-					)}
-
-					<div className="flex justify-end">
-						<Button size="sm" onClick={onApply} disabled={loading || !canApply}>
+						)}
+						<Button
+							size="sm"
+							className="ml-auto"
+							onClick={onApply}
+							disabled={loading || !canApply}
+						>
 							Apply filter
 						</Button>
 					</div>
