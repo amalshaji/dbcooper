@@ -1,26 +1,27 @@
-import { Check, Plus, Sparkle, X } from "@phosphor-icons/react";
+import { Check, Plus, Sparkle, WarningCircle, X } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import type { AiDraftState } from "@/lib/aiDraftState";
 import { classifySqlIntent } from "@/lib/sqlSafety";
 
 interface SqlAIPreviewProps {
-	sql: string;
+	draft: Exclude<AiDraftState, { status: "idle" }>;
 	hasExistingSql: boolean;
-	generating: boolean;
 	onReplace: () => void;
 	onAppend: () => void;
 	onDiscard: () => void;
 }
 
 export function SqlAIPreview({
-	sql,
+	draft,
 	hasExistingSql,
-	generating,
 	onReplace,
 	onAppend,
 	onDiscard,
 }: SqlAIPreviewProps) {
+	const generating = draft.status === "generating";
+	const sql = draft.status === "error" ? "" : draft.sql;
 	const hasDraft = Boolean(sql.trim());
 	const intent = classifySqlIntent(sql);
 	const intentLabel =
@@ -36,12 +37,14 @@ export function SqlAIPreview({
 				<div className="flex items-center gap-1.5 text-xs font-medium">
 					{generating ? (
 						<Spinner className="size-3.5" />
+					) : draft.status === "error" ? (
+						<WarningCircle className="size-3.5 text-destructive" />
 					) : (
 						<Sparkle className="size-3.5 text-primary" />
 					)}
 					AI Draft
 				</div>
-				{hasDraft && (
+				{draft.status === "ready" && hasDraft && (
 					<div className="flex items-center">
 						<Badge
 							variant="outline"
@@ -62,8 +65,14 @@ export function SqlAIPreview({
 					</div>
 				)}
 			</header>
-			<pre className="max-h-48 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-5 text-foreground">
-				{sql || "Preparing a query from the current editor and schema…"}
+			<pre
+				className={`max-h-48 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-5 ${
+					draft.status === "error" ? "text-destructive" : "text-foreground"
+				}`}
+			>
+				{draft.status === "error"
+					? `Couldn’t generate a draft. ${draft.message}`
+					: sql || "Preparing a query from the current editor and schema…"}
 			</pre>
 			{!generating && (
 				<footer className="flex items-center justify-end border-t border-primary/10 bg-background/50 px-2 py-2">
@@ -75,7 +84,7 @@ export function SqlAIPreview({
 					>
 						<X /> Discard
 					</Button>
-					{hasExistingSql && (
+					{draft.status === "ready" && hasExistingSql && (
 						<Button
 							variant="ghost"
 							size="sm"
@@ -85,9 +94,11 @@ export function SqlAIPreview({
 							<Plus /> Append
 						</Button>
 					)}
-					<Button size="sm" onClick={onReplace} disabled={generating || !sql}>
-						<Check /> Use in editor
-					</Button>
+					{draft.status === "ready" && (
+						<Button size="sm" onClick={onReplace} disabled={!sql}>
+							<Check /> Use in editor
+						</Button>
+					)}
 				</footer>
 			)}
 		</section>
