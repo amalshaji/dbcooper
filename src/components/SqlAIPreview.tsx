@@ -21,6 +21,7 @@ export function SqlAIPreview({
 	onAppend,
 	onDiscard,
 }: SqlAIPreviewProps) {
+	const hasDraft = Boolean(sql.trim());
 	const intent = classifySqlIntent(sql);
 	const intentLabel =
 		intent === "read"
@@ -38,53 +39,57 @@ export function SqlAIPreview({
 					) : (
 						<Sparkle className="size-3.5 text-primary" />
 					)}
-					AI draft
+					AI Draft
 				</div>
-				<div className="flex items-center">
-					<Badge
-						variant="outline"
-						className={
-							intent === "write"
-								? "border-destructive/30 bg-destructive/5 text-[10px] font-normal text-destructive"
-								: "border-primary/20 bg-background/70 text-[10px] font-normal"
-						}
-					>
-						{intentLabel}
-					</Badge>
-					<Badge
-						variant="outline"
-						className="border-primary/20 bg-background/70 text-[10px] font-normal"
-					>
-						Not executed
-					</Badge>
-				</div>
+				{hasDraft && (
+					<div className="flex items-center">
+						<Badge
+							variant="outline"
+							className={
+								intent === "write"
+									? "border-destructive/30 bg-destructive/5 text-[10px] font-normal text-destructive"
+									: "border-primary/20 bg-background/70 text-[10px] font-normal"
+							}
+						>
+							{intentLabel}
+						</Badge>
+						<Badge
+							variant="outline"
+							className="border-primary/20 bg-background/70 text-[10px] font-normal"
+						>
+							Not executed
+						</Badge>
+					</div>
+				)}
 			</header>
 			<pre className="max-h-48 overflow-auto whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-5 text-foreground">
 				{sql || "Preparing a query from the current editor and schema…"}
 			</pre>
-			<footer className="flex items-center justify-end border-t border-primary/10 bg-background/50 px-2 py-2">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={onDiscard}
-					disabled={generating}
-				>
-					<X /> Discard
-				</Button>
-				{hasExistingSql && (
+			{!generating && (
+				<footer className="flex items-center justify-end border-t border-primary/10 bg-background/50 px-2 py-2">
 					<Button
 						variant="ghost"
 						size="sm"
-						onClick={onAppend}
-						disabled={generating || !sql}
+						onClick={onDiscard}
+						disabled={generating}
 					>
-						<Plus /> Append
+						<X /> Discard
 					</Button>
-				)}
-				<Button size="sm" onClick={onReplace} disabled={generating || !sql}>
-					<Check /> Use in editor
-				</Button>
-			</footer>
+					{hasExistingSql && (
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={onAppend}
+							disabled={generating || !sql}
+						>
+							<Plus /> Append
+						</Button>
+					)}
+					<Button size="sm" onClick={onReplace} disabled={generating || !sql}>
+						<Check /> Use in editor
+					</Button>
+				</footer>
+			)}
 		</section>
 	);
 }
