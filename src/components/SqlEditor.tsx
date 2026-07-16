@@ -14,6 +14,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SqlAIPreview } from "@/components/SqlAIPreview";
 
 interface TableSchema {
 	schema: string;
@@ -32,7 +33,11 @@ interface SqlEditorProps {
 	disabled?: boolean;
 	height?: string;
 	tables?: TableSchema[];
-	onGenerateSQL?: (instruction: string, existingSQL: string) => void;
+	onGenerateSQL?: (
+		instruction: string,
+		existingSQL: string,
+		onPreview: (sql: string) => void,
+	) => Promise<void>;
 	generating?: boolean;
 	aiConfigured?: boolean | null;
 	onCursorActivity?: (line: number, char: number) => void;
@@ -55,6 +60,7 @@ export function SqlEditor({
 	const [isDark, setIsDark] = useState(false);
 	const [containerWidth, setContainerWidth] = useState<number | null>(null);
 	const [instruction, setInstruction] = useState("");
+	const [aiPreview, setAiPreview] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -163,9 +169,10 @@ export function SqlEditor({
 		[runQueryKeymap, sqlExtension, fontTheme, disabled, cursorExtension],
 	);
 
-	const handleGenerate = () => {
+	const handleGenerate = async () => {
 		if (instruction.trim() && onGenerateSQL) {
-			onGenerateSQL(instruction, value);
+			setAiPreview("");
+			await onGenerateSQL(instruction, value, setAiPreview);
 		}
 	};
 
@@ -175,48 +182,86 @@ export function SqlEditor({
 	return (
 		<div className="space-y-2">
 			{onGenerateSQL && tables.length > 0 && (
-				<div className="flex gap-2">
-					<Input
-						placeholder={
-							aiConfigured === false
-								? "Configure AI in Settings to enable generation"
-								: "Describe the SQL you want to generate"
-						}
-						value={instruction}
-						onChange={(e) => setInstruction(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !generating && aiConfigured !== false) {
-								handleGenerate();
+				<div className="space-y-2">
+					<div className="flex rounded-xl border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
+						<Sparkle className="ml-2 mt-2 size-4 shrink-0 text-primary" />
+						<Input
+							placeholder={
+								aiConfigured === false
+									? "Configure AI in Settings to enable generation"
+									: "Ask for a query or change…"
 							}
-						}}
-						disabled={generating || aiConfigured === false}
-					/>
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									onClick={handleGenerate}
-									disabled={isButtonDisabled}
-									className="whitespace-nowrap"
-								>
-									{generating ? (
-										<Spinner className="h-4 w-4" />
-									) : (
-										<Sparkle className="h-4 w-4" />
-									)}
-									Generate
-								</Button>
-							}
+							value={instruction}
+							onChange={(event) => setInstruction(event.target.value)}
+							onKeyDown={(event) => {
+								if (
+									event.key === "Enter" &&
+									!generating &&
+									aiConfigured !== false
+								)
+									void handleGenerate();
+							}}
+							disabled={generating || aiConfigured === false}
+							className="h-8 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
 						/>
-						{aiConfigured === false && (
-							<TooltipContent>
-								<p>
-									Configure an AI provider in Settings to enable generation
-								</p>
-							</TooltipContent>
-						)}
-					</Tooltip>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Button
+										onClick={() => void handleGenerate()}
+										disabled={isButtonDisabled}
+										className="whitespace-nowrap"
+									/>
+								}
+							>
+								{generating ? <Spinner /> : <Sparkle />}
+								Generate draft
+							</TooltipTrigger>
+							{aiConfigured === false && (
+								<TooltipContent>
+									Configure an AI provider in Settings
+								</TooltipContent>
+							)}
+						</Tooltip>
+					</div>
+					<div className="flex items-center px-1 text-[11px] text-muted-foreground">
+						<span>
+							Context: current query · {tables.length} schema objects available
+						</span>
+						<div className="ml-auto flex items-center">
+							{["Add a safe limit", "Fix this query", "Join related data"].map(
+								(prompt) => (
+									<Button
+										key={prompt}
+										variant="ghost"
+										size="sm"
+										className="h-6 px-2 text-[11px]"
+										onClick={() => setInstruction(prompt)}
+										disabled={generating}
+									>
+										{prompt}
+									</Button>
+								),
+							)}
+						</div>
+					</div>
 				</div>
+			)}
+			{aiPreview !== null && (
+				<SqlAIPreview
+					sql={aiPreview}
+					hasExistingSql={Boolean(value.trim())}
+					generating={generating}
+					onDiscard={() => setAiPreview(null)}
+					onAppend={() => {
+						onChange(`${value.trimEnd()}\n\n${aiPreview}`);
+						setAiPreview(null);
+					}}
+					onReplace={() => {
+						onChange(aiPreview);
+						setAiPreview(null);
+					}}
+				/>
 			)}
 			<div
 				ref={containerRef}

@@ -3074,7 +3074,7 @@ export function ConnectionDetails() {
 							name: t.name,
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
-						onGenerateSQL={async (instruction, existingSQL) => {
+						onGenerateSQL={async (instruction, existingSQL, onPreview) => {
 							setIsAiGenerating(true);
 							try {
 								const overviewColumns = new Map(
@@ -3111,9 +3111,9 @@ export function ConnectionDetails() {
 									})),
 									(chunk) => {
 										accumulatedSQL += chunk;
-										handleQueryChange(accumulatedSQL);
+										onPreview(accumulatedSQL);
 									},
-									(finalSQL) => handleQueryChange(finalSQL),
+									(finalSQL) => onPreview(finalSQL),
 								);
 							} catch (error) {
 								console.error("AI generation error:", error);
