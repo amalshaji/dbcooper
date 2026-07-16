@@ -107,11 +107,11 @@ export function TableFilterBar({
 								<Code /> Advanced
 							</Button>
 						</div>
-						<span className="text-[11px] text-muted-foreground">
-							{mode === "structured"
-								? "Values are safely parameterized"
-								: "SQL WHERE clause"}
-						</span>
+						{mode === "advanced" && (
+							<span className="text-[11px] text-muted-foreground">
+								SQL WHERE clause
+							</span>
+						)}
 					</div>
 
 					{mode === "structured" ? (
