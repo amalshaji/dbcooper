@@ -42,10 +42,10 @@ export function FilterConditionRow({
 	onApply,
 }: FilterConditionRowProps) {
 	return (
-		<div className="flex items-center">
+		<div className="flex items-center gap-2">
 			{showConjunction && (
 				<Select value={conjunction} onValueChange={onConjunctionChange}>
-					<SelectTrigger size="sm" className="mr-2 w-16">
+					<SelectTrigger size="sm" className="w-16">
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -80,7 +80,7 @@ export function FilterConditionRow({
 					})
 				}
 			>
-				<SelectTrigger size="sm" className="w-40 rounded-l-none border-l-0">
+			<SelectTrigger size="sm" className="w-40">
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
@@ -103,7 +103,7 @@ export function FilterConditionRow({
 						if (event.key === "Enter" && canApply) onApply();
 					}}
 					placeholder={condition.operator === "in" ? "value, value" : "Value"}
-					className="h-7 flex-1 rounded-l-none border-l-0 font-mono text-xs"
+					className="h-7 flex-1 font-mono text-xs"
 				/>
 			)}
 			<Button
