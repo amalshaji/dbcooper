@@ -14,4 +14,36 @@ describe("classifySqlIntent", () => {
 	test("keeps incomplete streamed SQL unknown", () => {
 		expect(classifySqlIntent("SEL")).toBe("unknown");
 	});
+
+	test("checks every statement instead of trusting the first one", () => {
+		expect(classifySqlIntent("SELECT 1; DELETE FROM users")).toBe("write");
+	});
+
+	test("treats mutating explain analyze statements as writes", () => {
+		expect(classifySqlIntent("EXPLAIN ANALYZE DELETE FROM users")).toBe(
+			"write",
+		);
+		expect(classifySqlIntent("EXPLAIN SELECT * FROM users")).toBe("read");
+	});
+
+	test("does not mistake mutation words in CTE values or comments for writes", () => {
+		expect(
+			classifySqlIntent(
+				"WITH notes AS (SELECT 'delete from users' AS message) SELECT * FROM notes",
+			),
+		).toBe("read");
+		expect(
+			classifySqlIntent(
+				"WITH users AS (SELECT 1) /* DELETE FROM users */ SELECT * FROM users",
+			),
+		).toBe("read");
+	});
+
+	test("recognizes data-modifying CTEs", () => {
+		expect(
+			classifySqlIntent(
+				"WITH changed AS (UPDATE users SET active = true RETURNING *) SELECT * FROM changed",
+			),
+		).toBe("write");
+	});
 });
