@@ -368,8 +368,7 @@ impl DatabaseDriver for RedisDriver {
         _table: &str,
         _page: i64,
         _limit: i64,
-        _filter: Option<String>,
-        _structured_filter: Option<crate::db::models::FilterExpression>,
+        _filter: Option<crate::db::models::TableFilter>,
         _sort_column: Option<String>,
         _sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {

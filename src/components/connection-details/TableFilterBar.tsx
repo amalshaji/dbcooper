@@ -7,21 +7,16 @@ import {
 	isConditionComplete,
 	type FilterCondition,
 	type FilterExpression,
+	type TableFilterState,
 } from "@/lib/resultFilters";
 import { FilterConditionRow } from "./FilterConditionRow";
 
 interface TableFilterBarProps {
-	mode: "structured" | "advanced";
-	filter: string;
-	filterInput: string;
-	structuredFilter: FilterExpression | null;
-	structuredFilterInput: FilterExpression;
+	state: TableFilterState;
 	columns: TableColumn[];
 	loading: boolean;
 	showInput: boolean;
-	onModeChange: (mode: "structured" | "advanced") => void;
-	onInputChange: (value: string) => void;
-	onStructuredInputChange: (value: FilterExpression) => void;
+	onStateChange: (state: TableFilterState) => void;
 	onApply: () => void;
 	onClear: () => void;
 }
@@ -35,30 +30,31 @@ function emptyCondition(columns: TableColumn[]): FilterCondition {
 }
 
 export function TableFilterBar({
-	mode,
-	filter,
-	filterInput,
-	structuredFilter,
-	structuredFilterInput,
+	state,
 	columns,
 	loading,
 	showInput,
-	onModeChange,
-	onInputChange,
-	onStructuredInputChange,
+	onStateChange,
 	onApply,
 	onClear,
 }: TableFilterBarProps) {
-	const hasActiveFilter = Boolean(
-		filter || structuredFilter?.conditions.length,
-	);
+	const mode = state.draft.kind;
+	const structuredFilterInput =
+		state.draft.kind === "structured"
+			? state.draft.value
+			: { conjunction: "and" as const, conditions: [] };
+	const filterInput = state.draft.kind === "advanced" ? state.draft.value : "";
+	const hasActiveFilter = state.applied !== null;
 	if (!showInput && !hasActiveFilter) return null;
+
+	const setStructuredDraft = (value: FilterExpression) =>
+		onStateChange({ ...state, draft: { kind: "structured", value } });
 
 	const updateCondition = (
 		index: number,
 		updates: Partial<FilterCondition>,
 	) => {
-		onStructuredInputChange({
+		setStructuredDraft({
 			...structuredFilterInput,
 			conditions: structuredFilterInput.conditions.map(
 				(condition, itemIndex) =>
@@ -68,7 +64,7 @@ export function TableFilterBar({
 	};
 
 	const removeCondition = (index: number) => {
-		onStructuredInputChange({
+		setStructuredDraft({
 			...structuredFilterInput,
 			conditions: structuredFilterInput.conditions.filter(
 				(_, itemIndex) => itemIndex !== index,
@@ -95,14 +91,27 @@ export function TableFilterBar({
 							<Button
 								variant={mode === "structured" ? "secondary" : "ghost"}
 								size="sm"
-								onClick={() => onModeChange("structured")}
+								onClick={() =>
+									onStateChange({
+										...state,
+										draft: {
+											kind: "structured",
+											value: { conjunction: "and", conditions: [] },
+										},
+									})
+								}
 							>
 								<Funnel /> Builder
 							</Button>
 							<Button
 								variant={mode === "advanced" ? "secondary" : "ghost"}
 								size="sm"
-								onClick={() => onModeChange("advanced")}
+								onClick={() =>
+									onStateChange({
+										...state,
+										draft: { kind: "advanced", value: "" },
+									})
+								}
 							>
 								<Code /> Advanced
 							</Button>
@@ -125,7 +134,7 @@ export function TableFilterBar({
 									showConjunction={index > 0}
 									canApply={canApply}
 									onConjunctionChange={(conjunction) =>
-										onStructuredInputChange({
+										setStructuredDraft({
 											...structuredFilterInput,
 											conjunction,
 										})
@@ -140,7 +149,12 @@ export function TableFilterBar({
 						<Input
 							placeholder="status = 'active' AND created_at > now() - interval '7 days'"
 							value={filterInput}
-							onChange={(event) => onInputChange(event.target.value)}
+							onChange={(event) =>
+								onStateChange({
+									...state,
+									draft: { kind: "advanced", value: event.target.value },
+								})
+							}
 							onKeyDown={(event) => {
 								if (event.key === "Enter" && canApply) onApply();
 							}}
@@ -154,7 +168,7 @@ export function TableFilterBar({
 								variant="ghost"
 								size="sm"
 								onClick={() =>
-									onStructuredInputChange({
+									setStructuredDraft({
 										...structuredFilterInput,
 										conditions: [
 											...structuredFilterInput.conditions,
@@ -184,9 +198,9 @@ export function TableFilterBar({
 					<span className="truncate text-muted-foreground">
 						Active:{" "}
 						<span className="font-medium text-foreground">
-							{structuredFilter
-								? describeFilterExpression(structuredFilter)
-								: filter}
+							{state.applied?.kind === "structured"
+								? describeFilterExpression(state.applied.value)
+								: state.applied?.value}
 						</span>
 					</span>
 					<Button

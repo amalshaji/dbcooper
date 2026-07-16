@@ -1,4 +1,4 @@
-use crate::db::models::{FilterConjunction, FilterExpression, FilterOperator};
+use crate::db::models::{FilterConjunction, FilterExpression, FilterOperator, TableFilter};
 use serde_json::Value;
 
 const MAX_CONDITIONS: usize = 20;
@@ -23,6 +23,38 @@ pub enum FilterValue {
 pub struct CompiledFilter {
     pub sql: String,
     pub values: Vec<FilterValue>,
+}
+
+pub fn structured_expression(filter: Option<&TableFilter>) -> Option<&FilterExpression> {
+    match filter {
+        Some(TableFilter::Structured(expression)) => Some(expression),
+        _ => None,
+    }
+}
+
+pub fn build_where_clause(
+    filter: Option<&TableFilter>,
+    compiled: Option<&CompiledFilter>,
+) -> String {
+    match filter {
+        Some(TableFilter::Structured(_)) => compiled
+            .filter(|compiled| !compiled.sql.is_empty())
+            .map(|compiled| format!(" WHERE {}", compiled.sql))
+            .unwrap_or_default(),
+        Some(TableFilter::Advanced(value)) => {
+            format!(" WHERE {}", normalize_advanced_filter(value))
+        }
+        None => String::new(),
+    }
+}
+
+fn normalize_advanced_filter(filter: &str) -> String {
+    filter
+        .replace('\u{2018}', "'")
+        .replace('\u{2019}', "'")
+        .replace('\u{201C}', "\"")
+        .replace('\u{201D}', "\"")
+        .replace("\\'", "'")
 }
 
 pub fn compile_filter(
@@ -285,6 +317,34 @@ mod tests {
         assert_eq!(
             compiled.values,
             vec![FilterValue::Integer(9_007_199_254_740_993)]
+        );
+    }
+
+    #[test]
+    fn table_filter_rejects_conflicting_representations_at_the_boundary() {
+        let error = TableFilter::from_parts(
+            Some("status = 'active'".to_string()),
+            Some(expression(FilterCondition {
+                column: "status".to_string(),
+                operator: FilterOperator::Equals,
+                value: Some(json!("active")),
+            })),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            "Choose either structured filters or an advanced WHERE clause"
+        );
+    }
+
+    #[test]
+    fn builds_one_canonical_where_clause_for_advanced_filters() {
+        let filter = TableFilter::Advanced("name = ‘Cooper’".to_string());
+
+        assert_eq!(
+            build_where_clause(Some(&filter), None),
+            " WHERE name = 'Cooper'"
         );
     }
 }

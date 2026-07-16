@@ -7,6 +7,10 @@
 
 use dbcooper_lib::database::postgres::PostgresDriver;
 use dbcooper_lib::database::{DatabaseDriver, PostgresConfig};
+use dbcooper_lib::db::models::{
+    FilterCondition, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
+};
+use serde_json::json;
 
 /// Helper function to create a test PostgreSQL driver
 fn create_test_driver() -> PostgresDriver {
@@ -195,7 +199,7 @@ async fn test_get_table_data_empty_table() {
         .expect("Failed to create test table");
 
     let result = driver
-        .get_table_data("public", &table_name, 1, 10, None, None, None, None)
+        .get_table_data("public", &table_name, 1, 10, None, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -232,7 +236,7 @@ async fn test_get_table_data_with_rows() {
         .unwrap();
 
     let result = driver
-        .get_table_data("public", &table_name, 1, 10, None, None, None, None)
+        .get_table_data("public", &table_name, 1, 10, None, None, None)
         .await;
     assert!(result.is_ok());
 
@@ -266,7 +270,7 @@ async fn test_get_table_data_defaults_to_primary_key_order() {
         .unwrap();
 
     let data = driver
-        .get_table_data("public", &table_name, 1, 10, None, None, None, None)
+        .get_table_data("public", &table_name, 1, 10, None, None, None)
         .await
         .unwrap();
 
@@ -284,7 +288,6 @@ async fn test_get_table_data_defaults_to_primary_key_order() {
             &table_name,
             1,
             10,
-            None,
             None,
             Some("name".to_string()),
             Some("desc".to_string()),
@@ -331,7 +334,7 @@ async fn test_get_table_data_pagination() {
 
     // Get page 1 with limit 2
     let page1 = driver
-        .get_table_data("public", &table_name, 1, 2, None, None, None, None)
+        .get_table_data("public", &table_name, 1, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page1.data.len(), 2, "Page 1 should have 2 rows");
@@ -339,14 +342,14 @@ async fn test_get_table_data_pagination() {
 
     // Get page 2 with limit 2
     let page2 = driver
-        .get_table_data("public", &table_name, 2, 2, None, None, None, None)
+        .get_table_data("public", &table_name, 2, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page2.data.len(), 2, "Page 2 should have 2 rows");
 
     // Get page 3 with limit 2 (should have 1 row)
     let page3 = driver
-        .get_table_data("public", &table_name, 3, 2, None, None, None, None)
+        .get_table_data("public", &table_name, 3, 2, None, None, None)
         .await
         .unwrap();
     assert_eq!(page3.data.len(), 1, "Page 3 should have 1 row");
@@ -383,8 +386,7 @@ async fn test_get_table_data_with_filter() {
             &table_name,
             1,
             10,
-            Some("age > 25".to_string()),
-            None,
+            Some(TableFilter::Advanced("age > 25".to_string())),
             None,
             None,
         )
@@ -396,6 +398,50 @@ async fn test_get_table_data_with_filter() {
     assert_eq!(data.total, 2, "Total should be 2");
 
     // Cleanup
+    drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_get_table_data_with_structured_filter() {
+    let driver = create_test_driver();
+    let table_name = test_table_name("structured_filter");
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{}\" (id SERIAL PRIMARY KEY, name TEXT)",
+            table_name
+        ))
+        .await
+        .unwrap();
+    driver
+        .execute_query(&format!(
+            "INSERT INTO \"{}\" (name) VALUES ('O''Brien'), ('Alice')",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    let result = driver
+        .get_table_data(
+            "public",
+            &table_name,
+            1,
+            10,
+            Some(TableFilter::Structured(FilterExpression {
+                conjunction: FilterConjunction::And,
+                conditions: vec![FilterCondition {
+                    column: "name".to_string(),
+                    operator: FilterOperator::Equals,
+                    value: Some(json!("O'Brien")),
+                }],
+            })),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 1);
+    assert_eq!(result.data[0]["name"], "O'Brien");
     drop_table(&driver, &table_name).await;
 }
 
