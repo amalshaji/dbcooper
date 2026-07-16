@@ -1,0 +1,99 @@
+export type FilterScalar = string | number | boolean | null;
+
+export type FilterOperator =
+	| "equals"
+	| "not_equals"
+	| "contains"
+	| "starts_with"
+	| "ends_with"
+	| "greater_than"
+	| "greater_than_or_equal"
+	| "less_than"
+	| "less_than_or_equal"
+	| "in"
+	| "is_null"
+	| "is_not_null";
+
+export interface FilterCondition {
+	column: string;
+	operator: FilterOperator;
+	value?: FilterScalar | FilterScalar[];
+}
+
+export interface FilterExpression {
+	conjunction: "and" | "or";
+	conditions: FilterCondition[];
+}
+
+export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
+	equals: "is",
+	not_equals: "is not",
+	contains: "contains",
+	starts_with: "starts with",
+	ends_with: "ends with",
+	greater_than: "is greater than",
+	greater_than_or_equal: "is at least",
+	less_than: "is less than",
+	less_than_or_equal: "is at most",
+	in: "is one of",
+	is_null: "is null",
+	is_not_null: "is not null",
+};
+
+export const FILTER_OPERATORS = Object.keys(
+	FILTER_OPERATOR_LABELS,
+) as FilterOperator[];
+
+export function operatorNeedsValue(operator: FilterOperator): boolean {
+	return operator !== "is_null" && operator !== "is_not_null";
+}
+
+export function isConditionComplete(condition: FilterCondition): boolean {
+	if (!condition.column.trim()) return false;
+	if (!operatorNeedsValue(condition.operator)) return true;
+	if (Array.isArray(condition.value)) return condition.value.length > 0;
+	return condition.value !== undefined && condition.value !== "";
+}
+
+function normalizeCellValue(value: unknown): FilterScalar {
+	if (value === null || typeof value === "string") return value;
+	if (typeof value === "number" || typeof value === "boolean") return value;
+	return JSON.stringify(value);
+}
+
+export function createCellFilter(
+	column: string,
+	value: unknown,
+	exclude: boolean,
+): FilterCondition {
+	if (value === null) {
+		return {
+			column,
+			operator: exclude ? "is_not_null" : "is_null",
+		};
+	}
+
+	return {
+		column,
+		operator: exclude ? "not_equals" : "equals",
+		value: normalizeCellValue(value),
+	};
+}
+
+function describeValue(value: FilterCondition["value"]): string {
+	if (Array.isArray(value)) return value.map(String).join(", ");
+	if (value === null) return "null";
+	return String(value ?? "");
+}
+
+export function describeFilterExpression(expression: FilterExpression): string {
+	return expression.conditions
+		.filter(isConditionComplete)
+		.map((condition) => {
+			const label = FILTER_OPERATOR_LABELS[condition.operator];
+			return operatorNeedsValue(condition.operator)
+				? `${condition.column} ${label} ${describeValue(condition.value)}`
+				: `${condition.column} ${label}`;
+		})
+		.join(` ${expression.conjunction} `);
+}
