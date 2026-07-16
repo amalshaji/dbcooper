@@ -30,7 +30,7 @@
   --chart-3: oklch(0.67 0.16 58);
   --chart-4: oklch(0.56 0.15 49);
   --chart-5: oklch(0.47 0.12 46);
-  --radius: 0.5rem;
+  --radius: 0.625rem;
   --sidebar: oklch(0.985 0.001 106.423);
   --sidebar-foreground: oklch(0.147 0.004 49.25);
   --sidebar-primary: oklch(0.67 0.16 58);
@@ -129,7 +129,9 @@
     text-rendering: optimizeLegibility;
   }
   body {
-    @apply font-sans bg-background text-foreground text-lg;
+    @apply font-sans bg-background text-foreground text-sm;
+    min-height: 100vh;
+    background-image: radial-gradient(circle at 50% -20%, color-mix(in oklch, var(--primary) 8%, transparent), transparent 36%);
   }
   /* Themed text selection — warm amber wash so highlights match the accent */
   ::selection {
@@ -139,6 +141,20 @@
   .tabular-figures {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
+  }
+}
+
+@layer components {
+  .app-titlebar {
+    background: color-mix(in oklch, var(--background) 82%, transparent);
+    box-shadow: 0 1px 0 color-mix(in oklch, var(--foreground) 5%, transparent);
+    backdrop-filter: saturate(140%) blur(18px);
+  }
+
+  .app-surface {
+    background: color-mix(in oklch, var(--card) 88%, transparent);
+    box-shadow: 0 24px 70px -48px color-mix(in oklch, var(--foreground) 30%, transparent);
+    backdrop-filter: saturate(120%) blur(14px);
   }
 }
 
@@ -166,6 +182,25 @@
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-titlebar,
+  .app-surface {
+    background: var(--background);
+    backdrop-filter: none;
+  }
 }
 
 /* Tauri window drag region styling */

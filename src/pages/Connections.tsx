@@ -289,11 +289,11 @@ export function Connections() {
 	}
 
 	return (
-		<div className="min-h-screen bg-background flex flex-col">
+		<div className="flex min-h-screen flex-col bg-transparent">
 			{/* Titlebar region */}
 			<header
 				onMouseDown={handleDragStart}
-				className="h-12 shrink-0 flex items-center justify-between gap-2 px-4 pl-20 border-b bg-background/80 backdrop-blur-sm select-none"
+				className="app-titlebar flex h-12 shrink-0 select-none items-center justify-between border-b px-4 pl-20"
 			>
 				<div className="flex items-center gap-2 pl-4">
 					<h1 className="text-sm font-medium text-foreground">Connections</h1>
@@ -324,14 +324,14 @@ export function Connections() {
 				</div>
 			</header>
 
-			<div className="flex-1 p-6 overflow-auto">
-				<div className="max-w-2xl mx-auto">
+			<div className="flex-1 overflow-auto p-6 md:p-8">
+				<div className="mx-auto max-w-4xl">
 					{connections.length === 0 ? (
-						<div className="flex items-center justify-center min-h-[60vh]">
+						<div className="flex min-h-[70vh] items-center justify-center">
 							<EmptyState
 								icon={<Database />}
 								title="No connections yet"
-								description="Get started by creating your first database connection. You can connect to PostgreSQL, MySQL, SQLite, or Redis."
+								description="Create a local workspace for PostgreSQL, SQLite, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Import Connections",
@@ -346,7 +346,7 @@ export function Connections() {
 							/>
 						</div>
 					) : (
-						<div className="space-y-4">
+						<div className="space-y-6 pt-3">
 							{/* Header */}
 							<div className="flex items-center justify-between">
 								<div>
@@ -362,7 +362,6 @@ export function Connections() {
 										onClick={handleImportConnections}
 										size="sm"
 										variant="outline"
-										className="gap-1.5"
 									>
 										<UploadSimple className="w-4 h-4" />
 										Import
@@ -370,7 +369,7 @@ export function Connections() {
 									<Button
 										onClick={() => setIsFormOpen(true)}
 										size="sm"
-										className="gap-1.5 shadow-md shadow-primary/20 hover:shadow-primary/30 transition-shadow duration-300"
+										className="shadow-md shadow-primary/15"
 									>
 										<Plus className="w-4 h-4" weight="bold" />
 										New
@@ -379,7 +378,7 @@ export function Connections() {
 							</div>
 
 							{/* Connection Cards - Compact List */}
-							<div className="space-y-2">
+							<div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
 								{connections.map((connection) => {
 									const dbConfig = getDbTypeConfig(
 										connection.type || "postgres",
@@ -401,7 +400,7 @@ export function Connections() {
 															navigate(`/connections/${connection.uuid}`);
 														}
 													}}
-													className={`group relative cursor-pointer rounded-lg border bg-card shadow-sm p-3 transition-all duration-200 hover:shadow-md hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50 ${dbConfig.borderColor}`}
+													className={`group app-surface relative cursor-pointer rounded-xl border p-4 transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-primary/40 ${dbConfig.borderColor}`}
 												>
 													{/* Gradient Background */}
 													<div

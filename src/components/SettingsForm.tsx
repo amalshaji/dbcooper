@@ -99,21 +99,29 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 	const spacing = compact ? "space-y-4" : "space-y-8";
 	const headingSize = compact ? "text-sm font-medium" : "text-lg font-medium";
+	const sectionClass = compact
+		? "space-y-3"
+		: "space-y-4 rounded-xl border bg-muted/15 p-4";
 	const selectedHarness = detectedHarnesses.find(
 		(harness) => harness.provider === aiProvider,
 	);
 
 	return (
 		<div className={spacing}>
-			<div className="space-y-3">
+			<div className={sectionClass}>
 				<h3 className={headingSize}>Appearance</h3>
-				<div className="flex gap-2">
+				{!compact && (
+					<p className="text-xs text-muted-foreground">
+						Match the window to your workspace or follow macOS.
+					</p>
+				)}
+				<div className="flex rounded-lg bg-muted p-0.5">
 					{(["light", "dark", "system"] as Theme[]).map((t) => (
 						<Button
 							key={t}
-							variant={theme === t ? "default" : "outline"}
+							variant={theme === t ? "secondary" : "ghost"}
 							onClick={() => setTheme(t)}
-							className="capitalize"
+							className="flex-1 capitalize"
 							size={compact ? "sm" : "default"}
 						>
 							{t}
@@ -122,8 +130,13 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 				</div>
 			</div>
 
-			<div className="space-y-3">
+			<div className={sectionClass}>
 				<h3 className={headingSize}>Updates</h3>
+				{!compact && (
+					<p className="text-xs text-muted-foreground">
+						Keep DBcooper current without interrupting your work.
+					</p>
+				)}
 				<div className="flex items-center justify-between">
 					<Label htmlFor="check-updates" className={compact ? "text-sm" : ""}>
 						Check for updates on startup
@@ -136,8 +149,14 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 				</div>
 			</div>
 
-			<div className="space-y-3">
+			<div className={sectionClass}>
 				<h3 className={headingSize}>AI SQL</h3>
+				{!compact && (
+					<p className="text-xs text-muted-foreground">
+						Generate schema-aware drafts. Queries are previewed and never run
+						automatically.
+					</p>
+				)}
 				<div className="space-y-2">
 					<Label className={compact ? "text-sm" : ""}>Provider</Label>
 					<Combobox

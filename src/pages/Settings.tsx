@@ -15,10 +15,10 @@ export function Settings() {
 	const navigate = useNavigate();
 
 	return (
-		<div className="min-h-screen bg-background flex flex-col">
+		<div className="flex min-h-screen flex-col bg-transparent">
 			<header
 				onMouseDown={handleDragStart}
-				className="h-12 shrink-0 flex items-center gap-2 px-4 pl-24 border-b bg-background select-none"
+				className="app-titlebar flex h-12 shrink-0 select-none items-center border-b px-4 pl-24"
 			>
 				<Button variant="ghost" onClick={() => navigate("/")}>
 					<ArrowLeft className="h-4 w-4" />
@@ -26,12 +26,14 @@ export function Settings() {
 				</Button>
 			</header>
 
-			<div className="flex-1 p-8 overflow-auto text-lg">
-				<div className="max-w-2xl mx-auto">
-					<Card>
+			<div className="flex-1 overflow-auto p-6 md:p-10">
+				<div className="mx-auto max-w-3xl">
+					<Card className="app-surface">
 						<CardHeader>
-							<CardTitle>Settings</CardTitle>
-							<CardDescription>Configure your preferences</CardDescription>
+							<CardTitle className="text-lg tracking-tight">Settings</CardTitle>
+							<CardDescription>
+								Appearance, updates, and contextual AI
+							</CardDescription>
 						</CardHeader>
 						<CardContent>
 							<SettingsForm />
