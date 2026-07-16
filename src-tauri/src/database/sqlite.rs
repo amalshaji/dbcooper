@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use futures_util::{StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
@@ -413,14 +414,25 @@ impl DatabaseDriver for SqliteDriver {
         let pool = self.get_pool().await?;
 
         if query_returns_rows(query) {
-            match sqlx::query(query).fetch_all(&pool).await {
+            match sqlx::query(query)
+                .fetch(&pool)
+                .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+                .try_collect::<Vec<_>>()
+                .await
+            {
                 Ok(rows) => {
                     pool.close().await;
-                    let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                    let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                    let data: Vec<Value> = rows
+                        .iter()
+                        .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                        .map(Self::row_to_json)
+                        .collect();
                     let row_count = data.len() as i64;
                     Ok(QueryResult {
                         data,
                         row_count,
+                        truncated,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -431,6 +443,7 @@ impl DatabaseDriver for SqliteDriver {
                     Ok(QueryResult {
                         data: vec![],
                         row_count: 0,
+                        truncated: false,
                         rows_affected: None,
                         error: Some(e.to_string()),
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -445,6 +458,7 @@ impl DatabaseDriver for SqliteDriver {
                     Ok(QueryResult {
                         data: vec![],
                         row_count: rows_affected as i64,
+                        truncated: false,
                         rows_affected: Some(rows_affected),
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -455,6 +469,7 @@ impl DatabaseDriver for SqliteDriver {
                     Ok(QueryResult {
                         data: vec![],
                         row_count: 0,
+                        truncated: false,
                         rows_affected: None,
                         error: Some(e.to_string()),
                         time_taken_ms: Some(start_time.elapsed().as_millis()),

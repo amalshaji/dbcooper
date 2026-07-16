@@ -186,6 +186,7 @@ pub struct FilterExpression {
 pub struct QueryResult {
     pub data: Vec<serde_json::Value>,
     pub row_count: i64,
+    pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rows_affected: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]

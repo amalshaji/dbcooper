@@ -13,7 +13,6 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { shouldVirtualizeRows as resolveRowVirtualization } from "@/lib/gridPerformance";
 import {
 	CaretUp,
 	CaretDown,
@@ -44,6 +43,7 @@ interface DataTableProps<TData> {
 }
 
 const COLUMN_WIDTH = 150;
+const VISIBLE_ROW_CAPACITY = 30;
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 300;
 
@@ -78,10 +78,7 @@ export function DataTable<TData>({
 	const visibleColumns = headerGroups[0]?.headers ?? [];
 
 	const shouldVirtualizeColumns = visibleColumns.length > 20;
-	const shouldVirtualizeRows = resolveRowVirtualization(
-		virtualize,
-		rows.length,
-	);
+	const shouldVirtualizeRows = virtualize && rows.length > VISIBLE_ROW_CAPACITY;
 
 	const rowVirtualizer = useVirtualizer({
 		count: rows.length,
