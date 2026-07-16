@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::filter::{compile_filter, FilterDialect, FilterValue};
-use super::DatabaseDriver;
+use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
 };
@@ -57,6 +57,23 @@ impl ClickhouseDriver {
     /// Execute a query and return JSON results using raw HTTP
     async fn execute_query_json(&self, query: &str) -> Result<Vec<Value>, String> {
         self.execute_query_json_with_params(query, &[]).await
+    }
+
+    async fn execute_bounded_query_json(&self, query: &str) -> Result<(Vec<Value>, bool), String> {
+        let cleaned_query = query.trim().trim_end_matches(';').trim();
+        let upper = cleaned_query.to_uppercase();
+        let bounded_query = if upper.starts_with("SELECT") || upper.starts_with("WITH") {
+            format!(
+                "SELECT * FROM ({cleaned_query}) LIMIT {}",
+                MAX_QUERY_RESULT_ROWS + 1
+            )
+        } else {
+            cleaned_query.to_string()
+        };
+        let mut rows = self.execute_query_json(&bounded_query).await?;
+        let truncated = rows.len() > MAX_QUERY_RESULT_ROWS;
+        rows.truncate(MAX_QUERY_RESULT_ROWS);
+        Ok((rows, truncated))
     }
 
     async fn execute_query_json_with_params(
@@ -569,12 +586,13 @@ impl DatabaseDriver for ClickhouseDriver {
             || trimmed.starts_with("WITH");
 
         if is_select {
-            match self.execute_query_json(query).await {
-                Ok(rows) => {
+            match self.execute_bounded_query_json(query).await {
+                Ok((rows, truncated)) => {
                     let row_count = rows.len() as i64;
                     Ok(QueryResult {
                         data: rows,
                         row_count,
+                        truncated,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -583,6 +601,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -594,6 +613,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Ok(_) => Ok(QueryResult {
                     data: vec![json!({"result": "Query executed successfully"})],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: Some(0),
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -601,6 +621,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
