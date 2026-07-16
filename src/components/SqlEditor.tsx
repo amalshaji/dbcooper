@@ -183,7 +183,7 @@ export function SqlEditor({
 		<div className="space-y-2">
 			{onGenerateSQL && tables.length > 0 && (
 				<div className="space-y-2">
-					<div className="flex rounded-xl border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
+					<div className="flex gap-1 rounded-xl border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
 						<Sparkle className="ml-2 mt-2 size-4 shrink-0 text-primary" />
 						<Input
 							placeholder={
