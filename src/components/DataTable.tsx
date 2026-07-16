@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback } from "react";
+import { useRef, useMemo, useCallback, useState } from "react";
 import {
 	flexRender,
 	getCoreRowModel,
@@ -64,6 +64,10 @@ export function DataTable<TData>({
 	onCellFilter,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [contextCell, setContextCell] = useState<{
+		column: string;
+		value: unknown;
+	} | null>(null);
 
 	const table = useReactTable({
 		data,
@@ -188,36 +192,22 @@ export function DataTable<TData>({
 			};
 			const content = flexRender(cell.column.columnDef.cell, cell.getContext());
 
-			if (!onCellFilter) {
-				return (
-					<td key={cell.id} {...cellProps}>
-						{content}
-					</td>
-				);
-			}
-
 			return (
-				<ContextMenu key={cell.id}>
-					<ContextMenuTrigger render={<td {...cellProps} />}>
-						{content}
-					</ContextMenuTrigger>
-					<ContextMenuContent>
-						<ContextMenuItem
-							onClick={() =>
-								onCellFilter(cell.column.id, cell.getValue(), false)
-							}
-						>
-							Filter by this value
-						</ContextMenuItem>
-						<ContextMenuItem
-							onClick={() =>
-								onCellFilter(cell.column.id, cell.getValue(), true)
-							}
-						>
-							Exclude this value
-						</ContextMenuItem>
-					</ContextMenuContent>
-				</ContextMenu>
+				<td
+					key={cell.id}
+					{...cellProps}
+					onContextMenu={
+						onCellFilter
+							? () =>
+									setContextCell({
+										column: cell.column.id,
+										value: cell.getValue(),
+									})
+							: undefined
+					}
+				>
+					{content}
+				</td>
 			);
 		},
 		[onCellFilter],
@@ -311,79 +301,103 @@ export function DataTable<TData>({
 
 	return (
 		<div className="flex flex-col max-h-full w-full min-w-0">
-			<div
-				ref={containerRef}
-				className="rounded-md border overflow-auto w-full"
-			>
-				<table
-					className="caption-bottom text-xs border-collapse tabular-figures"
-					style={{
-						width: tableWidth,
-						minWidth: "100%",
-						tableLayout: "fixed",
-					}}
+			<ContextMenu>
+				<ContextMenuTrigger
+					render={
+						<div
+							ref={containerRef}
+							className="rounded-md border overflow-auto w-full"
+						/>
+					}
 				>
-					<thead className="sticky top-0 bg-background z-10 shadow-[0_6px_10px_-8px_rgb(0_0_0/0.12)]">
-						{headerGroups.map((headerGroup) => (
-							<tr key={headerGroup.id} className="border-b">
-								{paddingLeft > 0 && (
-									<th
-										style={{ width: paddingLeft, minWidth: paddingLeft }}
-										className="bg-background"
-									/>
-								)}
-								{virtualColumns.map((virtualColumn) => {
-									const header = headerGroup.headers[virtualColumn.index];
-									if (!header) return null;
-									const columnDef = header.column.columnDef;
-									const columnId =
-										"accessorKey" in columnDef &&
-										typeof columnDef.accessorKey === "string"
-											? columnDef.accessorKey
-											: header.id;
-									return (
+					<table
+						className="caption-bottom text-xs border-collapse tabular-figures"
+						style={{
+							width: tableWidth,
+							minWidth: "100%",
+							tableLayout: "fixed",
+						}}
+					>
+						<thead className="sticky top-0 bg-background z-10 shadow-[0_6px_10px_-8px_rgb(0_0_0/0.12)]">
+							{headerGroups.map((headerGroup) => (
+								<tr key={headerGroup.id} className="border-b">
+									{paddingLeft > 0 && (
 										<th
-											key={header.id}
-											style={{
-												width: COLUMN_WIDTH,
-												minWidth: MIN_COLUMN_WIDTH,
-												maxWidth: MAX_COLUMN_WIDTH,
-											}}
-											className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
-												sortable
-													? "cursor-pointer hover:bg-muted/50 select-none"
-													: ""
-											}`}
-											onClick={() => handleHeaderClick(columnId)}
-										>
-											<div className="flex items-center">
-												<span className="truncate">
-													{header.isPlaceholder
-														? null
-														: flexRender(
-																header.column.columnDef.header,
-																header.getContext(),
-															)}
-												</span>
-												{getSortIcon(columnId)}
-											</div>
-										</th>
-									);
-								})}
-								{paddingRight > 0 && (
-									<th
-										style={{ width: paddingRight, minWidth: paddingRight }}
-										className="bg-background"
-									/>
-								)}
-							</tr>
-						))}
-					</thead>
-					<tbody className="[&_tr:last-child]:border-0">
-						{renderTableBody()}
-					</tbody>
-				</table>
-			</div>
+											style={{ width: paddingLeft, minWidth: paddingLeft }}
+											className="bg-background"
+										/>
+									)}
+									{virtualColumns.map((virtualColumn) => {
+										const header = headerGroup.headers[virtualColumn.index];
+										if (!header) return null;
+										const columnDef = header.column.columnDef;
+										const columnId =
+											"accessorKey" in columnDef &&
+											typeof columnDef.accessorKey === "string"
+												? columnDef.accessorKey
+												: header.id;
+										return (
+											<th
+												key={header.id}
+												style={{
+													width: COLUMN_WIDTH,
+													minWidth: MIN_COLUMN_WIDTH,
+													maxWidth: MAX_COLUMN_WIDTH,
+												}}
+												className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
+													sortable
+														? "cursor-pointer hover:bg-muted/50 select-none"
+														: ""
+												}`}
+												onClick={() => handleHeaderClick(columnId)}
+											>
+												<div className="flex items-center">
+													<span className="truncate">
+														{header.isPlaceholder
+															? null
+															: flexRender(
+																	header.column.columnDef.header,
+																	header.getContext(),
+																)}
+													</span>
+													{getSortIcon(columnId)}
+												</div>
+											</th>
+										);
+									})}
+									{paddingRight > 0 && (
+										<th
+											style={{ width: paddingRight, minWidth: paddingRight }}
+											className="bg-background"
+										/>
+									)}
+								</tr>
+							))}
+						</thead>
+						<tbody className="[&_tr:last-child]:border-0">
+							{renderTableBody()}
+						</tbody>
+					</table>
+				</ContextMenuTrigger>
+				{onCellFilter && contextCell && (
+					<ContextMenuContent>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(contextCell.column, contextCell.value, false)
+							}
+						>
+							Filter by this value
+						</ContextMenuItem>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(contextCell.column, contextCell.value, true)
+							}
+						>
+							Exclude this value
+						</ContextMenuItem>
+					</ContextMenuContent>
+				)}
+			</ContextMenu>
 
 			{!hidePagination && (
 				<div className="flex items-center justify-between px-2 pt-3 pb-1">
