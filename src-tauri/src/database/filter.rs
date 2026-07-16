@@ -129,6 +129,15 @@ fn quote_identifier(identifier: &str, dialect: FilterDialect) -> String {
 
 fn parse_value(value: &Value) -> Result<FilterValue, String> {
     match value {
+        Value::Object(value) if value.get("kind").and_then(Value::as_str) == Some("integer") => {
+            value
+                .get("value")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "Integer filter value must be a string".to_string())?
+                .parse::<i64>()
+                .map(FilterValue::Integer)
+                .map_err(|_| "Integer filter value is out of range".to_string())
+        }
         Value::String(value) => Ok(FilterValue::Text(value.clone())),
         Value::Number(value) if value.is_i64() => Ok(FilterValue::Integer(value.as_i64().unwrap())),
         Value::Number(value) if value.is_u64() => value
@@ -255,5 +264,27 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error, "Unknown filter column: password");
+    }
+
+    #[test]
+    fn preserves_tagged_64_bit_integer_values() {
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "external_id".to_string(),
+                operator: FilterOperator::Equals,
+                value: Some(json!({
+                    "kind": "integer",
+                    "value": "9007199254740993"
+                })),
+            }),
+            &["external_id".to_string()],
+            FilterDialect::Postgres,
+        )
+        .unwrap();
+
+        assert_eq!(
+            compiled.values,
+            vec![FilterValue::Integer(9_007_199_254_740_993)]
+        );
     }
 }
