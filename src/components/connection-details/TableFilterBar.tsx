@@ -85,7 +85,7 @@ export function TableFilterBar({
 	return (
 		<div className="mx-6 mb-3 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
 			{showInput && (
-				<div className="space-y-3 p-3">
+				<div className="space-y-4 p-4">
 					<div className="flex items-center justify-between">
 						<div
 							className="flex rounded-lg bg-muted p-0.5"
@@ -115,7 +115,7 @@ export function TableFilterBar({
 					</div>
 
 					{mode === "structured" ? (
-						<div className="space-y-2">
+						<div className="space-y-3">
 							{structuredFilterInput.conditions.map((condition, index) => (
 								<FilterConditionRow
 									key={`${index}-${condition.column}`}
