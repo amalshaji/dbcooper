@@ -6,6 +6,7 @@ import DatabaseIcons from "../components/DatabaseIcons.astro";
 import FAQ from "../components/FAQ.astro";
 import Features from "../components/Features.astro";
 import InstallOptions from "../components/InstallOptions.astro";
+import RoadmapMap from "../components/RoadmapMap.astro";
 import SEO from "../components/SEO.astro";
 
 const year = new Date().getFullYear();
@@ -28,6 +29,7 @@ const year = new Date().getFullYear();
 				<nav aria-label="Primary navigation">
 					<a href="#features">Features</a>
 					<a href="#databases">Databases</a>
+					<a href="#roadmap">Roadmap</a>
 					<a href="https://github.com/amalshaji/dbcooper" target="_blank" rel="noreferrer">GitHub</a>
 				</nav>
 				<a class="button button-small" href="#install">
@@ -110,6 +112,7 @@ const year = new Date().getFullYear();
 			</section>
 
 			<div class="site-shell">
+				<RoadmapMap />
 				<Features />
 				<FAQ />
 			</div>
