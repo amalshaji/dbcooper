@@ -2,14 +2,16 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::filter::{compile_filter, FilterDialect, FilterValue};
+use super::filter::{
+    build_where_clause, compile_filter, structured_expression, FilterDialect, FilterValue,
+};
 use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, FilterExpression, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo,
-    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
+    SchemaOverview, TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
     TestConnectionResult,
 };
 use std::collections::HashMap;
@@ -161,16 +163,6 @@ impl ClickhouseDriver {
         Ok(())
     }
 
-    /// Normalize filter to handle smart quotes from macOS
-    fn normalize_filter(filter: &str) -> String {
-        filter
-            .replace('\u{2018}', "'") // Left single quotation mark
-            .replace('\u{2019}', "'") // Right single quotation mark
-            .replace('\u{201C}', "\"") // Left double quotation mark
-            .replace('\u{201D}', "\"") // Right double quotation mark
-            .replace("\\'", "'") // Backslash-escaped single quote
-    }
-
     fn escape_string_literal(value: &str) -> String {
         value.replace('\\', "\\\\").replace('\'', "\\'")
     }
@@ -270,17 +262,12 @@ impl DatabaseDriver for ClickhouseDriver {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
-        structured_filter: Option<FilterExpression>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let offset = (page - 1) * limit;
-        if filter.is_some() && structured_filter.is_some() {
-            return Err("Choose either structured filters or an advanced WHERE clause".to_string());
-        }
-
-        let compiled_filter = if let Some(expression) = structured_filter.as_ref() {
+        let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
             let columns = self
                 .get_table_structure(&self.config.database, table)
                 .await?
@@ -300,17 +287,7 @@ impl DatabaseDriver for ClickhouseDriver {
             .as_ref()
             .map(|filter| Self::filter_params(&filter.values))
             .unwrap_or_default();
-        let where_clause = compiled_filter
-            .as_ref()
-            .filter(|filter| !filter.sql.is_empty())
-            .map(|filter| format!(" WHERE {}", filter.sql))
-            .or_else(|| {
-                filter.as_ref().map(|f| {
-                    let normalized = Self::normalize_filter(f);
-                    format!(" WHERE {}", normalized)
-                })
-            })
-            .unwrap_or_default();
+        let where_clause = build_where_clause(filter.as_ref(), compiled_filter.as_ref());
 
         let order_clause = sort_column
             .as_ref()

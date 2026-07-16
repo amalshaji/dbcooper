@@ -30,6 +30,35 @@ export interface FilterExpression {
 	conditions: FilterCondition[];
 }
 
+export type TableFilter =
+	| { kind: "advanced"; value: string }
+	| { kind: "structured"; value: FilterExpression };
+
+export interface TableFilterState {
+	draft: TableFilter;
+	applied: TableFilter | null;
+}
+
+export function createTableFilterState(): TableFilterState {
+	return {
+		draft: {
+			kind: "structured",
+			value: { conjunction: "and", conditions: [] },
+		},
+		applied: null,
+	};
+}
+
+export function getFilterRequest(filter: TableFilter | null): {
+	filter?: string;
+	structuredFilter?: FilterExpression;
+} {
+	if (!filter) return {};
+	return filter.kind === "advanced"
+		? { filter: filter.value }
+		: { structuredFilter: filter.value };
+}
+
 export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
 	equals: "is",
 	not_equals: "is not",

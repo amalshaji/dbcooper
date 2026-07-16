@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
 	coerceFilterExpression,
+	createTableFilterState,
 	createCellFilter,
 	describeFilterExpression,
+	getFilterRequest,
 	isConditionComplete,
 	type FilterExpression,
 } from "./resultFilters";
@@ -101,6 +103,38 @@ describe("result filters", () => {
 		expect(coerced.conditions[0]?.value).toEqual({
 			kind: "integer",
 			value: "9007199254740993",
+		});
+	});
+
+	test("represents exactly one table filter mode at a time", () => {
+		const state = createTableFilterState();
+		expect(state).toEqual({
+			draft: {
+				kind: "structured",
+				value: { conjunction: "and", conditions: [] },
+			},
+			applied: null,
+		});
+		expect(
+			getFilterRequest({ kind: "advanced", value: "status = 'active'" }),
+		).toEqual({ filter: "status = 'active'" });
+		expect(
+			getFilterRequest({
+				kind: "structured",
+				value: {
+					conjunction: "and",
+					conditions: [
+						{ column: "status", operator: "equals", value: "active" },
+					],
+				},
+			}),
+		).toEqual({
+			structuredFilter: {
+				conjunction: "and",
+				conditions: [
+					{ column: "status", operator: "equals", value: "active" },
+				],
+			},
 		});
 	});
 });

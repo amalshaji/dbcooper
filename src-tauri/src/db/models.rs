@@ -183,6 +183,32 @@ pub struct FilterExpression {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TableFilter {
+    Advanced(String),
+    Structured(FilterExpression),
+}
+
+impl TableFilter {
+    pub fn from_parts(
+        advanced: Option<String>,
+        structured: Option<FilterExpression>,
+    ) -> Result<Option<Self>, String> {
+        match (
+            advanced.filter(|value| !value.trim().is_empty()),
+            structured,
+        ) {
+            (Some(_), Some(_)) => {
+                Err("Choose either structured filters or an advanced WHERE clause".to_string())
+            }
+            (Some(value), None) => Ok(Some(Self::Advanced(value))),
+            (None, Some(value)) => Ok(Some(Self::Structured(value))),
+            (None, None) => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub data: Vec<serde_json::Value>,
     pub row_count: i64,

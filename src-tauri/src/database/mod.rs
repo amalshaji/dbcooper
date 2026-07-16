@@ -9,8 +9,8 @@ pub mod redis;
 pub mod sqlite;
 
 use crate::db::models::{
-    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableFilter, TableInfo,
+    TableStructure, TestConnectionResult,
 };
 
 pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
@@ -178,8 +178,7 @@ pub trait DatabaseDriver: Send + Sync {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
-        structured_filter: Option<crate::db::models::FilterExpression>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String>;

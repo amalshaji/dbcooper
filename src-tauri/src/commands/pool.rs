@@ -235,6 +235,7 @@ pub async fn pool_get_table_data(
     sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
 
     match pool_manager
         .get_table_data(
@@ -243,8 +244,7 @@ pub async fn pool_get_table_data(
             &table,
             page,
             limit,
-            filter.clone(),
-            structured_filter.clone(),
+            table_filter.clone(),
             sort_column.clone(),
             sort_direction.clone(),
         )
@@ -264,8 +264,7 @@ pub async fn pool_get_table_data(
                     &table,
                     page,
                     limit,
-                    filter,
-                    structured_filter,
+                    table_filter,
                     sort_column,
                     sort_direction,
                 )

@@ -341,8 +341,7 @@ impl PoolManager {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
-        structured_filter: Option<crate::db::models::FilterExpression>,
+        filter: Option<crate::db::models::TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
@@ -357,7 +356,6 @@ impl PoolManager {
                 page,
                 limit,
                 filter,
-                structured_filter,
                 sort_column,
                 sort_direction,
             )
