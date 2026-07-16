@@ -1,4 +1,9 @@
-export type FilterScalar = string | number | boolean | null;
+export interface IntegerFilterValue {
+	kind: "integer";
+	value: string;
+}
+
+export type FilterScalar = string | number | boolean | null | IntegerFilterValue;
 
 export type FilterOperator =
 	| "equals"
@@ -81,9 +86,15 @@ export function createCellFilter(
 }
 
 function describeValue(value: FilterCondition["value"]): string {
-	if (Array.isArray(value)) return value.map(String).join(", ");
+	if (Array.isArray(value)) return value.map(describeScalar).join(", ");
 	if (value === null) return "null";
-	return String(value ?? "");
+	return value === undefined ? "" : describeScalar(value);
+}
+
+function describeScalar(value: FilterScalar): string {
+	return typeof value === "object" && value !== null
+		? value.value
+		: String(value);
 }
 
 export function describeFilterExpression(expression: FilterExpression): string {
@@ -106,10 +117,15 @@ function coerceScalar(value: FilterScalar, dataType: string): FilterScalar {
 		if (value.toLowerCase() === "false") return false;
 	}
 	if (
-		/(^|\W)(tinyint|smallint|integer|bigint|int|serial|decimal|numeric|real|float|double)/.test(
+		/(^|\W)(tinyint|smallint|integer|bigint|int|serial)/.test(
 			normalizedType,
 		)
 	) {
+		if (/^[+-]?\d+$/.test(value.trim())) {
+			return { kind: "integer", value: value.trim() };
+		}
+	}
+	if (/(^|\W)(decimal|numeric|real|float|double)/.test(normalizedType)) {
 		const number = Number(value);
 		if (Number.isFinite(number)) return number;
 	}

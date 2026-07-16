@@ -76,9 +76,31 @@ describe("result filters", () => {
 		);
 
 		expect(expression.conditions.map((condition) => condition.value)).toEqual([
-			18,
+			{ kind: "integer", value: "18" },
 			true,
 			["admin", "editor"],
 		]);
+	});
+
+	test("preserves 64-bit integers without JavaScript precision loss", () => {
+		const expression: FilterExpression = {
+			conjunction: "and",
+			conditions: [
+				{
+					column: "external_id",
+					operator: "equals",
+					value: "9007199254740993",
+				},
+			],
+		};
+
+		const coerced = coerceFilterExpression(expression, {
+			external_id: "bigint",
+		});
+
+		expect(coerced.conditions[0]?.value).toEqual({
+			kind: "integer",
+			value: "9007199254740993",
+		});
 	});
 });
