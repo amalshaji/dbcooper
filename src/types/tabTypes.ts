@@ -1,4 +1,5 @@
 import type { TableDataResponse } from "./tableData";
+import type { FilterExpression } from "@/lib/resultFilters";
 import type {
 	ColumnInfo,
 	ForeignKeyInfo,
@@ -50,6 +51,9 @@ export interface TableDataTab extends BaseTab {
 	loading: boolean;
 	filterInput: string;
 	filter: string;
+	filterMode: "structured" | "advanced";
+	structuredFilterInput: FilterExpression;
+	structuredFilter: FilterExpression | null;
 	foreignKeys: ForeignKeyInfo[];
 	columns: TableColumn[];
 	sort: SortConfig | null;
@@ -132,6 +136,9 @@ export function createTableDataTab(tableName: string): TableDataTab {
 		loading: false,
 		filterInput: "",
 		filter: "",
+		filterMode: "structured",
+		structuredFilterInput: { conjunction: "and", conditions: [] },
+		structuredFilter: null,
 		foreignKeys: [],
 		columns: [],
 		sort: null,

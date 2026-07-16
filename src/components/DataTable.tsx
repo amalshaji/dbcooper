@@ -8,6 +8,13 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { shouldVirtualizeRows as resolveRowVirtualization } from "@/lib/gridPerformance";
+import {
 	CaretUp,
 	CaretDown,
 	CaretUpDown,
@@ -33,6 +40,7 @@ interface DataTableProps<TData> {
 	sort?: SortState | null;
 	onSortChange?: (sort: SortState | null) => void;
 	isRowHighlighted?: (row: TData) => boolean;
+	onCellFilter?: (column: string, value: unknown, exclude: boolean) => void;
 }
 
 const COLUMN_WIDTH = 150;
@@ -53,6 +61,7 @@ export function DataTable<TData>({
 	sort = null,
 	onSortChange,
 	isRowHighlighted,
+	onCellFilter,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 
@@ -69,13 +78,16 @@ export function DataTable<TData>({
 	const visibleColumns = headerGroups[0]?.headers ?? [];
 
 	const shouldVirtualizeColumns = visibleColumns.length > 20;
-	const shouldVirtualizeRows = virtualize && rows.length > 50;
+	const shouldVirtualizeRows = resolveRowVirtualization(
+		virtualize,
+		rows.length,
+	);
 
 	const rowVirtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => containerRef.current,
 		estimateSize: () => estimatedRowHeight,
-		overscan: 10,
+		overscan: 12,
 		enabled: shouldVirtualizeRows,
 	});
 
@@ -84,7 +96,7 @@ export function DataTable<TData>({
 		count: visibleColumns.length,
 		getScrollElement: () => containerRef.current,
 		estimateSize: () => COLUMN_WIDTH,
-		overscan: 3,
+		overscan: 4,
 		enabled: shouldVirtualizeColumns,
 	});
 
@@ -168,21 +180,50 @@ export function DataTable<TData>({
 			const cell = row.getVisibleCells()[columnIndex];
 			if (!cell) return null;
 
+			const cellProps = {
+				style: {
+					width: COLUMN_WIDTH,
+					minWidth: MIN_COLUMN_WIDTH,
+					maxWidth: MAX_COLUMN_WIDTH,
+				},
+				className:
+					"p-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border",
+			};
+			const content = flexRender(cell.column.columnDef.cell, cell.getContext());
+
+			if (!onCellFilter) {
+				return (
+					<td key={cell.id} {...cellProps}>
+						{content}
+					</td>
+				);
+			}
+
 			return (
-				<td
-					key={cell.id}
-					style={{
-						width: COLUMN_WIDTH,
-						minWidth: MIN_COLUMN_WIDTH,
-						maxWidth: MAX_COLUMN_WIDTH,
-					}}
-					className="p-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border"
-				>
-					{flexRender(cell.column.columnDef.cell, cell.getContext())}
-				</td>
+				<ContextMenu key={cell.id}>
+					<ContextMenuTrigger render={<td {...cellProps} />}>
+						{content}
+					</ContextMenuTrigger>
+					<ContextMenuContent>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(cell.column.id, cell.getValue(), false)
+							}
+						>
+							Filter by this value
+						</ContextMenuItem>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(cell.column.id, cell.getValue(), true)
+							}
+						>
+							Exclude this value
+						</ContextMenuItem>
+					</ContextMenuContent>
+				</ContextMenu>
 			);
 		},
-		[],
+		[onCellFilter],
 	);
 
 	const renderTableBody = () => {
@@ -195,7 +236,9 @@ export function DataTable<TData>({
 								<MagnifyingGlass className="size-5" />
 							</div>
 							<div className="space-y-0.5">
-								<p className="text-sm font-medium text-foreground">No results</p>
+								<p className="text-sm font-medium text-foreground">
+									No results
+								</p>
 								<p className="text-xs text-muted-foreground">
 									Nothing to show for this query.
 								</p>
@@ -254,11 +297,7 @@ export function DataTable<TData>({
 			return totalColumnWidth;
 		}
 		return Math.max(visibleColumns.length * COLUMN_WIDTH, 100);
-	}, [
-		shouldVirtualizeColumns,
-		totalColumnWidth,
-		visibleColumns.length,
-	]);
+	}, [shouldVirtualizeColumns, totalColumnWidth, visibleColumns.length]);
 
 	const getSortIcon = (columnId: string) => {
 		if (!sortable) return null;
@@ -352,8 +391,9 @@ export function DataTable<TData>({
 			{!hidePagination && (
 				<div className="flex items-center justify-between px-2 pt-3 pb-1">
 					<div className="text-xs text-muted-foreground tabular-figures">
-						Page <span className="font-medium text-foreground">{currentPage}</span> of{" "}
-						<span className="font-medium text-foreground">{pageCount}</span>
+						Page{" "}
+						<span className="font-medium text-foreground">{currentPage}</span>{" "}
+						of <span className="font-medium text-foreground">{pageCount}</span>
 					</div>
 					<div className="flex items-center space-x-2">
 						<Button

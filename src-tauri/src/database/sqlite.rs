@@ -3,13 +3,14 @@ use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
+use super::filter::{compile_filter, CompiledFilter, FilterDialect, FilterValue};
 use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
     COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
-    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, FilterExpression, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
+    TableDataResponse, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
 use std::collections::HashMap;
 
@@ -24,6 +25,21 @@ impl SqliteDriver {
 
     fn connection_string(&self) -> String {
         format!("sqlite:{}?mode=rwc", self.config.file_path)
+    }
+
+    fn bind_filter<'q>(
+        mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+        filter: &'q CompiledFilter,
+    ) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+        for value in &filter.values {
+            query = match value {
+                FilterValue::Text(value) => query.bind(value),
+                FilterValue::Integer(value) => query.bind(value),
+                FilterValue::Float(value) => query.bind(value),
+                FilterValue::Boolean(value) => query.bind(value),
+            };
+        }
+        query
     }
 
     async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
@@ -179,24 +195,45 @@ impl DatabaseDriver for SqliteDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        structured_filter: Option<FilterExpression>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let pool = self.get_pool().await?;
 
         let offset = (page - 1) * limit;
-        let where_clause = filter
+        if filter.is_some() && structured_filter.is_some() {
+            return Err("Choose either structured filters or an advanced WHERE clause".to_string());
+        }
+
+        let compiled_filter = if let Some(expression) = structured_filter.as_ref() {
+            let columns = self
+                .get_table_structure("main", table)
+                .await?
+                .columns
+                .into_iter()
+                .map(|column| column.name)
+                .collect::<Vec<_>>();
+            Some(compile_filter(expression, &columns, FilterDialect::Sqlite)?)
+        } else {
+            None
+        };
+        let where_clause = compiled_filter
             .as_ref()
-            .map(|f| {
-                // Normalize curly/smart quotes to regular ASCII quotes
-                // macOS often auto-replaces straight quotes with smart quotes
-                let normalized = f
-                    .replace('\u{2018}', "'") // Left single quotation mark '
-                    .replace('\u{2019}', "'") // Right single quotation mark '
-                    .replace('\u{201C}', "\"") // Left double quotation mark "
-                    .replace('\u{201D}', "\"") // Right double quotation mark "
-                    .replace("\\'", "'"); // Backslash-escaped single quote
-                format!(" WHERE {}", normalized)
+            .filter(|filter| !filter.sql.is_empty())
+            .map(|filter| format!(" WHERE {}", filter.sql))
+            .or_else(|| {
+                filter.as_ref().map(|f| {
+                    // Normalize curly/smart quotes to regular ASCII quotes
+                    // macOS often auto-replaces straight quotes with smart quotes
+                    let normalized = f
+                        .replace('\u{2018}', "'") // Left single quotation mark '
+                        .replace('\u{2019}', "'") // Right single quotation mark '
+                        .replace('\u{201C}', "\"") // Left double quotation mark "
+                        .replace('\u{201D}', "\"") // Right double quotation mark "
+                        .replace("\\'", "'"); // Backslash-escaped single quote
+                    format!(" WHERE {}", normalized)
+                })
             })
             .unwrap_or_default();
 
@@ -232,10 +269,15 @@ impl DatabaseDriver for SqliteDriver {
             "SELECT COUNT(*) as count FROM \"{}\"{}",
             table, where_clause
         );
-        let count_row: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let count_row = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&count_query), filter)
+                .fetch_one(&pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0),))
+        } else {
+            sqlx::query_as(&count_query).fetch_one(&pool).await
+        }
+        .map_err(|e| e.to_string())?;
         let total = count_row.0;
 
         let data_query = format!(
@@ -243,10 +285,14 @@ impl DatabaseDriver for SqliteDriver {
             table, where_clause, order_clause, limit, offset
         );
 
-        let rows = sqlx::query(&data_query)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let rows = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&data_query), filter)
+                .fetch_all(&pool)
+                .await
+        } else {
+            sqlx::query(&data_query).fetch_all(&pool).await
+        }
+        .map_err(|e| e.to_string())?;
 
         pool.close().await;
 

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 pub mod clickhouse;
+pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
@@ -176,6 +177,7 @@ pub trait DatabaseDriver: Send + Sync {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        structured_filter: Option<crate::db::models::FilterExpression>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String>;

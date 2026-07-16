@@ -97,3 +97,46 @@ export function describeFilterExpression(expression: FilterExpression): string {
 		})
 		.join(` ${expression.conjunction} `);
 }
+
+function coerceScalar(value: FilterScalar, dataType: string): FilterScalar {
+	if (typeof value !== "string") return value;
+	const normalizedType = dataType.toLowerCase();
+	if (/bool/.test(normalizedType)) {
+		if (value.toLowerCase() === "true") return true;
+		if (value.toLowerCase() === "false") return false;
+	}
+	if (
+		/(^|\W)(tinyint|smallint|integer|bigint|int|serial|decimal|numeric|real|float|double)/.test(
+			normalizedType,
+		)
+	) {
+		const number = Number(value);
+		if (Number.isFinite(number)) return number;
+	}
+	return value;
+}
+
+export function coerceFilterExpression(
+	expression: FilterExpression,
+	columnTypes: Record<string, string>,
+): FilterExpression {
+	return {
+		...expression,
+		conditions: expression.conditions.map((condition) => {
+			if (!operatorNeedsValue(condition.operator)) {
+				return { ...condition, value: undefined };
+			}
+
+			const type = columnTypes[condition.column] ?? "text";
+			const rawValues =
+				condition.operator === "in" && typeof condition.value === "string"
+					? condition.value.split(",").map((value) => value.trim())
+					: condition.value;
+			const value = Array.isArray(rawValues)
+				? rawValues.map((item) => coerceScalar(item, type))
+				: coerceScalar(rawValues ?? null, type);
+
+			return { ...condition, value };
+		}),
+	};
+}

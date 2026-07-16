@@ -5,13 +5,14 @@ use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::filter::{compile_filter, CompiledFilter, FilterDialect, FilterValue};
 use super::{query_returns_rows, DatabaseDriver, PostgresConfig};
 use crate::database::queries::postgres::{
     FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, SCHEMA_OVERVIEW_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    ColumnInfo, FilterExpression, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
     TestConnectionResult,
 };
 
@@ -43,6 +44,21 @@ impl PostgresDriver {
             self.config.database,
             ssl_mode
         )
+    }
+
+    fn bind_filter<'q>(
+        mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+        filter: &'q CompiledFilter,
+    ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+        for value in &filter.values {
+            query = match value {
+                FilterValue::Text(value) => query.bind(value),
+                FilterValue::Integer(value) => query.bind(value),
+                FilterValue::Float(value) => query.bind(value),
+                FilterValue::Boolean(value) => query.bind(value),
+            };
+        }
+        query
     }
 
     async fn create_pool(&self) -> Result<sqlx::PgPool, String> {
@@ -303,6 +319,7 @@ impl DatabaseDriver for PostgresDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        structured_filter: Option<FilterExpression>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
@@ -310,18 +327,42 @@ impl DatabaseDriver for PostgresDriver {
 
         let offset = (page - 1) * limit;
         let full_table_name = format!("\"{}\".\"{}\"", schema, table);
-        let where_clause = filter
+        if filter.is_some() && structured_filter.is_some() {
+            return Err("Choose either structured filters or an advanced WHERE clause".to_string());
+        }
+
+        let compiled_filter = if let Some(expression) = structured_filter.as_ref() {
+            let columns = self
+                .get_table_structure(schema, table)
+                .await?
+                .columns
+                .into_iter()
+                .map(|column| column.name)
+                .collect::<Vec<_>>();
+            Some(compile_filter(
+                expression,
+                &columns,
+                FilterDialect::Postgres,
+            )?)
+        } else {
+            None
+        };
+        let where_clause = compiled_filter
             .as_ref()
-            .map(|f| {
-                // Normalize curly/smart quotes to regular ASCII quotes
-                // macOS often auto-replaces straight quotes with smart quotes
-                let normalized = f
-                    .replace('\u{2018}', "'") // Left single quotation mark '
-                    .replace('\u{2019}', "'") // Right single quotation mark '
-                    .replace('\u{201C}', "\"") // Left double quotation mark "
-                    .replace('\u{201D}', "\"") // Right double quotation mark "
-                    .replace("\\'", "'"); // Backslash-escaped single quote
-                format!(" WHERE {}", normalized)
+            .filter(|filter| !filter.sql.is_empty())
+            .map(|filter| format!(" WHERE {}", filter.sql))
+            .or_else(|| {
+                filter.as_ref().map(|f| {
+                    // Normalize curly/smart quotes to regular ASCII quotes
+                    // macOS often auto-replaces straight quotes with smart quotes
+                    let normalized = f
+                        .replace('\u{2018}', "'") // Left single quotation mark '
+                        .replace('\u{2019}', "'") // Right single quotation mark '
+                        .replace('\u{201C}', "\"") // Left double quotation mark "
+                        .replace('\u{201D}', "\"") // Right double quotation mark "
+                        .replace("\\'", "'"); // Backslash-escaped single quote
+                    format!(" WHERE {}", normalized)
+                })
             })
             .unwrap_or_default();
 
@@ -357,9 +398,14 @@ impl DatabaseDriver for PostgresDriver {
             "SELECT COUNT(*) as count FROM {}{}",
             full_table_name, where_clause
         );
-        let count_row: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(&pool)
-            .await
+        let count_row = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&count_query), filter)
+                .fetch_one(&pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0),))
+        } else {
+            sqlx::query_as(&count_query).fetch_one(&pool).await
+        }
             .map_err(|e| {
                 let error_str = e.to_string();
                 if error_str.contains("Connection reset by peer") 
@@ -377,9 +423,13 @@ impl DatabaseDriver for PostgresDriver {
             full_table_name, where_clause, order_clause, limit, offset
         );
 
-        let rows = sqlx::query(&data_query)
-            .fetch_all(&pool)
-            .await
+        let rows = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&data_query), filter)
+                .fetch_all(&pool)
+                .await
+        } else {
+            sqlx::query(&data_query).fetch_all(&pool).await
+        }
             .map_err(|e| {
                 let error_str = e.to_string();
                 if error_str.contains("Connection reset by peer") 

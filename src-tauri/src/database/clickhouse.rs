@@ -2,13 +2,14 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::filter::{compile_filter, FilterDialect, FilterValue};
 use super::DatabaseDriver;
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    ColumnInfo, FilterExpression, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo,
+    QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
     TestConnectionResult,
 };
 use std::collections::HashMap;
@@ -55,6 +56,14 @@ impl ClickhouseDriver {
 
     /// Execute a query and return JSON results using raw HTTP
     async fn execute_query_json(&self, query: &str) -> Result<Vec<Value>, String> {
+        self.execute_query_json_with_params(query, &[]).await
+    }
+
+    async fn execute_query_json_with_params(
+        &self,
+        query: &str,
+        params: &[(String, String)],
+    ) -> Result<Vec<Value>, String> {
         let url = self.build_url();
         let client = reqwest::Client::new();
 
@@ -68,10 +77,13 @@ impl ClickhouseDriver {
             format!("{} FORMAT JSONEachRow", cleaned_query)
         };
 
+        let mut query_params = vec![("database".to_string(), self.config.database.clone())];
+        query_params.extend_from_slice(params);
+
         let response = client
             .post(&url)
             .basic_auth(&self.config.username, Some(&self.config.password))
-            .query(&[("database", &self.config.database)])
+            .query(&query_params)
             .body(full_query)
             .send()
             .await
@@ -92,6 +104,22 @@ impl ClickhouseDriver {
             .collect();
 
         Ok(rows)
+    }
+
+    fn filter_params(values: &[FilterValue]) -> Vec<(String, String)> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let value = match value {
+                    FilterValue::Text(value) => value.clone(),
+                    FilterValue::Integer(value) => value.to_string(),
+                    FilterValue::Float(value) => value.to_string(),
+                    FilterValue::Boolean(value) => u8::from(*value).to_string(),
+                };
+                (format!("param_f{index}"), value)
+            })
+            .collect()
     }
 
     /// Execute a non-SELECT query
@@ -226,15 +254,44 @@ impl DatabaseDriver for ClickhouseDriver {
         page: i64,
         limit: i64,
         filter: Option<String>,
+        structured_filter: Option<FilterExpression>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let offset = (page - 1) * limit;
-        let where_clause = filter
+        if filter.is_some() && structured_filter.is_some() {
+            return Err("Choose either structured filters or an advanced WHERE clause".to_string());
+        }
+
+        let compiled_filter = if let Some(expression) = structured_filter.as_ref() {
+            let columns = self
+                .get_table_structure(&self.config.database, table)
+                .await?
+                .columns
+                .into_iter()
+                .map(|column| column.name)
+                .collect::<Vec<_>>();
+            Some(compile_filter(
+                expression,
+                &columns,
+                FilterDialect::Clickhouse,
+            )?)
+        } else {
+            None
+        };
+        let filter_params = compiled_filter
             .as_ref()
-            .map(|f| {
-                let normalized = Self::normalize_filter(f);
-                format!(" WHERE {}", normalized)
+            .map(|filter| Self::filter_params(&filter.values))
+            .unwrap_or_default();
+        let where_clause = compiled_filter
+            .as_ref()
+            .filter(|filter| !filter.sql.is_empty())
+            .map(|filter| format!(" WHERE {}", filter.sql))
+            .or_else(|| {
+                filter.as_ref().map(|f| {
+                    let normalized = Self::normalize_filter(f);
+                    format!(" WHERE {}", normalized)
+                })
             })
             .unwrap_or_default();
 
@@ -259,7 +316,9 @@ impl DatabaseDriver for ClickhouseDriver {
 
         // Get total count
         let count_query = format!("SELECT count() as count FROM `{}`{}", table, where_clause);
-        let count_rows = self.execute_query_json(&count_query).await?;
+        let count_rows = self
+            .execute_query_json_with_params(&count_query, &filter_params)
+            .await?;
         let total = count_rows
             .first()
             .and_then(|r| r["count"].as_str())
@@ -272,7 +331,9 @@ impl DatabaseDriver for ClickhouseDriver {
             "SELECT * FROM `{}`{}{} LIMIT {} OFFSET {}",
             table, where_clause, order_clause, limit, offset
         );
-        let data = self.execute_query_json(&data_query).await?;
+        let data = self
+            .execute_query_json_with_params(&data_query, &filter_params)
+            .await?;
 
         Ok(TableDataResponse {
             data,

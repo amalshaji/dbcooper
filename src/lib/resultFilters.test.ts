@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	coerceFilterExpression,
 	createCellFilter,
 	describeFilterExpression,
 	isConditionComplete,
@@ -39,9 +40,9 @@ describe("result filters", () => {
 				value: "cooper",
 			}),
 		).toBe(true);
-		expect(
-			isConditionComplete({ column: "name", operator: "contains" }),
-		).toBe(false);
+		expect(isConditionComplete({ column: "name", operator: "contains" })).toBe(
+			false,
+		);
 		expect(
 			isConditionComplete({ column: "name", operator: "is_not_null" }),
 		).toBe(true);
@@ -59,5 +60,25 @@ describe("result filters", () => {
 		expect(describeFilterExpression(expression)).toBe(
 			"status is active and deleted_at is null",
 		);
+	});
+
+	test("coerces numeric, boolean, and list values from the editor", () => {
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{ column: "age", operator: "greater_than", value: "18" },
+					{ column: "active", operator: "equals", value: "true" },
+					{ column: "role", operator: "in", value: "admin, editor" },
+				],
+			},
+			{ age: "integer", active: "boolean", role: "text" },
+		);
+
+		expect(expression.conditions.map((condition) => condition.value)).toEqual([
+			18,
+			true,
+			["admin", "editor"],
+		]);
 	});
 });

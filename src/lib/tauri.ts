@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/sqlFunctions";
+import type { FilterExpression } from "@/lib/resultFilters";
 
 export interface Connection {
 	id: number;
@@ -373,6 +374,7 @@ export const api = {
 			page: number,
 			limit: number,
 			filter?: string,
+			structuredFilter?: FilterExpression,
 		) =>
 			invoke<TableDataResponse>("unified_get_table_data", {
 				dbType: connection.db_type || "postgres",
@@ -388,6 +390,7 @@ export const api = {
 				page,
 				limit,
 				filter,
+				structuredFilter,
 			}),
 
 		getTableStructure: (
@@ -707,6 +710,7 @@ export const api = {
 			page: number,
 			limit: number,
 			filter?: string,
+			structuredFilter?: FilterExpression,
 			sortColumn?: string,
 			sortDirection?: "asc" | "desc",
 		) =>
@@ -717,6 +721,7 @@ export const api = {
 				page,
 				limit,
 				filter,
+				structuredFilter,
 				sortColumn,
 				sortDirection,
 			}),

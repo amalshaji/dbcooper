@@ -230,6 +230,7 @@ pub async fn pool_get_table_data(
     page: i64,
     limit: i64,
     filter: Option<String>,
+    structured_filter: Option<crate::db::models::FilterExpression>,
     sort_column: Option<String>,
     sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
@@ -243,6 +244,7 @@ pub async fn pool_get_table_data(
             page,
             limit,
             filter.clone(),
+            structured_filter.clone(),
             sort_column.clone(),
             sort_direction.clone(),
         )
@@ -263,6 +265,7 @@ pub async fn pool_get_table_data(
                     page,
                     limit,
                     filter,
+                    structured_filter,
                     sort_column,
                     sort_direction,
                 )
