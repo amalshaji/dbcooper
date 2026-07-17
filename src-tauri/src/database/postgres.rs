@@ -649,8 +649,12 @@ impl DatabaseDriver for PostgresDriver {
             let table_type: String = row.try_get("type").map_err(|e| e.to_string())?;
 
             let columns_json: Value = row.try_get("columns").map_err(|e| e.to_string())?;
-            let columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
+            let mut columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
                 .map_err(|e| format!("Failed to parse columns: {}", e))?;
+            for column in &mut columns {
+                column.filter_kind =
+                    classify_column_type(&column.data_type, FilterDialect::Postgres);
+            }
 
             let foreign_keys_json: Value =
                 row.try_get("foreign_keys").map_err(|e| e.to_string())?;
