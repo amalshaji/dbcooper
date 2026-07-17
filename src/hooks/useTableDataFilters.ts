@@ -37,7 +37,7 @@ export function useTableDataFilters({
 						value: coerceFilterExpression(
 							draft.value,
 							Object.fromEntries(
-								tab.columns.map((column) => [column.name, column.type]),
+								tab.columns.map((column) => [column.name, column.filter_kind]),
 							),
 						),
 					};

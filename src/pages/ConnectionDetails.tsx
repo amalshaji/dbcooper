@@ -2517,8 +2517,6 @@ export function ConnectionDetails() {
 			pendingInlineEditsByTab[tab.id] ?? {},
 		).length;
 		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
-		const hasReturnedRows = (tab.data?.data.length ?? 0) > 0;
-		const showFilterInput = tab.loading || hasReturnedRows;
 
 		return (
 			<Card className="workspace-panel">
@@ -2595,7 +2593,6 @@ export function ConnectionDetails() {
 					state={tab.filterState}
 					columns={tab.columns}
 					loading={tab.loading}
-					showInput={showFilterInput}
 					onStateChange={handleTableFilterStateChange}
 					onApply={handleApplyFilter}
 					onClear={handleClearFilter}

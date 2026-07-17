@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
 import { isSqlFunction } from "@/lib/sqlFunctions";
-import type { FilterExpression } from "@/lib/resultFilters";
 
 export interface Connection {
 	id: number;
@@ -56,6 +56,7 @@ export interface TableInfo {
 export interface ColumnInfo {
 	name: string;
 	type: string;
+	filter_kind: FilterColumnKind;
 	nullable: boolean;
 	default: string | null;
 	primary_key: boolean;

@@ -6,11 +6,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	type FilterCondition,
-	getFilterColumnKind,
-	operatorNeedsValue,
-} from "@/lib/resultFilters";
+import { type FilterCondition, operatorNeedsValue } from "@/lib/resultFilters";
 import type { TableColumn } from "@/types/tabTypes";
 
 interface FilterValueInputProps {
@@ -46,7 +42,7 @@ function getTemporalPlaceholder(dataType: string): string {
 }
 
 function getValuePlaceholder(column: TableColumn): string {
-	switch (getFilterColumnKind(column.type)) {
+	switch (column.filter_kind) {
 		case "integer":
 			return "0";
 		case "decimal":
@@ -61,7 +57,7 @@ function getValuePlaceholder(column: TableColumn): string {
 }
 
 function getListPlaceholder(column: TableColumn): string {
-	switch (getFilterColumnKind(column.type)) {
+	switch (column.filter_kind) {
 		case "integer":
 			return "1, 2";
 		case "decimal":
@@ -84,7 +80,7 @@ export function FilterValueInput({
 }: FilterValueInputProps) {
 	if (!operatorNeedsValue(condition.operator)) return null;
 
-	const columnKind = getFilterColumnKind(column.type);
+	const columnKind = column.filter_kind;
 	const inputValue = stringifyFilterValue(condition.value);
 	const ariaLabel = `Filter value for ${column.name}`;
 
@@ -95,7 +91,7 @@ export function FilterValueInput({
 		return (
 			<Select value={booleanValue} onValueChange={onChange}>
 				<SelectTrigger size="sm" className="flex-1" aria-label={ariaLabel}>
-					<SelectValue placeholder="Value" />
+					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
 					<SelectItem value="true">true</SelectItem>

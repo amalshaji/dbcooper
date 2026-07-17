@@ -7,12 +7,9 @@ import {
 	createTableFilterState,
 	describeFilterExpression,
 	type FilterExpression,
-	getFilterColumnKind,
 	getFilterOperatorsForColumn,
 	getFilterRequest,
 	isConditionComplete,
-	shouldShowFilterEditor,
-	type TableFilterState,
 } from "./resultFilters";
 
 describe("result filters", () => {
@@ -90,27 +87,6 @@ describe("result filters", () => {
 		]);
 	});
 
-	test("classifies PostgreSQL, SQLite, and ClickHouse column types", () => {
-		expect(getFilterColumnKind("character varying")).toBe("text");
-		expect(getFilterColumnKind("VARCHAR(255)")).toBe("text");
-		expect(getFilterColumnKind("LowCardinality(String)")).toBe("text");
-		expect(getFilterColumnKind("bigint")).toBe("integer");
-		expect(getFilterColumnKind("INTEGER")).toBe("integer");
-		expect(getFilterColumnKind("Nullable(UInt64)")).toBe("integer");
-		expect(getFilterColumnKind("double precision")).toBe("decimal");
-		expect(getFilterColumnKind("REAL")).toBe("decimal");
-		expect(getFilterColumnKind("Decimal(12, 2)")).toBe("decimal");
-		expect(getFilterColumnKind("boolean")).toBe("boolean");
-		expect(getFilterColumnKind("Nullable(Bool)")).toBe("boolean");
-		expect(getFilterColumnKind("timestamp with time zone")).toBe("temporal");
-		expect(getFilterColumnKind("DATETIME")).toBe("temporal");
-		expect(getFilterColumnKind("DateTime64(3)")).toBe("temporal");
-		expect(getFilterColumnKind("uuid")).toBe("uuid");
-		expect(getFilterColumnKind("Array(String)")).toBe("other");
-		expect(getFilterColumnKind("BLOB")).toBe("other");
-		expect(getFilterColumnKind("USER-DEFINED")).toBe("other");
-	});
-
 	test("offers operators compatible with the selected column type", () => {
 		expect(getFilterOperatorsForColumn("text")).toEqual([
 			"equals",
@@ -122,7 +98,7 @@ describe("result filters", () => {
 			"is_null",
 			"is_not_null",
 		]);
-		expect(getFilterOperatorsForColumn("Nullable(Int64)")).toEqual([
+		expect(getFilterOperatorsForColumn("integer")).toEqual([
 			"equals",
 			"not_equals",
 			"greater_than",
@@ -133,7 +109,7 @@ describe("result filters", () => {
 			"is_null",
 			"is_not_null",
 		]);
-		expect(getFilterOperatorsForColumn("timestamp")).toEqual([
+		expect(getFilterOperatorsForColumn("temporal")).toEqual([
 			"equals",
 			"not_equals",
 			"greater_than",
@@ -157,7 +133,7 @@ describe("result filters", () => {
 			"is_null",
 			"is_not_null",
 		]);
-		expect(getFilterOperatorsForColumn("jsonb")).toEqual([
+		expect(getFilterOperatorsForColumn("other")).toEqual([
 			"equals",
 			"not_equals",
 			"in",
@@ -190,7 +166,7 @@ describe("result filters", () => {
 					value: "18",
 				},
 				"score",
-				"numeric",
+				"decimal",
 			),
 		).toEqual({
 			column: "score",
@@ -252,7 +228,7 @@ describe("result filters", () => {
 		});
 	});
 
-	test("coerces wrapped ClickHouse scalar and list values", () => {
+	test("coerces typed scalar and list values", () => {
 		const expression = coerceFilterExpression(
 			{
 				conjunction: "and",
@@ -263,9 +239,9 @@ describe("result filters", () => {
 				],
 			},
 			{
-				visits: "Nullable(UInt64)",
-				score: "Decimal(12, 2)",
-				enabled: "Nullable(Bool)",
+				visits: "integer",
+				score: "decimal",
+				enabled: "boolean",
 			},
 		);
 
@@ -274,7 +250,7 @@ describe("result filters", () => {
 				{ kind: "integer", value: "1" },
 				{ kind: "integer", value: "2" },
 			],
-			1.5,
+			{ kind: "decimal", value: "1.5" },
 			false,
 		]);
 	});
@@ -292,12 +268,34 @@ describe("result filters", () => {
 		};
 
 		const coerced = coerceFilterExpression(expression, {
-			external_id: "bigint",
+			external_id: "integer",
 		});
 
 		expect(coerced.conditions[0]?.value).toEqual({
 			kind: "integer",
 			value: "9007199254740993",
+		});
+	});
+
+	test("preserves high precision decimals without JavaScript precision loss", () => {
+		const value = "12345678901234567890.123456789012345678";
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{
+						column: "amount",
+						operator: "equals",
+						value,
+					},
+				],
+			},
+			{ amount: "decimal" },
+		);
+
+		expect(expression.conditions[0]?.value).toEqual({
+			kind: "decimal",
+			value,
 		});
 	});
 
@@ -329,27 +327,5 @@ describe("result filters", () => {
 				conditions: [{ column: "status", operator: "equals", value: "active" }],
 			},
 		});
-	});
-
-	test("keeps the filter editor visible when an active filter has no rows", () => {
-		const state: TableFilterState = {
-			draft: {
-				kind: "structured",
-				value: {
-					conjunction: "and",
-					conditions: [{ column: "name", operator: "contains", value: "orgs" }],
-				},
-			},
-			applied: {
-				kind: "structured",
-				value: {
-					conjunction: "and",
-					conditions: [{ column: "name", operator: "contains", value: "orgs" }],
-				},
-			},
-		};
-
-		expect(shouldShowFilterEditor(false, state)).toBe(true);
-		expect(shouldShowFilterEditor(false, createTableFilterState())).toBe(false);
 	});
 });

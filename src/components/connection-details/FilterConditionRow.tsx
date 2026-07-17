@@ -42,16 +42,22 @@ export function FilterConditionRow({
 	onRemove,
 	onApply,
 }: FilterConditionRowProps) {
-	const selectedColumn =
-		columns.find((column) => column.name === condition.column) ?? columns[0];
-	const filterOperators = getFilterOperatorsForColumn(
-		selectedColumn?.type ?? "unknown",
+	const selectedColumn = columns.find(
+		(column) => column.name === condition.column,
 	);
+	const filterOperators = selectedColumn
+		? getFilterOperatorsForColumn(selectedColumn.filter_kind)
+		: [];
 
 	return (
 		<div className="flex items-center gap-2">
 			{showConjunction && (
-				<Select value={conjunction} onValueChange={onConjunctionChange}>
+				<Select
+					value={conjunction}
+					onValueChange={(value) => {
+						if (value) onConjunctionChange(value);
+					}}
+				>
 					<SelectTrigger size="sm" className="w-16">
 						<SelectValue />
 					</SelectTrigger>
@@ -64,18 +70,19 @@ export function FilterConditionRow({
 			<Select
 				value={condition.column}
 				onValueChange={(columnName) => {
+					if (!columnName) return;
 					const column = columns.find((item) => item.name === columnName);
 					onChange(
 						changeFilterConditionColumn(
 							condition,
 							columnName,
-							column?.type ?? "unknown",
+							column?.filter_kind ?? "other",
 						),
 					);
 				}}
 			>
 				<SelectTrigger size="sm" className="w-40" aria-label="Filter column">
-					<SelectValue placeholder="Column" />
+					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
 					{columns.map((column) => (
@@ -87,6 +94,7 @@ export function FilterConditionRow({
 			</Select>
 			<Select
 				value={condition.operator}
+				disabled={!selectedColumn}
 				onValueChange={(operator) =>
 					onChange(
 						changeFilterConditionOperator(
