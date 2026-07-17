@@ -1,14 +1,15 @@
 import { Code, Funnel, Plus } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { TableColumn } from "@/types/tabTypes";
 import {
 	describeFilterExpression,
-	isConditionComplete,
 	type FilterCondition,
 	type FilterExpression,
+	isConditionComplete,
+	shouldShowFilterEditor,
 	type TableFilterState,
 } from "@/lib/resultFilters";
+import type { TableColumn } from "@/types/tabTypes";
 import { FilterConditionRow } from "./FilterConditionRow";
 
 interface TableFilterBarProps {
@@ -45,7 +46,8 @@ export function TableFilterBar({
 			: { conjunction: "and" as const, conditions: [] };
 	const filterInput = state.draft.kind === "advanced" ? state.draft.value : "";
 	const hasActiveFilter = state.applied !== null;
-	if (!showInput && !hasActiveFilter) return null;
+	const showEditor = shouldShowFilterEditor(showInput, state);
+	if (!showEditor) return null;
 
 	const setStructuredDraft = (value: FilterExpression) =>
 		onStateChange({ ...state, draft: { kind: "structured", value } });
@@ -80,14 +82,11 @@ export function TableFilterBar({
 
 	return (
 		<div className="mx-6 mb-3 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
-			{showInput && (
+			{showEditor && (
 				<div className="space-y-4 p-4">
 					<div className="flex flex-wrap items-center gap-2">
-						<div
-							className="flex rounded-lg bg-muted p-0.5"
-							role="group"
-							aria-label="Filter mode"
-						>
+						<fieldset className="flex rounded-lg bg-muted p-0.5">
+							<legend className="sr-only">Filter mode</legend>
 							<Button
 								variant="ghost"
 								size="sm"
@@ -127,7 +126,7 @@ export function TableFilterBar({
 							>
 								<Code /> Advanced
 							</Button>
-						</div>
+						</fieldset>
 						{mode === "advanced" && (
 							<span className="text-[11px] text-muted-foreground">
 								SQL WHERE clause

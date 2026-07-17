@@ -11,6 +11,8 @@ import {
 	getFilterOperatorsForColumn,
 	getFilterRequest,
 	isConditionComplete,
+	shouldShowFilterEditor,
+	type TableFilterState,
 } from "./resultFilters";
 
 describe("result filters", () => {
@@ -327,5 +329,27 @@ describe("result filters", () => {
 				conditions: [{ column: "status", operator: "equals", value: "active" }],
 			},
 		});
+	});
+
+	test("keeps the filter editor visible when an active filter has no rows", () => {
+		const state: TableFilterState = {
+			draft: {
+				kind: "structured",
+				value: {
+					conjunction: "and",
+					conditions: [{ column: "name", operator: "contains", value: "orgs" }],
+				},
+			},
+			applied: {
+				kind: "structured",
+				value: {
+					conjunction: "and",
+					conditions: [{ column: "name", operator: "contains", value: "orgs" }],
+				},
+			},
+		};
+
+		expect(shouldShowFilterEditor(false, state)).toBe(true);
+		expect(shouldShowFilterEditor(false, createTableFilterState())).toBe(false);
 	});
 });

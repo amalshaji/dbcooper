@@ -63,6 +63,13 @@ export function createTableFilterState(): TableFilterState {
 	};
 }
 
+export function shouldShowFilterEditor(
+	showInput: boolean,
+	state: TableFilterState,
+): boolean {
+	return showInput || state.applied !== null;
+}
+
 export function getFilterRequest(filter: TableFilter | null): {
 	filter?: string;
 	structuredFilter?: FilterExpression;
