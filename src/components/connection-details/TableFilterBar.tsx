@@ -85,12 +85,18 @@ export function TableFilterBar({
 					<div className="flex flex-wrap items-center gap-2">
 						<div
 							className="flex rounded-lg bg-muted p-0.5"
-							role="tablist"
+							role="group"
 							aria-label="Filter mode"
 						>
 							<Button
-								variant={mode === "structured" ? "secondary" : "ghost"}
+								variant="ghost"
 								size="sm"
+								className={
+									mode === "structured"
+										? "border-border bg-background text-foreground shadow-sm hover:bg-background"
+										: "text-muted-foreground"
+								}
+								aria-pressed={mode === "structured"}
 								onClick={() =>
 									onStateChange({
 										...state,
@@ -104,8 +110,14 @@ export function TableFilterBar({
 								<Funnel /> Builder
 							</Button>
 							<Button
-								variant={mode === "advanced" ? "secondary" : "ghost"}
+								variant="ghost"
 								size="sm"
+								className={
+									mode === "advanced"
+										? "border-border bg-background text-foreground shadow-sm hover:bg-background"
+										: "text-muted-foreground"
+								}
+								aria-pressed={mode === "advanced"}
 								onClick={() =>
 									onStateChange({
 										...state,
