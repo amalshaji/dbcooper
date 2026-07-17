@@ -1,20 +1,25 @@
+import {
+	CheckCircle,
+	Eye,
+	EyeSlash,
+	WarningCircle,
+} from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Eye, EyeSlash } from "@phosphor-icons/react";
-import { api, type AiHarnessStatus, type AiProvider } from "@/lib/tauri";
-import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import {
 	Combobox,
-	ComboboxInput,
 	ComboboxContent,
-	ComboboxList,
+	ComboboxInput,
 	ComboboxItem,
+	ComboboxList,
 } from "@/components/ui/combobox";
-import { useTheme, type Theme } from "@/contexts/ThemeContext";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { type Theme, useTheme } from "@/contexts/ThemeContext";
+import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
 
 interface SettingsFormProps {
 	onSaveSuccess?: () => void;
@@ -91,8 +96,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center py-8">
-				<Spinner className="w-8 h-8" />
+			<div className="flex items-center justify-center py-10">
+				<Spinner className="size-5" />
+				<span className="ml-3 text-sm text-muted-foreground">
+					Loading preferences…
+				</span>
 			</div>
 		);
 	}
@@ -101,7 +109,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const headingSize = compact ? "text-sm font-medium" : "text-lg font-medium";
 	const sectionClass = compact
 		? "space-y-3"
-		: "space-y-4 rounded-xl border bg-muted/15 p-4";
+		: "space-y-4 border-b pb-6 last:border-b-0 last:pb-0";
 	const selectedHarness = detectedHarnesses.find(
 		(harness) => harness.provider === aiProvider,
 	);
@@ -109,13 +117,15 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	return (
 		<div className={spacing}>
 			<div className={sectionClass}>
-				<h3 className={headingSize}>Appearance</h3>
-				{!compact && (
-					<p className="text-xs text-muted-foreground">
-						Match the window to your workspace or follow macOS.
-					</p>
-				)}
-				<div className="flex rounded-lg bg-muted p-0.5">
+				<div>
+					<h3 className={headingSize}>Appearance</h3>
+					{!compact && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							Match the window to your workspace or follow macOS.
+						</p>
+					)}
+				</div>
+				<div className="flex rounded-md border bg-muted/50 p-0.5">
 					{(["light", "dark", "system"] as Theme[]).map((t) => (
 						<Button
 							key={t}
@@ -131,16 +141,25 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			</div>
 
 			<div className={sectionClass}>
-				<h3 className={headingSize}>Updates</h3>
-				{!compact && (
-					<p className="text-xs text-muted-foreground">
-						Keep DBcooper current without interrupting your work.
-					</p>
-				)}
-				<div className="flex items-center justify-between">
-					<Label htmlFor="check-updates" className={compact ? "text-sm" : ""}>
-						Check for updates on startup
-					</Label>
+				<div>
+					<h3 className={headingSize}>Updates</h3>
+					{!compact && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							Keep DBcooper current without interrupting your work.
+						</p>
+					)}
+				</div>
+				<div className="flex items-center justify-between rounded-md border bg-card px-3 py-2.5">
+					<div>
+						<Label htmlFor="check-updates" className={compact ? "text-sm" : ""}>
+							Check for updates on startup
+						</Label>
+						{!compact && (
+							<p className="mt-0.5 text-xs text-muted-foreground">
+								You can still install updates when you are ready.
+							</p>
+						)}
+					</div>
 					<Switch
 						id="check-updates"
 						checked={checkUpdates}
@@ -150,13 +169,15 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			</div>
 
 			<div className={sectionClass}>
-				<h3 className={headingSize}>AI SQL</h3>
-				{!compact && (
-					<p className="text-xs text-muted-foreground">
-						Generate schema-aware drafts. Queries are previewed and never run
-						automatically.
-					</p>
-				)}
+				<div>
+					<h3 className={headingSize}>AI SQL</h3>
+					{!compact && (
+						<p className="mt-1 text-xs text-muted-foreground">
+							Generate schema-aware drafts. Queries are previewed and never run
+							automatically.
+						</p>
+					)}
+				</div>
 				<div className="space-y-2">
 					<Label className={compact ? "text-sm" : ""}>Provider</Label>
 					<Combobox
@@ -238,7 +259,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="openai-key" className={compact ? "text-sm" : ""}>
-								API Key
+								API key
 							</Label>
 							<div className="relative">
 								<Input
@@ -255,6 +276,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 									size="icon"
 									className="absolute right-0 top-0 h-full"
 									onClick={() => setShowApiKey(!showApiKey)}
+									aria-label={showApiKey ? "Hide API key" : "Show API key"}
 								>
 									{showApiKey ? (
 										<EyeSlash className="h-4 w-4" />
@@ -275,12 +297,29 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 							passed to that tool; it may still use its configured cloud
 							provider.
 						</p>
-						<p className="mt-2">
-							Status:{" "}
-							{selectedHarness?.available
-								? `found at ${selectedHarness.path}`
-								: (selectedHarness?.error ?? "not detected")}
-						</p>
+						<div className="mt-3 flex items-start border-t pt-3">
+							{selectedHarness?.available ? (
+								<CheckCircle
+									className="mr-2 mt-0.5 size-4 shrink-0 text-emerald-500"
+									weight="fill"
+								/>
+							) : (
+								<WarningCircle className="mr-2 mt-0.5 size-4 shrink-0 text-amber-500" />
+							)}
+							<div className="min-w-0">
+								<p className="font-medium text-foreground">
+									{selectedHarness?.available
+										? "Local harness found"
+										: "Local harness not detected"}
+								</p>
+								<p className="mt-0.5 break-all font-mono text-[11px]">
+									{selectedHarness?.available
+										? selectedHarness.path
+										: (selectedHarness?.error ??
+											"Install or sign in to the selected tool.")}
+								</p>
+							</div>
+						</div>
 					</div>
 				)}
 			</div>
@@ -292,7 +331,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 					className={compact ? "w-full" : ""}
 				>
 					{saving && <Spinner />}
-					Save Settings
+					Save settings
 				</Button>
 			</div>
 		</div>

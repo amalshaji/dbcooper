@@ -24,16 +24,14 @@ export function EmptyState({
 	const resolvedActions = actions ?? (action ? [action] : []);
 
 	return (
-		<div className="app-surface flex w-full max-w-xl flex-col items-center justify-center rounded-3xl border px-8 py-14 text-center ring-1 ring-foreground/[0.025]">
+		<div className="workspace-panel flex w-full max-w-lg flex-col items-center justify-center rounded-xl border px-8 py-10 text-center shadow-sm">
 			{icon && (
-				<div className="mb-6 flex size-16 items-center justify-center rounded-2xl bg-primary/8 text-primary ring-1 ring-primary/15 shadow-[0_16px_35px_-24px_var(--primary)] [&_svg]:size-7">
+				<div className="mb-5 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15 [&_svg]:size-5">
 					{icon}
 				</div>
 			)}
-			<h3 className="mb-2 text-xl font-semibold tracking-[-0.025em]">
-				{title}
-			</h3>
-			<p className="text-sm text-muted-foreground mb-6 max-w-md leading-relaxed">
+			<h3 className="mb-1.5 text-lg font-semibold tracking-tight">{title}</h3>
+			<p className="mb-5 max-w-sm text-sm leading-relaxed text-muted-foreground">
 				{description}
 			</p>
 			{resolvedActions.length > 0 && (
