@@ -1,0 +1,129 @@
+---
+type RoadmapStatus = "released" | "building" | "next" | "exploring";
+type LaneColor = "cyan" | "lime";
+
+interface RoadmapStop {
+	name: string;
+	detail: string;
+	status: RoadmapStatus;
+}
+
+interface RoadmapLane {
+	label: string;
+	subtitle: string;
+	color: LaneColor;
+	stops: RoadmapStop[];
+}
+
+const productStops: RoadmapStop[] = [
+	{ name: "Million-row paging", detail: "Benchmarked first-window load", status: "released" },
+	{ name: "Structured filters", detail: "Safe, visual conditions", status: "released" },
+	{ name: "Contextual AI", detail: "Preview before apply", status: "released" },
+	{ name: "Saved views", detail: "Filters, sort, layout", status: "next" },
+	{ name: "Schema diff", detail: "Review changes locally", status: "exploring" },
+];
+
+const adapterStops: RoadmapStop[] = [
+	{ name: "PostgreSQL + SQLite", detail: "Native table and query tools", status: "released" },
+	{ name: "Redis + ClickHouse", detail: "Purpose-built workflows", status: "released" },
+	{ name: "MySQL + MariaDB", detail: "Relational adapter", status: "next" },
+	{ name: "DuckDB", detail: "Local analytical files", status: "next" },
+	{ name: "MongoDB", detail: "Document explorer", status: "exploring" },
+];
+
+const lanes: RoadmapLane[] = [
+	{ label: "Workbench", subtitle: "Product line", color: "cyan", stops: productStops },
+	{ label: "Adapters", subtitle: "Database line", color: "lime", stops: adapterStops },
+];
+---
+
+<section id="roadmap" class="roadmap">
+	<div class="section-heading section-heading-split">
+		<div>
+			<p class="eyebrow">The route ahead</p>
+			<h2>A roadmap you can<br />actually follow.</h2>
+		</div>
+		<p>DBcooper grows along two tracks: a faster workbench and more native adapters. No premium tier, no feature tollbooths.</p>
+	</div>
+
+	<div class="roadmap-board" aria-label="DBcooper product and database adapter roadmap">
+		<div class="roadmap-legend" aria-label="Roadmap status legend">
+			<span><i class="released"></i> Released</span>
+			<span><i class="building"></i> Building</span>
+			<span><i class="next"></i> Next</span>
+			<span><i class="exploring"></i> Exploring</span>
+		</div>
+
+		<div class="roadmap-scroll">
+			<div class="roadmap-map">
+				{lanes.map((lane) => (
+					<div class={`roadmap-lane roadmap-lane-${lane.color}`}>
+						<div class="lane-label">
+							<span>{lane.label}</span>
+							<small>{lane.subtitle}</small>
+						</div>
+						<div class="lane-track" aria-hidden="true"></div>
+						{lane.stops.map((stop, index) => (
+							<article class={`roadmap-stop roadmap-stop-${stop.status}`} style={`--stop: ${index + 1}`}>
+								<div class="stop-marker"><span></span></div>
+								<p class="stop-status">{stop.status}</p>
+								<h3>{stop.name}</h3>
+								<p>{stop.detail}</p>
+							</article>
+						))}
+					</div>
+				))}
+
+			</div>
+		</div>
+
+		<footer class="roadmap-footer">
+			<span>Route updates ship in public</span>
+			<a href="https://github.com/amalshaji/dbcooper/issues" target="_blank" rel="noreferrer">Request a stop ↗</a>
+		</footer>
+	</div>
+</section>
+
+<style>
+	.roadmap { border-bottom: 1px solid var(--line); padding-block: clamp(80px, 8vw, 120px); }
+	.roadmap-board { overflow: hidden; border: 1px solid color-mix(in srgb, var(--ink-faint) 58%, transparent); background: #031018; }
+	.roadmap-legend, .roadmap-footer { display: flex; align-items: center; border-bottom: 1px solid color-mix(in srgb, var(--ink-faint) 38%, transparent); padding: 12px 16px; color: color-mix(in srgb, var(--ink) 70%, transparent); font-family: var(--font-mono); font-size: 0.7rem; }
+	.roadmap-legend { justify-content: flex-end; gap: 22px; }
+	.roadmap-legend span { display: inline-flex; align-items: center; gap: 7px; }
+	.roadmap-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-faint); }
+	.roadmap-legend .released { background: var(--cyan); }
+	.roadmap-legend .building { background: var(--coral); }
+	.roadmap-legend .next { border: 1px solid var(--lime); background: transparent; }
+	.roadmap-legend .exploring { border: 1px solid var(--ink-faint); background: transparent; }
+	.roadmap-scroll { overflow-x: auto; }
+	.roadmap-map { position: relative; min-width: 1050px; padding: 24px 24px 28px; }
+	.roadmap-lane { position: relative; display: grid; min-height: 142px; grid-template-columns: 150px repeat(5, minmax(150px, 1fr)); }
+	.roadmap-lane + .roadmap-lane { margin-top: 8px; }
+	.lane-label { align-self: start; padding: 37px 22px 0 0; color: var(--ink); font-family: var(--font-mono); font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+	.lane-label small { display: block; margin-top: 5px; color: color-mix(in srgb, var(--ink) 52%, transparent); font-size: 0.6rem; font-weight: 500; letter-spacing: 0.06em; }
+	.lane-track { position: absolute; top: 47px; right: 5%; left: 150px; height: 3px; background: var(--cyan); opacity: 0.88; }
+	.roadmap-lane-lime .lane-track { background: var(--lime); }
+	.roadmap-stop { position: relative; grid-column: calc(var(--stop) + 1); min-width: 0; padding: 70px 18px 0 0; }
+	.stop-marker { position: absolute; top: 38px; left: 0; display: grid; width: 20px; height: 20px; place-items: center; border: 2px solid var(--cyan); border-radius: 50%; background: #031018; }
+	.roadmap-lane-lime .stop-marker { border-color: var(--lime); }
+	.stop-marker span { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); }
+	.roadmap-lane-lime .stop-marker span { background: var(--lime); }
+	.roadmap-stop-building .stop-marker { border-color: var(--coral); }
+	.roadmap-stop-building .stop-marker span { background: var(--coral); }
+	.roadmap-stop-next .stop-marker span, .roadmap-stop-exploring .stop-marker span { background: transparent; }
+	.roadmap-stop-exploring { opacity: 0.72; }
+	.stop-status { margin: 0 0 7px; color: var(--cyan); font-family: var(--font-mono); font-size: 0.61rem; font-weight: 650; letter-spacing: 0.12em; text-transform: uppercase; }
+	.roadmap-lane-lime .stop-status { color: var(--lime); }
+	.roadmap-stop-building .stop-status { color: var(--coral); }
+	.roadmap-stop h3 { max-width: 155px; margin: 0; color: var(--ink); font-family: var(--font-sans); font-size: 0.96rem; font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+	.roadmap-stop > p:last-child { max-width: 155px; margin: 6px 0 0; color: color-mix(in srgb, var(--ink) 68%, transparent); font-size: 0.75rem; line-height: 1.4; }
+	.roadmap-footer { justify-content: space-between; border-top: 1px solid var(--line); border-bottom: 0; }
+	.roadmap-footer a { color: var(--cyan-bright); }
+	@media (max-width: 640px) {
+		.roadmap-legend { justify-content: flex-start; gap: 14px; overflow-x: auto; }
+		.roadmap-map { min-width: 920px; padding-inline: 18px; }
+		.roadmap-lane { grid-template-columns: 120px repeat(5, minmax(140px, 1fr)); }
+		.lane-track { left: 120px; }
+		.roadmap-footer { align-items: flex-start; flex-direction: column; gap: 8px; }
+	}
+</style>

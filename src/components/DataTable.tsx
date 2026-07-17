@@ -1,11 +1,17 @@
-import { useRef, useMemo, useCallback, useState } from "react";
 import {
+	CaretDown,
+	CaretUp,
+	CaretUpDown,
+	MagnifyingGlass,
+} from "@phosphor-icons/react";
+import {
+	type ColumnDef,
 	flexRender,
 	getCoreRowModel,
 	useReactTable,
-	type ColumnDef,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
@@ -13,12 +19,6 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import {
-	CaretUp,
-	CaretDown,
-	CaretUpDown,
-	MagnifyingGlass,
-} from "@phosphor-icons/react";
 
 export interface SortState {
 	column: string;
@@ -188,7 +188,7 @@ export function DataTable<TData>({
 					maxWidth: MAX_COLUMN_WIDTH,
 				},
 				className:
-					"p-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border",
+					"h-10 px-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border",
 			};
 			const content = flexRender(cell.column.columnDef.cell, cell.getContext());
 
@@ -218,9 +218,9 @@ export function DataTable<TData>({
 			return (
 				<tr>
 					<td colSpan={columns.length} className="p-3">
-						<div className="flex flex-col items-center justify-center gap-2.5 py-14 text-center">
-							<div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground/70 ring-1 ring-border">
-								<MagnifyingGlass className="size-5" />
+						<div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+							<div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground/70 ring-1 ring-border">
+								<MagnifyingGlass className="size-4" />
 							</div>
 							<div className="space-y-0.5">
 								<p className="text-sm font-medium text-foreground">
@@ -253,7 +253,7 @@ export function DataTable<TData>({
 							ref={measureRowElement}
 							data-state={row.getIsSelected() && "selected"}
 							data-highlighted={highlighted ? "true" : undefined}
-							className={`hover:bg-muted/50 data-[state=selected]:bg-muted data-[highlighted=true]:bg-primary/5 border-b transition-colors ${
+							className={`border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted data-[highlighted=true]:bg-primary/5 ${
 								onRowClick ? "cursor-pointer" : ""
 							}`}
 							onClick={() => onRowClick?.(row.original)}
@@ -306,19 +306,19 @@ export function DataTable<TData>({
 					render={
 						<div
 							ref={containerRef}
-							className="rounded-md border overflow-auto w-full"
+							className="w-full overflow-auto rounded-md border bg-card"
 						/>
 					}
 				>
 					<table
-						className="caption-bottom text-xs border-collapse tabular-figures"
+						className="caption-bottom border-collapse text-xs tabular-figures"
 						style={{
 							width: tableWidth,
 							minWidth: "100%",
 							tableLayout: "fixed",
 						}}
 					>
-						<thead className="sticky top-0 bg-background z-10 shadow-[0_6px_10px_-8px_rgb(0_0_0/0.12)]">
+						<thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
 							{headerGroups.map((headerGroup) => (
 								<tr key={headerGroup.id} className="border-b">
 									{paddingLeft > 0 && (
@@ -344,7 +344,7 @@ export function DataTable<TData>({
 													minWidth: MIN_COLUMN_WIDTH,
 													maxWidth: MAX_COLUMN_WIDTH,
 												}}
-												className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
+												className={`h-10 overflow-hidden text-ellipsis whitespace-nowrap bg-transparent px-3 text-left align-middle font-medium text-foreground box-border ${
 													sortable
 														? "cursor-pointer hover:bg-muted/50 select-none"
 														: ""
@@ -400,7 +400,7 @@ export function DataTable<TData>({
 			</ContextMenu>
 
 			{!hidePagination && (
-				<div className="flex items-center justify-between px-2 pt-3 pb-1">
+				<div className="flex items-center justify-between px-1 pb-1 pt-3">
 					<div className="text-xs text-muted-foreground tabular-figures">
 						Page{" "}
 						<span className="font-medium text-foreground">{currentPage}</span>{" "}

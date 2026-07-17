@@ -1,11 +1,11 @@
+import { SettingsForm } from "@/components/SettingsForm";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogHeader,
 	DialogTitle,
-	DialogDescription,
 } from "@/components/ui/dialog";
-import { SettingsForm } from "@/components/SettingsForm";
 
 interface SettingsDialogProps {
 	open: boolean;
@@ -15,10 +15,12 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+			<DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
 				<DialogHeader>
 					<DialogTitle>Settings</DialogTitle>
-					<DialogDescription>Configure your preferences</DialogDescription>
+					<DialogDescription>
+						Appearance, updates, and contextual AI.
+					</DialogDescription>
 				</DialogHeader>
 				<div className="py-2">
 					<SettingsForm compact onSaveSuccess={() => onOpenChange(false)} />

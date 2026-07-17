@@ -1,4 +1,4 @@
-@import "@fontsource/google-sans-flex";
+@import "@fontsource/google-sans-flex/latin.css";
 @import "@fontsource-variable/sora";
 
 :root {
@@ -29,6 +29,7 @@ html {
 	color: var(--ink);
 	color-scheme: dark;
 	scroll-behavior: smooth;
+	scroll-padding-top: 96px;
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
 }

@@ -1,9 +1,30 @@
+import {
+	Copy,
+	Database,
+	DotsThreeVertical,
+	Export,
+	Gear,
+	GithubLogo,
+	Lock,
+	PencilSimple,
+	Plus,
+	Trash,
+	UploadSimple,
+} from "@phosphor-icons/react";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { EmptyState } from "@/components/EmptyState";
+import { toast } from "sonner";
 import { ConnectionForm } from "@/components/ConnectionForm";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/EmptyState";
+import { ClickhouseIcon } from "@/components/icons/clickhouse";
+
+import { PostgresqlIcon } from "@/components/icons/postgres";
+import { RedisIcon } from "@/components/icons/redis";
+import { SqliteIcon } from "@/components/icons/sqlite";
+import { UpdateChecker } from "@/components/UpdateChecker";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -14,89 +35,65 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-	Database,
-	Gear,
-	GithubLogo,
-	PencilSimple,
-	Trash,
-	Plus,
-	DotsThreeVertical,
-	Lock,
-	Copy,
-	Export,
-	UploadSimple,
-} from "@phosphor-icons/react";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-
-import { PostgresqlIcon } from "@/components/icons/postgres";
-import { RedisIcon } from "@/components/icons/redis";
-import { SqliteIcon } from "@/components/icons/sqlite";
-import { ClickhouseIcon } from "@/components/icons/clickhouse";
-
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
 	type Connection,
 	type ConnectionFormData,
 	type ConnectionsExport,
 } from "@/lib/tauri";
-import { Spinner } from "@/components/ui/spinner";
-import { UpdateChecker } from "@/components/UpdateChecker";
-import { handleDragStart } from "@/lib/windowDrag";
-import { save, open } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { toast } from "sonner";
 
-// Database type icons and colors
 const getDbTypeConfig = (type: string) => {
 	switch (type) {
 		case "postgres":
 			return {
 				icon: PostgresqlIcon,
-				gradient: "from-blue-500/20 to-cyan-500/20",
-				borderColor: "group-hover:border-blue-500/50",
+				iconClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+				accentClass: "bg-blue-500",
 			};
 		case "mysql":
 			return {
 				icon: Database,
-				gradient: "from-orange-500/20 to-yellow-500/20",
-				borderColor: "group-hover:border-orange-500/50",
+				iconClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+				accentClass: "bg-orange-500",
 			};
 		case "sqlite":
 			return {
 				icon: SqliteIcon,
-				gradient: "from-emerald-500/20 to-teal-500/20",
-				borderColor: "group-hover:border-emerald-500/50",
+				iconClass: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
+				accentClass: "bg-cyan-500",
 			};
 		case "redis":
 			return {
 				icon: RedisIcon,
-				gradient: "from-red-500/20 to-rose-500/20",
-				borderColor: "group-hover:border-red-500/50",
+				iconClass: "bg-red-500/10 text-red-600 dark:text-red-400",
+				accentClass: "bg-red-500",
 			};
 		case "clickhouse":
 			return {
 				icon: ClickhouseIcon,
-				gradient: "from-yellow-400/20 to-yellow-500/20",
-				borderColor: "group-hover:border-yellow-400/50",
+				iconClass: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
+				accentClass: "bg-yellow-500",
 			};
 		default:
 			return {
 				icon: Database,
-				gradient: "from-primary/20 to-accent/20",
-				borderColor: "group-hover:border-primary/50",
+				iconClass: "bg-primary/10 text-primary",
+				accentClass: "bg-primary",
 			};
 	}
 };
@@ -277,11 +274,11 @@ export function Connections() {
 
 	if (loading) {
 		return (
-			<div className="flex items-center justify-center min-h-screen bg-background">
-				<div className="flex flex-col items-center gap-3">
-					<Spinner className="w-8 h-8" />
-					<p className="text-sm text-muted-foreground">
-						Loading connections...
+			<div className="workspace-canvas flex min-h-screen items-center justify-center">
+				<div className="workspace-panel flex min-w-56 items-center rounded-lg border px-4 py-3 shadow-sm">
+					<Spinner className="size-4" />
+					<p className="ml-3 text-sm text-muted-foreground">
+						Loading connections…
 					</p>
 				</div>
 			</div>
@@ -289,15 +286,14 @@ export function Connections() {
 	}
 
 	return (
-		<div className="min-h-screen bg-background flex flex-col">
-			{/* Titlebar region */}
+		<div className="workspace-canvas flex min-h-screen flex-col">
 			<header
-				onMouseDown={handleDragStart}
-				className="h-12 shrink-0 flex items-center justify-between gap-2 px-4 pl-20 border-b bg-background/80 backdrop-blur-sm select-none"
+				data-tauri-drag-region
+				className="app-titlebar flex h-12 shrink-0 select-none items-center justify-between border-b px-4 pl-20"
 			>
 				<div className="flex items-center gap-2 pl-4">
-					<h1 className="text-sm font-medium text-foreground">Connections</h1>
-					<Badge variant="secondary" className="text-xs">
+					<h1 className="text-sm font-semibold text-foreground">Connections</h1>
+					<Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
 						{connections.length}
 					</Badge>
 				</div>
@@ -307,31 +303,33 @@ export function Connections() {
 						href="https://github.com/amalshaji/dbcooper"
 						target="_blank"
 						rel="noopener noreferrer"
-						className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground transition-colors duration-200"
+						className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
 						title="View on GitHub"
+						aria-label="View DBcooper on GitHub"
 					>
-						<GithubLogo className="w-4 h-4" />
+						<GithubLogo className="size-4" />
 					</a>
 
 					<button
 						type="button"
 						onClick={() => navigate("/settings")}
-						className="inline-flex hover:cursor-pointer items-center justify-center h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground transition-colors duration-200"
+						className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
 						title="Settings"
+						aria-label="Open settings"
 					>
-						<Gear className="w-4 h-4" />
+						<Gear className="size-4" />
 					</button>
 				</div>
 			</header>
 
-			<div className="flex-1 p-6 overflow-auto">
-				<div className="max-w-2xl mx-auto">
+			<main className="flex-1 overflow-auto p-5 md:p-8">
+				<div className="mx-auto max-w-5xl">
 					{connections.length === 0 ? (
-						<div className="flex items-center justify-center min-h-[60vh]">
+						<div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
 							<EmptyState
 								icon={<Database />}
 								title="No connections yet"
-								description="Get started by creating your first database connection. You can connect to PostgreSQL, MySQL, SQLite, or Redis."
+								description="Create a local workspace for PostgreSQL, SQLite, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Import Connections",
@@ -346,15 +344,15 @@ export function Connections() {
 							/>
 						</div>
 					) : (
-						<div className="space-y-4">
-							{/* Header */}
+						<div className="space-y-5 pt-2">
 							<div className="flex items-center justify-between">
 								<div>
-									<h2 className="text-xl font-semibold tracking-tight">
-										Your Databases
+									<p className="section-label">Workspace</p>
+									<h2 className="mt-1 text-xl font-semibold tracking-tight">
+										Your databases
 									</h2>
-									<p className="text-xs text-muted-foreground mt-0.5">
-										Click on a connection to explore
+									<p className="mt-1 text-xs text-muted-foreground">
+										Open a connection to browse data or write a query.
 									</p>
 								</div>
 								<div className="flex items-center gap-2">
@@ -362,24 +360,18 @@ export function Connections() {
 										onClick={handleImportConnections}
 										size="sm"
 										variant="outline"
-										className="gap-1.5"
 									>
-										<UploadSimple className="w-4 h-4" />
+										<UploadSimple className="size-4" />
 										Import
 									</Button>
-									<Button
-										onClick={() => setIsFormOpen(true)}
-										size="sm"
-										className="gap-1.5 shadow-md shadow-primary/20 hover:shadow-primary/30 transition-shadow duration-300"
-									>
-										<Plus className="w-4 h-4" weight="bold" />
-										New
+									<Button onClick={() => setIsFormOpen(true)} size="sm">
+										<Plus className="size-4" weight="bold" />
+										New connection
 									</Button>
 								</div>
 							</div>
 
-							{/* Connection Cards - Compact List */}
-							<div className="space-y-2">
+							<div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
 								{connections.map((connection) => {
 									const dbConfig = getDbTypeConfig(
 										connection.type || "postgres",
@@ -389,52 +381,51 @@ export function Connections() {
 									return (
 										<ContextMenu key={connection.id}>
 											<ContextMenuTrigger>
-												<div
-													role="button"
-													tabIndex={0}
-													onClick={() =>
-														navigate(`/connections/${connection.uuid}`)
-													}
-													onKeyDown={(e) => {
-														if (e.key === "Enter" || e.key === " ") {
-															e.preventDefault();
-															navigate(`/connections/${connection.uuid}`);
+												<div className="group workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40">
+													<button
+														type="button"
+														onClick={() =>
+															navigate(`/connections/${connection.uuid}`)
 														}
-													}}
-													className={`group relative cursor-pointer rounded-lg border bg-card shadow-sm p-3 transition-all duration-200 hover:shadow-md hover:shadow-black/5 dark:hover:shadow-black/20 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/50 ${dbConfig.borderColor}`}
-												>
-													{/* Gradient Background */}
+														onMouseDown={(e) => {
+															if (e.button === 1) {
+																e.preventDefault();
+																navigate(`/connections/${connection.uuid}`);
+															}
+														}}
+														aria-label={`Open ${connection.name}`}
+														className="absolute inset-0 cursor-pointer rounded-lg outline-none"
+													/>
 													<div
-														className={`absolute inset-0 rounded-lg bg-gradient-to-br ${dbConfig.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}
+														className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full opacity-70 ${dbConfig.accentClass}`}
 													/>
 
-													{/* Content */}
-													<div className="relative flex items-center gap-3">
-														{/* Database Icon */}
-														<div className="shrink-0 p-2 rounded-md bg-muted/50">
-															<DbIcon className="w-4 h-4" />
+													<div className="pointer-events-none relative flex items-center gap-3 pl-1">
+														<div
+															className={`flex size-9 shrink-0 items-center justify-center rounded-md ${dbConfig.iconClass}`}
+														>
+															<DbIcon className="size-4" />
 														</div>
 
-														{/* Connection Info */}
-														<div className="flex-1 min-w-0">
+														<div className="min-w-0 flex-1">
 															<div className="flex items-center gap-2">
-																<h3 className="font-medium text-sm truncate group-hover:text-primary transition-colors duration-200">
+																<h3 className="truncate text-sm font-medium">
 																	{connection.name}
 																</h3>
 																<Badge
 																	variant="secondary"
-																	className="capitalize text-[10px] px-1.5 py-0 shrink-0"
+																	className="h-5 shrink-0 px-1.5 py-0 text-[10px] capitalize"
 																>
 																	{connection.type || "postgres"}
 																</Badge>
 																{connection.ssl === 1 && (
 																	<Lock
-																		className="w-3 h-3 text-muted-foreground shrink-0"
+																		className="size-3 shrink-0 text-muted-foreground"
 																		weight="fill"
 																	/>
 																)}
 															</div>
-															<p className="text-xs text-muted-foreground truncate mt-0.5">
+															<p className="mt-0.5 truncate text-xs text-muted-foreground">
 																{connection.type === "sqlite"
 																	? connection.file_path?.split("/").pop() ||
 																		"Local file"
@@ -442,14 +433,14 @@ export function Connections() {
 															</p>
 														</div>
 
-														{/* Actions Menu */}
 														<DropdownMenu>
 															<DropdownMenuTrigger
 																onClick={(e) => e.stopPropagation()}
-																className="p-1.5 rounded-md hover:bg-muted/80 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+																className="pointer-events-auto shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
+																aria-label={`Actions for ${connection.name}`}
 															>
 																<DotsThreeVertical
-																	className="w-4 h-4"
+																	className="size-4"
 																	weight="bold"
 																/>
 															</DropdownMenuTrigger>
@@ -567,7 +558,7 @@ export function Connections() {
 						</AlertDialogFooter>
 					</AlertDialogContent>
 				</AlertDialog>
-			</div>
+			</main>
 		</div>
 	);
 }
