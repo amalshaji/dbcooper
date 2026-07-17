@@ -131,7 +131,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
-import { useAIGeneration } from "@/hooks/useAIGeneration";
+import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
@@ -152,7 +152,6 @@ import {
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { selectTablesForAI } from "@/lib/aiTableSelection";
 import {
 	createCellFilter,
 	getFilterRequest,
@@ -538,8 +537,13 @@ export function ConnectionDetails() {
 	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
 
 	// AI generation
-	const [isAiGenerating, setIsAiGenerating] = useState(false);
-	const { generateSQL, isConfigured: aiConfigured } = useAIGeneration();
+	const { generateDraft, isConfigured: aiConfigured } =
+		useContextualSqlGeneration({
+			dbType: connection?.db_type,
+			tables,
+			tableColumns,
+			schemaOverview,
+		});
 
 	// Row edit state
 	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
@@ -3006,58 +3010,7 @@ export function ConnectionDetails() {
 							name: t.name,
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
-						onGenerateSQL={async (instruction, existingSQL) => {
-							setIsAiGenerating(true);
-							try {
-								const overviewColumns = new Map(
-									schemaOverview?.tables.map((table) => [
-										`${table.schema}.${table.name}`,
-										table.columns,
-									]) ?? [],
-								);
-								const tableSchemas = tables.map((table) => {
-									const fullName = `${table.schema}.${table.name}`;
-									return {
-										...table,
-										columns:
-											overviewColumns.get(fullName) ??
-											tableColumns[fullName] ??
-											[],
-									};
-								});
-								const selectedTables = selectTablesForAI(
-									instruction,
-									existingSQL,
-									tableSchemas,
-								);
-
-								let accumulatedSQL = "";
-								await generateSQL(
-									connection.db_type || "postgres",
-									instruction,
-									existingSQL,
-									selectedTables.map((table) => ({
-										schema: table.schema,
-										name: table.name,
-										columns: table.columns ?? [],
-									})),
-									(chunk) => {
-										accumulatedSQL += chunk;
-										handleQueryChange(accumulatedSQL);
-									},
-									(finalSQL) => handleQueryChange(finalSQL),
-								);
-							} catch (error) {
-								console.error("AI generation error:", error);
-								toast.error("AI generation failed", {
-									description:
-										error instanceof Error ? error.message : String(error),
-								});
-							} finally {
-								setIsAiGenerating(false);
-							}
-						}}
-						generating={isAiGenerating}
+						onGenerateSQL={generateDraft}
 						aiConfigured={aiConfigured}
 						onCursorActivity={(line, char) => {
 							setCursorLine(line);
@@ -3266,7 +3219,7 @@ export function ConnectionDetails() {
 							) : null}
 						</div>
 					) : (
-						<div className="text-center py-8 text-muted-foreground">
+						<div className="pb-10 pt-6 text-center text-muted-foreground">
 							<p>
 								No results yet. Write a SQL query and click &quot;Run
 								Query&quot; to execute it.

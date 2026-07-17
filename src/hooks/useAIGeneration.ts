@@ -1,100 +1,25 @@
-import { useState, useEffect, useCallback } from "react";
-import { api } from "@/lib/tauri";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type AiGenerationListener,
+	startAiGenerationSession,
+} from "@/lib/aiGenerationSession";
+import { api } from "@/lib/tauri";
 
 interface TableSchema {
 	schema: string;
 	name: string;
-	columns?: Array<{
-		name: string;
-		type: string;
-		nullable: boolean;
-	}>;
-}
-
-interface AiChunkPayload {
-	chunk: string;
-	session_id: string;
-}
-
-interface AiDonePayload {
-	session_id: string;
-	full_response: string;
-}
-
-interface AiErrorPayload {
-	session_id: string;
-	error: string;
-}
-
-// Global listener management to prevent duplicates in React Strict Mode
-let globalUnlistenChunk: UnlistenFn | null = null;
-let globalUnlistenDone: UnlistenFn | null = null;
-let globalUnlistenError: UnlistenFn | null = null;
-let listenerSessionId: string | null = null;
-let listenerOnStream: ((chunk: string) => void) | null = null;
-let listenerOnComplete: ((sql: string) => void) | null = null;
-let listenerResolve: (() => void) | null = null;
-let listenerReject: ((error: Error) => void) | null = null;
-let listenersPromise: Promise<void> | null = null;
-
-async function setupGlobalListeners() {
-	if (listenersPromise) return listenersPromise;
-
-	listenersPromise = (async () => {
-		globalUnlistenChunk = await listen<AiChunkPayload>("ai-chunk", (event) => {
-			if (event.payload.session_id === listenerSessionId && listenerOnStream) {
-				listenerOnStream(event.payload.chunk);
-			}
-		});
-
-		globalUnlistenDone = await listen<AiDonePayload>("ai-done", (event) => {
-			if (event.payload.session_id === listenerSessionId) {
-				try {
-					listenerOnComplete?.(event.payload.full_response);
-				} catch (err) {
-					console.error("Failed to apply generated SQL:", err);
-				}
-				listenerSessionId = null;
-				listenerOnStream = null;
-				listenerOnComplete = null;
-				if (listenerResolve) {
-					listenerResolve();
-					listenerResolve = null;
-				}
-			}
-		});
-
-		globalUnlistenError = await listen<AiErrorPayload>("ai-error", (event) => {
-			if (event.payload.session_id === listenerSessionId) {
-				listenerSessionId = null;
-				listenerOnStream = null;
-				listenerOnComplete = null;
-				if (listenerReject) {
-					listenerReject(new Error(event.payload.error));
-					listenerReject = null;
-				}
-			}
-		});
-	})().catch((error) => {
-		listenersPromise = null;
-		globalUnlistenChunk?.();
-		globalUnlistenDone?.();
-		globalUnlistenError?.();
-		globalUnlistenChunk = null;
-		globalUnlistenDone = null;
-		globalUnlistenError = null;
-		throw error;
-	});
-
-	return listenersPromise;
+	columns?: Array<{ name: string; type: string; nullable: boolean }>;
 }
 
 export function useAIGeneration() {
 	const [generating, setGenerating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
+	const activeRequestRef = useRef<ReturnType<
+		typeof startAiGenerationSession
+	> | null>(null);
 
 	useEffect(() => {
 		const checkConfig = async () => {
@@ -111,12 +36,14 @@ export function useAIGeneration() {
 		return () => window.removeEventListener("ai-settings-changed", checkConfig);
 	}, []);
 
-	useEffect(() => {
-		void setupGlobalListeners().catch((err) => {
-			console.error("Failed to set up AI listeners:", err);
-		});
-		// Don't cleanup global listeners since they're shared
-	}, []);
+	useEffect(
+		() => () => {
+			const request = activeRequestRef.current;
+			activeRequestRef.current = null;
+			request?.cancel(new Error("AI generation was cancelled"));
+		},
+		[],
+	);
 
 	const generateSQL = useCallback(
 		async (
@@ -127,48 +54,49 @@ export function useAIGeneration() {
 			onStream: (chunk: string) => void,
 			onComplete?: (sql: string) => void,
 		) => {
+			const previousRequest = activeRequestRef.current;
+			activeRequestRef.current = null;
+			previousRequest?.cancel(
+				new Error("A newer AI request replaced this one"),
+			);
 			setGenerating(true);
 			setError(null);
-			try {
-				await setupGlobalListeners();
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				setGenerating(false);
-				setError(message);
-				throw err;
-			}
 
-			const sessionId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-			listenerSessionId = sessionId;
-			listenerOnStream = onStream;
-			listenerOnComplete = onComplete ?? null;
-
-			return new Promise<void>((resolve, reject) => {
-				listenerResolve = () => {
-					setGenerating(false);
-					resolve();
-				};
-				listenerReject = (err) => {
-					setGenerating(false);
-					setError(err.message);
-					reject(err);
-				};
-
-				invoke("generate_sql", {
+			const sessionId = `ai-${Date.now()}-${crypto.randomUUID()}`;
+			const request = startAiGenerationSession({
+				sessionId,
+				listen: <T>(eventName: string, handler: AiGenerationListener<T>) =>
+					listen<T>(eventName, (event) => handler(event)),
+				invoke: (command, args) => invoke(command, args),
+				invokeArgs: {
 					sessionId,
 					dbType,
 					instruction,
 					existingSql: existingSQL,
 					tables,
-				}).catch((err) => {
-					listenerSessionId = null;
-					listenerOnStream = null;
-					listenerOnComplete = null;
-					setGenerating(false);
-					setError(err instanceof Error ? err.message : String(err));
-					reject(err);
-				});
+				},
+				onChunk: onStream,
+				onComplete: (sql) => onComplete?.(sql),
 			});
+			activeRequestRef.current = request;
+
+			try {
+				await request.promise;
+			} catch (requestError) {
+				if (activeRequestRef.current === request) {
+					setError(
+						requestError instanceof Error
+							? requestError.message
+							: String(requestError),
+					);
+				}
+				throw requestError;
+			} finally {
+				if (activeRequestRef.current === request) {
+					activeRequestRef.current = null;
+					setGenerating(false);
+				}
+			}
 		},
 		[],
 	);
