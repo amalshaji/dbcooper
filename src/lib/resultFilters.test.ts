@@ -4,6 +4,8 @@ import {
 	createTableFilterState,
 	createCellFilter,
 	describeFilterExpression,
+	getFilterColumnKind,
+	getFilterOperatorsForColumn,
 	getFilterRequest,
 	isConditionComplete,
 	type FilterExpression,
@@ -81,6 +83,109 @@ describe("result filters", () => {
 			{ kind: "integer", value: "18" },
 			true,
 			["admin", "editor"],
+		]);
+	});
+
+	test("classifies PostgreSQL, SQLite, and ClickHouse column types", () => {
+		expect(getFilterColumnKind("character varying")).toBe("text");
+		expect(getFilterColumnKind("VARCHAR(255)")).toBe("text");
+		expect(getFilterColumnKind("LowCardinality(String)")).toBe("text");
+		expect(getFilterColumnKind("bigint")).toBe("integer");
+		expect(getFilterColumnKind("INTEGER")).toBe("integer");
+		expect(getFilterColumnKind("Nullable(UInt64)")).toBe("integer");
+		expect(getFilterColumnKind("double precision")).toBe("decimal");
+		expect(getFilterColumnKind("REAL")).toBe("decimal");
+		expect(getFilterColumnKind("Decimal(12, 2)")).toBe("decimal");
+		expect(getFilterColumnKind("boolean")).toBe("boolean");
+		expect(getFilterColumnKind("Nullable(Bool)")).toBe("boolean");
+		expect(getFilterColumnKind("timestamp with time zone")).toBe("temporal");
+		expect(getFilterColumnKind("DATETIME")).toBe("temporal");
+		expect(getFilterColumnKind("DateTime64(3)")).toBe("temporal");
+		expect(getFilterColumnKind("uuid")).toBe("uuid");
+		expect(getFilterColumnKind("Array(String)")).toBe("other");
+		expect(getFilterColumnKind("BLOB")).toBe("other");
+		expect(getFilterColumnKind("USER-DEFINED")).toBe("other");
+	});
+
+	test("offers operators compatible with the selected column type", () => {
+		expect(getFilterOperatorsForColumn("text")).toEqual([
+			"equals",
+			"not_equals",
+			"contains",
+			"starts_with",
+			"ends_with",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("Nullable(Int64)")).toEqual([
+			"equals",
+			"not_equals",
+			"greater_than",
+			"greater_than_or_equal",
+			"less_than",
+			"less_than_or_equal",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("timestamp")).toEqual([
+			"equals",
+			"not_equals",
+			"greater_than",
+			"greater_than_or_equal",
+			"less_than",
+			"less_than_or_equal",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("boolean")).toEqual([
+			"equals",
+			"not_equals",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("uuid")).toEqual([
+			"equals",
+			"not_equals",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("jsonb")).toEqual([
+			"equals",
+			"not_equals",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+	});
+
+	test("coerces wrapped ClickHouse scalar and list values", () => {
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{ column: "visits", operator: "in", value: "1, 2" },
+					{ column: "score", operator: "greater_than", value: "1.5" },
+					{ column: "enabled", operator: "equals", value: "false" },
+				],
+			},
+			{
+				visits: "Nullable(UInt64)",
+				score: "Decimal(12, 2)",
+				enabled: "Nullable(Bool)",
+			},
+		);
+
+		expect(expression.conditions.map((condition) => condition.value)).toEqual([
+			[
+				{ kind: "integer", value: "1" },
+				{ kind: "integer", value: "2" },
+			],
+			1.5,
+			false,
 		]);
 	});
 

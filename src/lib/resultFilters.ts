@@ -19,6 +19,15 @@ export type FilterOperator =
 	| "is_null"
 	| "is_not_null";
 
+export type FilterColumnKind =
+	| "text"
+	| "integer"
+	| "decimal"
+	| "boolean"
+	| "temporal"
+	| "uuid"
+	| "other";
+
 export interface FilterCondition {
 	column: string;
 	operator: FilterOperator;
@@ -77,6 +86,119 @@ export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
 export const FILTER_OPERATORS = Object.keys(
 	FILTER_OPERATOR_LABELS,
 ) as FilterOperator[];
+
+const TEXT_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"contains",
+	"starts_with",
+	"ends_with",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+const ORDERED_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"greater_than",
+	"greater_than_or_equal",
+	"less_than",
+	"less_than_or_equal",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+const BOOLEAN_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"is_null",
+	"is_not_null",
+];
+
+const CONSERVATIVE_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+function normalizeColumnType(dataType: string): string {
+	let normalizedType = dataType.trim().toLowerCase().replace(/\s+/g, " ");
+	let wrappedType = normalizedType.match(/^(?:nullable|lowcardinality)\((.*)\)$/);
+
+	while (wrappedType) {
+		normalizedType = wrappedType[1].trim();
+		wrappedType = normalizedType.match(
+			/^(?:nullable|lowcardinality)\((.*)\)$/,
+		);
+	}
+
+	return normalizedType;
+}
+
+export function getFilterColumnKind(dataType: string): FilterColumnKind {
+	const normalizedType = normalizeColumnType(dataType);
+
+	if (
+		/^(?:array|map|tuple|nested|object)\s*\(/.test(normalizedType) ||
+		/(^|\W)(?:jsonb?|blob|bytea|binary|varbinary)(\W|$)/.test(normalizedType)
+	) {
+		return "other";
+	}
+
+	if (/(^|\W)uuid(\W|$)/.test(normalizedType)) return "uuid";
+	if (/^(?:bool|boolean)$/.test(normalizedType)) return "boolean";
+	if (
+		/(^|\W)(?:date32|datetime64|datetime|date|timestamptz|timestamp|timetz|time|interval)(\W|$)/.test(
+			normalizedType,
+		)
+	) {
+		return "temporal";
+	}
+	if (
+		/(^|\W)(?:tinyint|smallint|mediumint|bigint|integer|int2|int4|int8|smallserial|bigserial|serial|u?int(?:8|16|32|64|128|256)?)(\W|$)/.test(
+			normalizedType,
+		)
+	) {
+		return "integer";
+	}
+	if (
+		/(^|\W)(?:decimal|numeric|number|real|float|double|money)(\W|$)/.test(
+			normalizedType,
+		)
+	) {
+		return "decimal";
+	}
+	if (
+		/(^|\W)(?:character varying|character|nvarchar|varchar|citext|text|clob|fixedstring|string)(\W|$)/.test(
+			normalizedType,
+		)
+	) {
+		return "text";
+	}
+
+	return "other";
+}
+
+export function getFilterOperatorsForColumn(
+	dataType: string,
+): FilterOperator[] {
+	switch (getFilterColumnKind(dataType)) {
+		case "text":
+			return TEXT_FILTER_OPERATORS;
+		case "integer":
+		case "decimal":
+		case "temporal":
+			return ORDERED_FILTER_OPERATORS;
+		case "boolean":
+			return BOOLEAN_FILTER_OPERATORS;
+		default:
+			return CONSERVATIVE_FILTER_OPERATORS;
+	}
+}
 
 export function operatorNeedsValue(operator: FilterOperator): boolean {
 	return operator !== "is_null" && operator !== "is_not_null";
@@ -140,21 +262,17 @@ export function describeFilterExpression(expression: FilterExpression): string {
 
 function coerceScalar(value: FilterScalar, dataType: string): FilterScalar {
 	if (typeof value !== "string") return value;
-	const normalizedType = dataType.toLowerCase();
-	if (/bool/.test(normalizedType)) {
+	const columnKind = getFilterColumnKind(dataType);
+	if (columnKind === "boolean") {
 		if (value.toLowerCase() === "true") return true;
 		if (value.toLowerCase() === "false") return false;
 	}
-	if (
-		/(^|\W)(tinyint|smallint|integer|bigint|int|serial)/.test(
-			normalizedType,
-		)
-	) {
+	if (columnKind === "integer") {
 		if (/^[+-]?\d+$/.test(value.trim())) {
 			return { kind: "integer", value: value.trim() };
 		}
 	}
-	if (/(^|\W)(decimal|numeric|real|float|double)/.test(normalizedType)) {
+	if (columnKind === "decimal") {
 		const number = Number(value);
 		if (Number.isFinite(number)) return number;
 	}
