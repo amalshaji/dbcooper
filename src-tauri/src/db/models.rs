@@ -109,9 +109,22 @@ pub struct ColumnInfo {
     pub name: String,
     #[serde(rename = "type")]
     pub data_type: String,
+    pub filter_kind: FilterColumnKind,
     pub nullable: bool,
     pub default: Option<String>,
     pub primary_key: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterColumnKind {
+    Text,
+    Integer,
+    Decimal,
+    Boolean,
+    Temporal,
+    Uuid,
+    Other,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

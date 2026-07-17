@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::filter::{
-    build_where_clause, compile_filter, structured_expression, FilterDialect, FilterValue,
+    build_where_clause, classify_column_type, compile_filter, structured_expression, FilterDialect,
+    FilterValue,
 };
 use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
@@ -360,6 +361,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 let nullable = data_type.starts_with("Nullable");
                 ColumnInfo {
                     name: col["name"].as_str().unwrap_or("").to_string(),
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Clickhouse),
                     data_type,
                     nullable,
                     default: {
@@ -482,6 +484,7 @@ impl DatabaseDriver for ClickhouseDriver {
 
                         columns.push(ColumnInfo {
                             name: col_name,
+                            filter_kind: classify_column_type(&col_type, FilterDialect::Clickhouse),
                             data_type: col_type,
                             nullable,
                             default,

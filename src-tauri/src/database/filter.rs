@@ -1,14 +1,111 @@
-use crate::db::models::{FilterConjunction, FilterExpression, FilterOperator, TableFilter};
+use crate::db::models::{
+    FilterColumnKind, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
+};
 use serde_json::Value;
 
 const MAX_CONDITIONS: usize = 20;
 const MAX_IN_VALUES: usize = 100;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterDialect {
     Postgres,
     Sqlite,
     Clickhouse,
+}
+
+fn normalize_clickhouse_type(data_type: &str) -> String {
+    let mut normalized = data_type.trim().to_string();
+
+    loop {
+        let lower = normalized.to_ascii_lowercase();
+        let wrapper = ["nullable", "lowcardinality"]
+            .into_iter()
+            .find(|wrapper| lower.starts_with(&format!("{wrapper}(")));
+        let Some(wrapper) = wrapper else {
+            break;
+        };
+        let prefix_len = wrapper.len() + 1;
+        if !normalized.ends_with(')') {
+            break;
+        }
+        normalized = normalized[prefix_len..normalized.len() - 1]
+            .trim()
+            .to_string();
+    }
+
+    normalized
+}
+
+pub fn classify_column_type(data_type: &str, dialect: FilterDialect) -> FilterColumnKind {
+    let normalized = data_type.trim().to_ascii_lowercase();
+
+    match dialect {
+        FilterDialect::Postgres => match normalized.as_str() {
+            "smallint" | "integer" | "bigint" | "smallserial" | "serial" | "bigserial" => {
+                FilterColumnKind::Integer
+            }
+            "numeric" | "decimal" | "real" | "double precision" | "money" => {
+                FilterColumnKind::Decimal
+            }
+            "boolean" => FilterColumnKind::Boolean,
+            "date"
+            | "time"
+            | "time without time zone"
+            | "time with time zone"
+            | "timestamp"
+            | "timestamp without time zone"
+            | "timestamp with time zone"
+            | "interval" => FilterColumnKind::Temporal,
+            "uuid" => FilterColumnKind::Uuid,
+            "text" | "character" | "character varying" | "citext" | "name" => {
+                FilterColumnKind::Text
+            }
+            _ => FilterColumnKind::Other,
+        },
+        FilterDialect::Sqlite => {
+            if normalized == "boolean" || normalized == "bool" {
+                return FilterColumnKind::Boolean;
+            }
+            if normalized.contains("date") || normalized.contains("time") {
+                return FilterColumnKind::Temporal;
+            }
+
+            let declared_type = normalized.to_ascii_uppercase();
+            if declared_type.contains("INT") {
+                FilterColumnKind::Integer
+            } else if ["CHAR", "CLOB", "TEXT"]
+                .iter()
+                .any(|token| declared_type.contains(token))
+            {
+                FilterColumnKind::Text
+            } else if declared_type.is_empty() || declared_type.contains("BLOB") {
+                FilterColumnKind::Other
+            } else {
+                FilterColumnKind::Decimal
+            }
+        }
+        FilterDialect::Clickhouse => {
+            let base_type = normalize_clickhouse_type(data_type).to_ascii_lowercase();
+            if base_type == "string" || base_type.starts_with("fixedstring(") {
+                FilterColumnKind::Text
+            } else if base_type == "bool" || base_type == "boolean" {
+                FilterColumnKind::Boolean
+            } else if base_type == "uuid" {
+                FilterColumnKind::Uuid
+            } else if ["date", "date32", "time", "time64", "datetime", "datetime64"]
+                .iter()
+                .any(|name| base_type == *name || base_type.starts_with(&format!("{name}(")))
+            {
+                FilterColumnKind::Temporal
+            } else if base_type.starts_with("int") || base_type.starts_with("uint") {
+                FilterColumnKind::Integer
+            } else if base_type.starts_with("float") || base_type.starts_with("decimal") {
+                FilterColumnKind::Decimal
+            } else {
+                FilterColumnKind::Other
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,7 +312,9 @@ fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{FilterCondition, FilterConjunction, FilterExpression, FilterOperator};
+    use crate::db::models::{
+        FilterColumnKind, FilterCondition, FilterConjunction, FilterExpression, FilterOperator,
+    };
     use serde_json::json;
 
     fn expression(condition: FilterCondition) -> FilterExpression {
@@ -223,6 +322,34 @@ mod tests {
             conjunction: FilterConjunction::And,
             conditions: vec![condition],
         }
+    }
+
+    #[test]
+    fn classifies_column_types_by_database_dialect() {
+        assert_eq!(
+            classify_column_type("STRING", FilterDialect::Sqlite),
+            FilterColumnKind::Decimal
+        );
+        assert_eq!(
+            classify_column_type("FLOATING POINT", FilterDialect::Sqlite),
+            FilterColumnKind::Integer
+        );
+        assert_eq!(
+            classify_column_type("String", FilterDialect::Clickhouse),
+            FilterColumnKind::Text
+        );
+        assert_eq!(
+            classify_column_type("Nullable(UInt128)", FilterDialect::Clickhouse),
+            FilterColumnKind::Integer
+        );
+        assert_eq!(
+            classify_column_type("Decimal(38, 18)", FilterDialect::Clickhouse),
+            FilterColumnKind::Decimal
+        );
+        assert_eq!(
+            classify_column_type("timestamp with time zone", FilterDialect::Postgres),
+            FilterColumnKind::Temporal
+        );
     }
 
     #[test]

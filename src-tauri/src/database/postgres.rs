@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::filter::{
-    build_where_clause, compile_filter, structured_expression, CompiledFilter, FilterDialect,
-    FilterValue,
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
 };
 use super::{query_returns_rows, DatabaseDriver, PostgresConfig};
 use crate::database::queries::postgres::{
@@ -547,6 +547,7 @@ impl DatabaseDriver for PostgresDriver {
                 .map(
                     |(name, data_type, nullable, default, primary_key)| ColumnInfo {
                         name,
+                        filter_kind: classify_column_type(&data_type, FilterDialect::Postgres),
                         data_type,
                         nullable,
                         default,

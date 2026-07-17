@@ -5,8 +5,8 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
 use super::filter::{
-    build_where_clause, compile_filter, structured_expression, CompiledFilter, FilterDialect,
-    FilterValue,
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
 };
 use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
@@ -316,6 +316,7 @@ impl DatabaseDriver for SqliteDriver {
 
                 ColumnInfo {
                     name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: notnull == 0,
                     default,
@@ -506,6 +507,7 @@ impl DatabaseDriver for SqliteDriver {
             if let Some(table) = tables_map.get_mut(&table_name) {
                 table.columns.push(ColumnInfo {
                     name: column_name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: not_null == 0,
                     default: default_value,
