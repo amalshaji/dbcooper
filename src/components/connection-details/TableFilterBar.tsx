@@ -82,7 +82,7 @@ export function TableFilterBar({
 		<div className="mx-6 mb-3 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
 			{showInput && (
 				<div className="space-y-4 p-4">
-					<div className="flex items-center justify-between">
+					<div className="flex flex-wrap items-center gap-2">
 						<div
 							className="flex rounded-lg bg-muted p-0.5"
 							role="tablist"
@@ -121,6 +121,14 @@ export function TableFilterBar({
 								SQL WHERE clause
 							</span>
 						)}
+						<Button
+							size="sm"
+							className="ml-auto"
+							onClick={onApply}
+							disabled={loading || !canApply}
+						>
+							Apply filter
+						</Button>
 					</div>
 
 					{mode === "structured" ? (
@@ -162,34 +170,24 @@ export function TableFilterBar({
 						/>
 					)}
 
-					<div className="flex items-center justify-between">
-						{mode === "structured" && (
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() =>
-									setStructuredDraft({
-										...structuredFilterInput,
-										conditions: [
-											...structuredFilterInput.conditions,
-											emptyCondition(columns),
-										],
-									})
-								}
-								disabled={!columns.length}
-							>
-								<Plus /> Add condition
-							</Button>
-						)}
+					{mode === "structured" && (
 						<Button
+							variant="ghost"
 							size="sm"
-							className="ml-auto"
-							onClick={onApply}
-							disabled={loading || !canApply}
+							onClick={() =>
+								setStructuredDraft({
+									...structuredFilterInput,
+									conditions: [
+										...structuredFilterInput.conditions,
+										emptyCondition(columns),
+									],
+								})
+							}
+							disabled={!columns.length}
 						>
-							Apply filter
+							<Plus /> Add condition
 						</Button>
-					</div>
+					)}
 				</div>
 			)}
 
