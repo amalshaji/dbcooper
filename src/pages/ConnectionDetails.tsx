@@ -2886,8 +2886,8 @@ export function ConnectionDetails() {
 
 	const renderQueryContent = (tab: QueryTab) => (
 		<div className="space-y-3">
-			<Card className="workspace-panel">
-				<CardHeader className="py-4">
+			<Card className="workspace-panel gap-2">
+				<CardHeader className="pb-0 pt-4">
 					<div className="flex items-center justify-between">
 						<div>
 							<CardTitle>SQL editor</CardTitle>
