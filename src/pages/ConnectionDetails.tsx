@@ -1,4 +1,12 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useState,
+	useMemo,
+	useCallback,
+	useRef,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
@@ -124,6 +132,7 @@ import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
+import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
@@ -136,7 +145,6 @@ import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { handleDragStart } from "@/lib/windowDrag";
-import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
 import {
 	getStatementAtCursor,
@@ -145,6 +153,16 @@ import {
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { selectTablesForAI } from "@/lib/aiTableSelection";
+import {
+	createCellFilter,
+	getFilterRequest,
+} from "@/lib/resultFilters";
+
+const SchemaVisualizer = lazy(() =>
+	import("@/components/SchemaVisualizer").then((module) => ({
+		default: module.SchemaVisualizer,
+	})),
+);
 
 type LoadingPhase =
 	| "fetching-config"
@@ -791,13 +809,15 @@ export function ConnectionDetails() {
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
+				const filterRequest = getFilterRequest(tab.filterState.applied);
 				const data = await api.pool.getTableData(
 					uuid,
 					schema,
 					tableName,
 					tab.currentPage,
 					100,
-					tab.filter || undefined,
+					filterRequest.filter,
+					filterRequest.structuredFilter,
 					tab.sort?.column,
 					tab.sort?.direction,
 				);
@@ -815,6 +835,23 @@ export function ConnectionDetails() {
 		},
 		[uuid, updateTab],
 	);
+	const activeTableDataTab =
+		activeTab?.type === "table-data" ? activeTab : null;
+	const updateTableDataTab = useCallback(
+		(id: string, updates: Partial<TableDataTab>) =>
+			updateTab<TableDataTab>(id, updates),
+		[updateTab],
+	);
+	const {
+		setFilterState: handleTableFilterStateChange,
+		applyFilter: handleApplyFilter,
+		clearFilter: clearTableFilter,
+		filterCell: handleCellFilter,
+	} = useTableDataFilters({
+		tab: activeTableDataTab,
+		updateTab: updateTableDataTab,
+		fetchTableData,
+	});
 
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
@@ -958,14 +995,13 @@ export function ConnectionDetails() {
 
 	const handleOpenTableDataWithFilter = useCallback(
 		(tableName: string, filterColumn: string, filterValue: unknown) => {
-			const filterStr =
-				typeof filterValue === "string"
-					? `${filterColumn} = '${filterValue}'`
-					: `${filterColumn} = ${filterValue}`;
-
 			const newTab = createTableDataTab(tableName);
-			newTab.filter = filterStr;
-			newTab.filterInput = filterStr;
+			const condition = createCellFilter(filterColumn, filterValue, false);
+			const filter = {
+				kind: "structured" as const,
+				value: { conjunction: "and" as const, conditions: [condition] },
+			};
+			newTab.filterState = { draft: filter, applied: filter };
 
 			setTabs((prev) => [...prev, newTab]);
 			setActiveTabId(newTab.id);
@@ -1184,24 +1220,6 @@ export function ConnectionDetails() {
 		[activeTab, updateTab, fetchTableData],
 	);
 
-	const handleFilterInputChange = useCallback(
-		(value: string) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			updateTab<TableDataTab>(activeTab.id, { filterInput: value });
-		},
-		[activeTab, updateTab],
-	);
-
-	const handleApplyFilter = useCallback(() => {
-		if (!activeTab || activeTab.type !== "table-data") return;
-		const tab = activeTab as TableDataTab;
-		updateTab<TableDataTab>(tab.id, {
-			filter: tab.filterInput,
-			currentPage: 1,
-		});
-		fetchTableData({ ...tab, filter: tab.filterInput, currentPage: 1 });
-	}, [activeTab, updateTab, fetchTableData]);
-
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
 			if (!uuid) return;
@@ -1283,13 +1301,7 @@ export function ConnectionDetails() {
 		if (!activeTab) return;
 
 		if (activeTab.type === "table-data") {
-			const tab = activeTab as TableDataTab;
-			updateTab<TableDataTab>(tab.id, {
-				filter: "",
-				filterInput: "",
-				currentPage: 1,
-			});
-			fetchTableData({ ...tab, filter: "", currentPage: 1 });
+			clearTableFilter();
 			return;
 		}
 
@@ -1303,7 +1315,7 @@ export function ConnectionDetails() {
 			});
 			void runQueryResultViewQuery(tab, "", tab.sort);
 		}
-	}, [activeTab, updateTab, fetchTableData, runQueryResultViewQuery]);
+	}, [activeTab, updateTab, clearTableFilter, runQueryResultViewQuery]);
 
 	const handleSortChange = useCallback(
 		(sort: { column: string; direction: "asc" | "desc" } | null) => {
@@ -1397,6 +1409,11 @@ export function ConnectionDetails() {
 
 		try {
 			const result = await api.pool.executeQuery(uuid, queryToRun);
+			if (result.truncated) {
+				toast.warning("Result limited to 10,000 rows", {
+					description: "Refine the query to load a smaller result window.",
+				});
+			}
 
 			// Use backend timing if available, otherwise use 0
 			const executionTime = result.time_taken_ms ?? 0;
@@ -1482,6 +1499,11 @@ export function ConnectionDetails() {
 				if (!queryToRun) continue;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
+				if (result.truncated) {
+					toast.warning("Result limited to 10,000 rows", {
+						description: "Refine the query to load a smaller result window.",
+					});
+				}
 				totalTime += result.time_taken_ms ?? 0;
 
 				if (result.error) {
@@ -2149,7 +2171,7 @@ export function ConnectionDetails() {
 				e.key === "x" &&
 				(e.metaKey || e.ctrlKey) &&
 				e.shiftKey &&
-				((activeTab?.type === "table-data" && activeTab.filter) ||
+				((activeTab?.type === "table-data" && activeTab.filterState.applied) ||
 					(activeTab?.type === "query" && activeTab.filter))
 			) {
 				e.preventDefault();
@@ -2548,11 +2570,11 @@ export function ConnectionDetails() {
 					</div>
 				)}
 				<TableFilterBar
-					filter={tab.filter}
-					filterInput={tab.filterInput}
+					state={tab.filterState}
+					columns={tab.columns}
 					loading={tab.loading}
 					showInput={showFilterInput}
-					onInputChange={handleFilterInputChange}
+					onStateChange={handleTableFilterStateChange}
 					onApply={handleApplyFilter}
 					onClear={handleClearFilter}
 				/>
@@ -2581,7 +2603,8 @@ export function ConnectionDetails() {
 								currentPage={tab.currentPage}
 								onPageChange={handlePageChange}
 								onRowClick={handleRowClick}
-								virtualize={tab.data.data.length > 100}
+								virtualize
+								onCellFilter={handleCellFilter}
 								sortable
 								sort={tab.sort}
 								onSortChange={handleSortChange}
@@ -3829,20 +3852,28 @@ export function ConnectionDetails() {
 
 	const renderSchemaVisualizerContent = (tab: SchemaVisualizerTab) => (
 		<div className="h-full">
-			<SchemaVisualizer
-				schemaOverview={schemaOverview}
-				loading={loadingSchemaOverview}
-				onRefresh={fetchSchemaOverviewData}
-				onTableClick={handleOpenTableData}
-				tableFilter={tab.tableFilter}
-				onTableFilterChange={(filter) => {
-					updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
-				}}
-				selectedTables={tab.selectedTables}
-				onSelectedTablesChange={(tables) => {
-					updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
-				}}
-			/>
+			<Suspense
+				fallback={
+					<div className="flex h-full items-center justify-center">
+						<Spinner />
+					</div>
+				}
+			>
+				<SchemaVisualizer
+					schemaOverview={schemaOverview}
+					loading={loadingSchemaOverview}
+					onRefresh={fetchSchemaOverviewData}
+					onTableClick={handleOpenTableData}
+					tableFilter={tab.tableFilter}
+					onTableFilterChange={(filter) => {
+						updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
+					}}
+					selectedTables={tab.selectedTables}
+					onSelectedTablesChange={(tables) => {
+						updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
+					}}
+				/>
+			</Suspense>
 		</div>
 	);
 

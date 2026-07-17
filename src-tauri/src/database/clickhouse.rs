@@ -2,13 +2,16 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::DatabaseDriver;
+use super::filter::{
+    build_where_clause, compile_filter, structured_expression, FilterDialect, FilterValue,
+};
+use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
 };
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
+    SchemaOverview, TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
     TestConnectionResult,
 };
 use std::collections::HashMap;
@@ -55,6 +58,31 @@ impl ClickhouseDriver {
 
     /// Execute a query and return JSON results using raw HTTP
     async fn execute_query_json(&self, query: &str) -> Result<Vec<Value>, String> {
+        self.execute_query_json_with_params(query, &[]).await
+    }
+
+    async fn execute_bounded_query_json(&self, query: &str) -> Result<(Vec<Value>, bool), String> {
+        let cleaned_query = query.trim().trim_end_matches(';').trim();
+        let upper = cleaned_query.to_uppercase();
+        let bounded_query = if upper.starts_with("SELECT") || upper.starts_with("WITH") {
+            format!(
+                "SELECT * FROM ({cleaned_query}) LIMIT {}",
+                MAX_QUERY_RESULT_ROWS + 1
+            )
+        } else {
+            cleaned_query.to_string()
+        };
+        let mut rows = self.execute_query_json(&bounded_query).await?;
+        let truncated = rows.len() > MAX_QUERY_RESULT_ROWS;
+        rows.truncate(MAX_QUERY_RESULT_ROWS);
+        Ok((rows, truncated))
+    }
+
+    async fn execute_query_json_with_params(
+        &self,
+        query: &str,
+        params: &[(String, String)],
+    ) -> Result<Vec<Value>, String> {
         let url = self.build_url();
         let client = reqwest::Client::new();
 
@@ -68,10 +96,13 @@ impl ClickhouseDriver {
             format!("{} FORMAT JSONEachRow", cleaned_query)
         };
 
+        let mut query_params = vec![("database".to_string(), self.config.database.clone())];
+        query_params.extend_from_slice(params);
+
         let response = client
             .post(&url)
             .basic_auth(&self.config.username, Some(&self.config.password))
-            .query(&[("database", &self.config.database)])
+            .query(&query_params)
             .body(full_query)
             .send()
             .await
@@ -94,6 +125,22 @@ impl ClickhouseDriver {
         Ok(rows)
     }
 
+    fn filter_params(values: &[FilterValue]) -> Vec<(String, String)> {
+        values
+            .iter()
+            .enumerate()
+            .map(|(index, value)| {
+                let value = match value {
+                    FilterValue::Text(value) => value.clone(),
+                    FilterValue::Integer(value) => value.to_string(),
+                    FilterValue::Float(value) => value.to_string(),
+                    FilterValue::Boolean(value) => u8::from(*value).to_string(),
+                };
+                (format!("param_f{index}"), value)
+            })
+            .collect()
+    }
+
     /// Execute a non-SELECT query
     async fn execute_command(&self, query: &str) -> Result<(), String> {
         let url = self.build_url();
@@ -114,16 +161,6 @@ impl ClickhouseDriver {
         }
 
         Ok(())
-    }
-
-    /// Normalize filter to handle smart quotes from macOS
-    fn normalize_filter(filter: &str) -> String {
-        filter
-            .replace('\u{2018}', "'") // Left single quotation mark
-            .replace('\u{2019}', "'") // Right single quotation mark
-            .replace('\u{201C}', "\"") // Left double quotation mark
-            .replace('\u{201D}', "\"") // Right double quotation mark
-            .replace("\\'", "'") // Backslash-escaped single quote
     }
 
     fn escape_string_literal(value: &str) -> String {
@@ -225,18 +262,32 @@ impl DatabaseDriver for ClickhouseDriver {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let offset = (page - 1) * limit;
-        let where_clause = filter
+        let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
+            let columns = self
+                .get_table_structure(&self.config.database, table)
+                .await?
+                .columns
+                .into_iter()
+                .map(|column| column.name)
+                .collect::<Vec<_>>();
+            Some(compile_filter(
+                expression,
+                &columns,
+                FilterDialect::Clickhouse,
+            )?)
+        } else {
+            None
+        };
+        let filter_params = compiled_filter
             .as_ref()
-            .map(|f| {
-                let normalized = Self::normalize_filter(f);
-                format!(" WHERE {}", normalized)
-            })
+            .map(|filter| Self::filter_params(&filter.values))
             .unwrap_or_default();
+        let where_clause = build_where_clause(filter.as_ref(), compiled_filter.as_ref());
 
         let order_clause = sort_column
             .as_ref()
@@ -259,7 +310,9 @@ impl DatabaseDriver for ClickhouseDriver {
 
         // Get total count
         let count_query = format!("SELECT count() as count FROM `{}`{}", table, where_clause);
-        let count_rows = self.execute_query_json(&count_query).await?;
+        let count_rows = self
+            .execute_query_json_with_params(&count_query, &filter_params)
+            .await?;
         let total = count_rows
             .first()
             .and_then(|r| r["count"].as_str())
@@ -272,7 +325,9 @@ impl DatabaseDriver for ClickhouseDriver {
             "SELECT * FROM `{}`{}{} LIMIT {} OFFSET {}",
             table, where_clause, order_clause, limit, offset
         );
-        let data = self.execute_query_json(&data_query).await?;
+        let data = self
+            .execute_query_json_with_params(&data_query, &filter_params)
+            .await?;
 
         Ok(TableDataResponse {
             data,
@@ -508,12 +563,13 @@ impl DatabaseDriver for ClickhouseDriver {
             || trimmed.starts_with("WITH");
 
         if is_select {
-            match self.execute_query_json(query).await {
-                Ok(rows) => {
+            match self.execute_bounded_query_json(query).await {
+                Ok((rows, truncated)) => {
                     let row_count = rows.len() as i64;
                     Ok(QueryResult {
                         data: rows,
                         row_count,
+                        truncated,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -522,6 +578,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -533,6 +590,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Ok(_) => Ok(QueryResult {
                     data: vec![json!({"result": "Query executed successfully"})],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: Some(0),
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -540,6 +598,7 @@ impl DatabaseDriver for ClickhouseDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),

@@ -146,9 +146,73 @@ pub struct TableDataResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterConjunction {
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterOperator {
+    Equals,
+    NotEquals,
+    Contains,
+    StartsWith,
+    EndsWith,
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+    In,
+    IsNull,
+    IsNotNull,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterCondition {
+    pub column: String,
+    pub operator: FilterOperator,
+    pub value: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilterExpression {
+    pub conjunction: FilterConjunction,
+    pub conditions: Vec<FilterCondition>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+pub enum TableFilter {
+    Advanced(String),
+    Structured(FilterExpression),
+}
+
+impl TableFilter {
+    pub fn from_parts(
+        advanced: Option<String>,
+        structured: Option<FilterExpression>,
+    ) -> Result<Option<Self>, String> {
+        match (
+            advanced.filter(|value| !value.trim().is_empty()),
+            structured,
+        ) {
+            (Some(_), Some(_)) => {
+                Err("Choose either structured filters or an advanced WHERE clause".to_string())
+            }
+            (Some(value), None) => Ok(Some(Self::Advanced(value))),
+            (None, Some(value)) => Ok(Some(Self::Structured(value))),
+            (None, None) => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub data: Vec<serde_json::Value>,
     pub row_count: i64,
+    pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rows_affected: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
