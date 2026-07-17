@@ -60,6 +60,7 @@ impl PostgresDriver {
                 FilterValue::Integer(value) => query.bind(value),
                 FilterValue::Float(value) => query.bind(value),
                 FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
             };
         }
         query
@@ -332,13 +333,7 @@ impl DatabaseDriver for PostgresDriver {
         let offset = (page - 1) * limit;
         let full_table_name = format!("\"{}\".\"{}\"", schema, table);
         let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
-            let columns = self
-                .get_table_structure(schema, table)
-                .await?
-                .columns
-                .into_iter()
-                .map(|column| column.name)
-                .collect::<Vec<_>>();
+            let columns = self.get_table_structure(schema, table).await?.columns;
             Some(compile_filter(
                 expression,
                 &columns,

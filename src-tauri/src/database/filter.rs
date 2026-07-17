@@ -1,5 +1,5 @@
 use crate::db::models::{
-    FilterColumnKind, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
+    ColumnInfo, FilterColumnKind, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
 };
 use serde_json::Value;
 
@@ -114,6 +114,7 @@ pub enum FilterValue {
     Integer(i64),
     Float(f64),
     Boolean(bool),
+    ExactNumber { value: String, data_type: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -156,7 +157,7 @@ fn normalize_advanced_filter(filter: &str) -> String {
 
 pub fn compile_filter(
     expression: &FilterExpression,
-    allowed_columns: &[String],
+    columns: &[ColumnInfo],
     dialect: FilterDialect,
 ) -> Result<CompiledFilter, String> {
     if expression.conditions.len() > MAX_CONDITIONS {
@@ -169,9 +170,10 @@ pub fn compile_filter(
     let mut clauses = Vec::with_capacity(expression.conditions.len());
 
     for condition in &expression.conditions {
-        if !allowed_columns.contains(&condition.column) {
-            return Err(format!("Unknown filter column: {}", condition.column));
-        }
+        let column_info = columns
+            .iter()
+            .find(|column| column.name == condition.column)
+            .ok_or_else(|| format!("Unknown filter column: {}", condition.column))?;
 
         let column = quote_identifier(&condition.column, dialect);
         let clause = match condition.operator {
@@ -192,7 +194,7 @@ pub fn compile_filter(
 
                 let mut placeholders = Vec::with_capacity(array.len());
                 for item in array {
-                    let value = parse_value(item)?;
+                    let value = parse_value(item, column_info, dialect)?;
                     placeholders.push(placeholder(values.len(), &value, dialect));
                     values.push(value);
                 }
@@ -203,7 +205,7 @@ pub fn compile_filter(
                     .value
                     .as_ref()
                     .ok_or_else(|| "This filter requires a value".to_string())?;
-                let mut value = parse_value(raw_value)?;
+                let mut value = parse_value(raw_value, column_info, dialect)?;
                 let operator = match condition.operator {
                     FilterOperator::Equals => "=",
                     FilterOperator::NotEquals => "<>",
@@ -256,17 +258,79 @@ fn quote_identifier(identifier: &str, dialect: FilterDialect) -> String {
     }
 }
 
-fn parse_value(value: &Value) -> Result<FilterValue, String> {
-    match value {
-        Value::Object(value) if value.get("kind").and_then(Value::as_str) == Some("integer") => {
-            value
-                .get("value")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Integer filter value must be a string".to_string())?
-                .parse::<i64>()
-                .map(FilterValue::Integer)
-                .map_err(|_| "Integer filter value is out of range".to_string())
+fn tagged_number(
+    value: &Value,
+    column: &ColumnInfo,
+    dialect: FilterDialect,
+) -> Result<Option<FilterValue>, String> {
+    let Value::Object(object) = value else {
+        return Ok(None);
+    };
+    let Some(kind) = object.get("kind").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    if kind != "integer" && kind != "decimal" {
+        return Ok(None);
+    }
+
+    let value = object
+        .get("value")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Numeric filter value must be a non-empty string".to_string())?;
+    let expected_kind = if kind == "integer" {
+        FilterColumnKind::Integer
+    } else {
+        FilterColumnKind::Decimal
+    };
+    if column.filter_kind != expected_kind {
+        return Err(format!(
+            "Numeric filter value does not match column type: {}",
+            column.name
+        ));
+    }
+
+    let parsed = match (dialect, expected_kind) {
+        (FilterDialect::Postgres | FilterDialect::Sqlite, FilterColumnKind::Integer) => value
+            .parse::<i64>()
+            .map(FilterValue::Integer)
+            .map_err(|_| "Integer filter value is out of range".to_string())?,
+        (FilterDialect::Postgres | FilterDialect::Sqlite, FilterColumnKind::Decimal) => {
+            FilterValue::ExactNumber {
+                value: value.to_string(),
+                data_type: "numeric".to_string(),
+            }
         }
+        (FilterDialect::Clickhouse, _) => {
+            let data_type = normalize_clickhouse_type(&column.data_type);
+            if !data_type.chars().all(|character| {
+                character.is_ascii_alphanumeric()
+                    || matches!(character, '(' | ')' | ',' | ' ' | '_')
+            }) {
+                return Err("Unsupported ClickHouse numeric column type".to_string());
+            }
+            FilterValue::ExactNumber {
+                value: value.to_string(),
+                data_type,
+            }
+        }
+        _ => unreachable!(),
+    };
+
+    Ok(Some(parsed))
+}
+
+fn parse_value(
+    value: &Value,
+    column: &ColumnInfo,
+    dialect: FilterDialect,
+) -> Result<FilterValue, String> {
+    if let Some(value) = tagged_number(value, column, dialect)? {
+        return Ok(value);
+    }
+
+    match value {
         Value::String(value) => Ok(FilterValue::Text(value.clone())),
         Value::Number(value) if value.is_i64() => Ok(FilterValue::Integer(value.as_i64().unwrap())),
         Value::Number(value) if value.is_u64() => value
@@ -295,7 +359,12 @@ fn with_text_pattern(
 
 fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> String {
     match dialect {
-        FilterDialect::Postgres => format!("${}", index + 1),
+        FilterDialect::Postgres => match value {
+            FilterValue::ExactNumber { data_type, .. } => {
+                format!("${}::text::{data_type}", index + 1)
+            }
+            _ => format!("${}", index + 1),
+        },
         FilterDialect::Sqlite => "?".to_string(),
         FilterDialect::Clickhouse => {
             let value_type = match value {
@@ -303,6 +372,7 @@ fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> Str
                 FilterValue::Integer(_) => "Int64",
                 FilterValue::Float(_) => "Float64",
                 FilterValue::Boolean(_) => "UInt8",
+                FilterValue::ExactNumber { data_type, .. } => data_type,
             };
             format!("{{f{index}:{value_type}}}")
         }
@@ -313,7 +383,8 @@ fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> Str
 mod tests {
     use super::*;
     use crate::db::models::{
-        FilterColumnKind, FilterCondition, FilterConjunction, FilterExpression, FilterOperator,
+        ColumnInfo, FilterColumnKind, FilterCondition, FilterConjunction, FilterExpression,
+        FilterOperator,
     };
     use serde_json::json;
 
@@ -321,6 +392,17 @@ mod tests {
         FilterExpression {
             conjunction: FilterConjunction::And,
             conditions: vec![condition],
+        }
+    }
+
+    fn column(name: &str, data_type: &str, dialect: FilterDialect) -> ColumnInfo {
+        ColumnInfo {
+            name: name.to_string(),
+            data_type: data_type.to_string(),
+            filter_kind: classify_column_type(data_type, dialect),
+            nullable: false,
+            default: None,
+            primary_key: false,
         }
     }
 
@@ -360,7 +442,7 @@ mod tests {
                 operator: FilterOperator::Equals,
                 value: Some(json!("active")),
             }),
-            &["status".to_string()],
+            &[column("status", "text", FilterDialect::Postgres)],
             FilterDialect::Postgres,
         )
         .unwrap();
@@ -380,7 +462,7 @@ mod tests {
                 operator: FilterOperator::Contains,
                 value: Some(json!("cooper")),
             }),
-            &["name".to_string()],
+            &[column("name", "TEXT", FilterDialect::Sqlite)],
             FilterDialect::Sqlite,
         )
         .unwrap();
@@ -400,7 +482,11 @@ mod tests {
                 operator: FilterOperator::IsNull,
                 value: None,
             }),
-            &["deleted_at".to_string()],
+            &[column(
+                "deleted_at",
+                "timestamp with time zone",
+                FilterDialect::Postgres,
+            )],
             FilterDialect::Postgres,
         )
         .unwrap();
@@ -417,7 +503,7 @@ mod tests {
                 operator: FilterOperator::Equals,
                 value: Some(json!("secret")),
             }),
-            &["email".to_string()],
+            &[column("email", "text", FilterDialect::Postgres)],
             FilterDialect::Postgres,
         )
         .unwrap_err();
@@ -436,7 +522,7 @@ mod tests {
                     "value": "9007199254740993"
                 })),
             }),
-            &["external_id".to_string()],
+            &[column("external_id", "bigint", FilterDialect::Postgres)],
             FilterDialect::Postgres,
         )
         .unwrap();
@@ -444,6 +530,91 @@ mod tests {
         assert_eq!(
             compiled.values,
             vec![FilterValue::Integer(9_007_199_254_740_993)]
+        );
+    }
+
+    #[test]
+    fn preserves_wide_clickhouse_integer_values() {
+        let value = "340282366920938463463374607431768211455";
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "visits".to_string(),
+                operator: FilterOperator::Equals,
+                value: Some(json!({
+                    "kind": "integer",
+                    "value": value
+                })),
+            }),
+            &[column("visits", "UInt128", FilterDialect::Clickhouse)],
+            FilterDialect::Clickhouse,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.sql, "`visits` = {f0:UInt128}");
+        assert_eq!(
+            compiled.values,
+            vec![FilterValue::ExactNumber {
+                value: value.to_string(),
+                data_type: "UInt128".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn preserves_high_precision_decimal_values() {
+        let value = "12345678901234567890.123456789012345678";
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "amount".to_string(),
+                operator: FilterOperator::GreaterThan,
+                value: Some(json!({
+                    "kind": "decimal",
+                    "value": value
+                })),
+            }),
+            &[column(
+                "amount",
+                "Decimal(38, 18)",
+                FilterDialect::Clickhouse,
+            )],
+            FilterDialect::Clickhouse,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.sql, "`amount` > {f0:Decimal(38, 18)}");
+        assert_eq!(
+            compiled.values,
+            vec![FilterValue::ExactNumber {
+                value: value.to_string(),
+                data_type: "Decimal(38, 18)".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn preserves_postgres_decimal_values() {
+        let value = "12345678901234567890.123456789012345678";
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "amount".to_string(),
+                operator: FilterOperator::GreaterThan,
+                value: Some(json!({
+                    "kind": "decimal",
+                    "value": value
+                })),
+            }),
+            &[column("amount", "numeric", FilterDialect::Postgres)],
+            FilterDialect::Postgres,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.sql, "\"amount\" > $1::text::numeric");
+        assert_eq!(
+            compiled.values,
+            vec![FilterValue::ExactNumber {
+                value: value.to_string(),
+                data_type: "numeric".to_string(),
+            }]
         );
     }
 

@@ -136,6 +136,7 @@ impl ClickhouseDriver {
                     FilterValue::Integer(value) => value.to_string(),
                     FilterValue::Float(value) => value.to_string(),
                     FilterValue::Boolean(value) => u8::from(*value).to_string(),
+                    FilterValue::ExactNumber { value, .. } => value.clone(),
                 };
                 (format!("param_f{index}"), value)
             })
@@ -272,10 +273,7 @@ impl DatabaseDriver for ClickhouseDriver {
             let columns = self
                 .get_table_structure(&self.config.database, table)
                 .await?
-                .columns
-                .into_iter()
-                .map(|column| column.name)
-                .collect::<Vec<_>>();
+                .columns;
             Some(compile_filter(
                 expression,
                 &columns,

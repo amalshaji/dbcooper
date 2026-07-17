@@ -41,6 +41,7 @@ impl SqliteDriver {
                 FilterValue::Integer(value) => query.bind(value),
                 FilterValue::Float(value) => query.bind(value),
                 FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
             };
         }
         query
@@ -206,13 +207,7 @@ impl DatabaseDriver for SqliteDriver {
 
         let offset = (page - 1) * limit;
         let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
-            let columns = self
-                .get_table_structure("main", table)
-                .await?
-                .columns
-                .into_iter()
-                .map(|column| column.name)
-                .collect::<Vec<_>>();
+            let columns = self.get_table_structure("main", table).await?.columns;
             Some(compile_filter(expression, &columns, FilterDialect::Sqlite)?)
         } else {
             None
