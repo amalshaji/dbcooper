@@ -24,9 +24,9 @@ export function ConnectionWelcome({
 
 	return (
 		<div className="flex h-full items-center justify-center p-4">
-			<div className="w-full max-w-md text-center">
-				<div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-b from-primary/15 to-primary/5 text-primary ring-1 ring-primary/20 shadow-sm">
-					<Database className="size-7" />
+			<div className="workspace-panel w-full max-w-lg rounded-xl border px-8 py-9 text-center shadow-sm">
+				<div className="mx-auto mb-5 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
+					<Database className="size-5" />
 				</div>
 				<h2 className="text-lg font-semibold tracking-tight">
 					Welcome to {connection.name}
@@ -40,7 +40,7 @@ export function ConnectionWelcome({
 					{stats.map((stat) => (
 						<span
 							key={stat.label}
-							className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 ring-1 ring-border"
+							className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1"
 						>
 							<span className="font-semibold text-foreground">
 								{stat.value}
@@ -53,7 +53,7 @@ export function ConnectionWelcome({
 				<div className="mt-6 flex items-center justify-center gap-2">
 					<Button onClick={onNewQuery} size="sm">
 						<Plus className="size-4" weight="bold" />
-						New Query
+						New query
 					</Button>
 					{connection.db_type !== "clickhouse" && (
 						<Button

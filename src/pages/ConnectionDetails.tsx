@@ -144,7 +144,6 @@ import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
-import { handleDragStart } from "@/lib/windowDrag";
 import { CommandPalette } from "@/components/CommandPalette";
 import {
 	getStatementAtCursor,
@@ -283,38 +282,42 @@ function ContentHeader({
 
 	return (
 		<header
-			onMouseDown={handleDragStart}
-			className={`flex h-12 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 select-none ${
+			data-tauri-drag-region
+			className={`app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center gap-2 border-b px-4 ${
 				isCollapsed ? "pl-20" : ""
 			}`}
 		>
 			<SidebarTrigger className="-ml-1" />
-			<div className="flex items-center gap-2 flex-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={() => navigate("/")}
-					className="gap-2"
-				>
-					<X className="w-4 h-4" />
-					Close Connection
+			<div className="flex flex-1 items-center gap-2">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+					<X className="size-4" />
+					Close connection
 				</Button>
 			</div>
-			<div className="flex items-center gap-3">
+			<div className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="capitalize">
+				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
 					{connection.type}
 				</Badge>
-				<Badge variant={connection.ssl ? "default" : "secondary"}>
+				<Badge
+					variant={connection.ssl ? "default" : "secondary"}
+					className="h-5 px-2 text-[10px]"
+				>
 					SSL: {connection.ssl ? "Yes" : "No"}
 				</Badge>
-				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
-					<Gear className="w-4 h-4" />
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onClick={onOpenSettings}
+					aria-label="Open connection settings"
+					title="Connection settings"
+				>
+					<Gear className="size-4" />
 				</Button>
 			</div>
 		</header>
@@ -339,36 +342,37 @@ function RedisContentHeader({
 }) {
 	return (
 		<header
-			onMouseDown={handleDragStart}
-			className="flex h-12 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
+			data-tauri-drag-region
+			className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b pl-20 pr-4"
 		>
-			<div className="flex items-center gap-2 flex-1 ml-4">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={() => navigate("/")}
-					className="gap-2"
-				>
-					<X className="w-4 h-4" />
-					Close Connection
+			<div className="ml-4 flex flex-1 items-center gap-2">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+					<X className="size-4" />
+					Close connection
 				</Button>
-				<span className="font-semibold">{connection.name}</span>
-				<span className="text-muted-foreground text-sm">
+				<span className="text-sm font-semibold">{connection.name}</span>
+				<span className="text-xs text-muted-foreground">
 					{connection.host}:{connection.port}
 				</span>
 			</div>
-			<div className="flex items-center gap-3">
+			<div className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="capitalize">
+				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
 					{connection.type}
 				</Badge>
-				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
-					<Gear className="w-4 h-4" />
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onClick={onOpenSettings}
+					aria-label="Open connection settings"
+					title="Connection settings"
+				>
+					<Gear className="size-4" />
 				</Button>
 			</div>
 		</header>
@@ -589,7 +593,9 @@ export function ConnectionDetails() {
 
 	const objectSchemaCount = useMemo(() => {
 		const schemaNames = new Set<string>();
-		tables.forEach((table) => schemaNames.add(table.schema));
+		tables.forEach((table) => {
+			schemaNames.add(table.schema);
+		});
 		schemaOverview?.functions.forEach((functionSummary) => {
 			schemaNames.add(functionSummary.schema);
 		});
@@ -693,12 +699,14 @@ export function ConnectionDetails() {
 			!hasStartedLoading.current;
 
 		if (!shouldStartLoading) return;
+		if (!uuid) return;
 
 		hasStartedLoading.current = true;
+		const connectionUuid = uuid;
 
 		const loadData = async () => {
 			try {
-				const connectResult = await api.pool.connect(uuid!);
+				const connectResult = await api.pool.connect(connectionUuid);
 
 				if (connectResult.status === "connected") {
 					markConnected();
@@ -731,7 +739,7 @@ export function ConnectionDetails() {
 		});
 		// Only depend on connection and loadingPhase, not the callbacks
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [connection, loadingPhase]);
+	}, [connection, loadingPhase, uuid]);
 
 	useEffect(() => {
 		const fetchSavedQueries = async () => {
@@ -2389,15 +2397,15 @@ export function ConnectionDetails() {
 		if (!connection) return null;
 		switch (connection.type) {
 			case "postgres":
-				return <PostgresqlIcon className="h-16 w-16" />;
+				return <PostgresqlIcon className="size-8" />;
 			case "sqlite":
-				return <SqliteIcon className="h-16 w-16" />;
+				return <SqliteIcon className="size-8" />;
 			case "redis":
-				return <RedisIcon className="h-16 w-16" />;
+				return <RedisIcon className="size-8" />;
 			case "clickhouse":
-				return <ClickhouseIcon className="h-16 w-16" />;
+				return <ClickhouseIcon className="size-8" />;
 			default:
-				return <Database className="h-16 w-16" />;
+				return <Database className="size-8" />;
 		}
 	};
 
@@ -2440,10 +2448,20 @@ export function ConnectionDetails() {
 
 	if (loadingPhase !== "complete" || connection === null) {
 		return (
-			<div className="flex h-screen items-center justify-center bg-background">
-				<div className="flex items-center gap-8">
-					<div className="animate-pulse shrink-0">{getDatabaseIcon()}</div>
-					<div className="flex flex-col gap-3 min-w-[280px]">
+			<div className="workspace-canvas flex h-screen items-center justify-center p-6">
+				<div className="workspace-panel w-full max-w-sm rounded-xl border p-5 shadow-sm">
+					<div className="mb-4 flex items-center border-b pb-4">
+						<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							{getDatabaseIcon() ?? <Database className="size-5" />}
+						</div>
+						<div className="ml-3 min-w-0">
+							<p className="section-label">Opening workspace</p>
+							<p className="mt-0.5 truncate text-sm font-semibold">
+								{connection?.name ?? "Database connection"}
+							</p>
+						</div>
+					</div>
+					<div className="flex min-w-0 flex-col gap-2.5">
 						{loadingPhases.map((phaseInfo) => {
 							const status = getPhaseStatus(phaseInfo.phase);
 							// Show connection status for the connecting phase
@@ -2455,28 +2473,28 @@ export function ConnectionDetails() {
 
 							return (
 								<div key={phaseInfo.phase} className="flex items-center gap-3">
-									<div className="w-5 h-5 flex items-center justify-center shrink-0">
+									<div className="flex size-5 shrink-0 items-center justify-center">
 										{status === "complete" ? (
-											<Check className="w-5 h-5 text-green-600" />
+											<Check className="size-4 text-emerald-600" />
 										) : status === "active" ? (
 											showConnectionStatus &&
 											connectionStatus === "disconnected" ? (
-												<X className="w-4 h-4 text-red-600" />
+												<X className="size-4 text-destructive" />
 											) : (
-												<Spinner className="w-4 h-4" />
+												<Spinner className="size-4" />
 											)
 										) : (
-											<div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+											<div className="size-1.5 rounded-full bg-muted-foreground/30" />
 										)}
 									</div>
 									<span
-										className={`text-sm flex-1 ${
+										className={`flex-1 text-xs ${
 											status === "complete"
 												? "text-muted-foreground"
 												: status === "active"
 													? showConnectionStatus &&
 														connectionStatus === "disconnected"
-														? "text-red-600 font-medium"
+														? "font-medium text-destructive"
 														: "text-foreground font-medium"
 													: "text-muted-foreground/50"
 										}`}
@@ -2503,7 +2521,7 @@ export function ConnectionDetails() {
 		const showFilterInput = tab.loading || hasReturnedRows;
 
 		return (
-			<Card>
+			<Card className="workspace-panel">
 				<CardHeader>
 					<div className="flex items-center justify-between">
 						<div>
@@ -2620,9 +2638,11 @@ export function ConnectionDetails() {
 							/>
 						</div>
 					) : (
-						<p className="text-muted-foreground text-center py-8">
-							No data found in this table.
-						</p>
+						<div className="flex min-h-40 items-center justify-center px-4 text-center">
+							<p className="text-sm text-muted-foreground">
+								No rows found in this table.
+							</p>
+						</div>
 					)}
 				</CardContent>
 			</Card>
@@ -2630,7 +2650,7 @@ export function ConnectionDetails() {
 	};
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
-		<Card>
+		<Card className="workspace-panel">
 			<CardHeader>
 				<div className="flex items-center justify-between">
 					<div>
@@ -2842,9 +2862,9 @@ export function ConnectionDetails() {
 		const trimmedError = errorMessage.trimEnd();
 
 		return (
-			<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
+			<div className="rounded-md border border-destructive/20 bg-destructive/10 p-4">
 				<div className="flex items-start justify-between">
-					<p className="text-sm text-destructive font-medium">Query Error</p>
+					<p className="text-sm font-medium text-destructive">Query error</p>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -2865,12 +2885,12 @@ export function ConnectionDetails() {
 	};
 
 	const renderQueryContent = (tab: QueryTab) => (
-		<div className="space-y-4">
-			<Card>
-				<CardHeader>
+		<div className="space-y-3">
+			<Card className="workspace-panel">
+				<CardHeader className="py-4">
 					<div className="flex items-center justify-between">
 						<div>
-							<CardTitle>SQL Editor</CardTitle>
+							<CardTitle>SQL editor</CardTitle>
 							<CardDescription>Write and execute SQL queries</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
@@ -2957,7 +2977,7 @@ export function ConnectionDetails() {
 										disabled={!tab.query.trim()}
 									>
 										<FloppyDisk className="w-4 h-4" />
-										Save Query
+										Save query
 									</Button>
 									<div className="flex">
 										<Button
@@ -2967,7 +2987,7 @@ export function ConnectionDetails() {
 											className="rounded-r-none border-r-0 -mr-1"
 										>
 											{tab.executing ? <Spinner /> : null}
-											Run Query{" "}
+											Run query{" "}
 											<span className="text-xs opacity-60">
 												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
 												+↵)
@@ -2988,7 +3008,7 @@ export function ConnectionDetails() {
 											<DropdownMenuContent align="end">
 												<DropdownMenuItem onClick={handleRunAllQueries}>
 													<PlayCircle className="w-4 h-4" />
-													Run All Queries
+													Run all queries
 												</DropdownMenuItem>
 											</DropdownMenuContent>
 										</DropdownMenu>
@@ -3020,12 +3040,12 @@ export function ConnectionDetails() {
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader>
+			<Card className="workspace-panel">
+				<CardHeader className="py-4">
 					<div className="flex items-center justify-between">
 						<div>
 							<div className="flex items-center gap-2">
-								<CardTitle>Query Results</CardTitle>
+								<CardTitle>Query results</CardTitle>
 								{tab.executionTime !== null && (
 									<span className="text-xs text-muted-foreground">
 										({tab.executionTime}ms)
@@ -3195,8 +3215,7 @@ export function ConnectionDetails() {
 											tab.resultBaseQuery ? handleQuerySortChange : undefined
 										}
 										onRowClick={(row) => {
-											const index =
-												tab.results?.findIndex((r) => r === row) ?? -1;
+											const index = tab.results?.indexOf(row) ?? -1;
 											setSelectedQueryRow({ row, index });
 											setQueryResultSheetOpen(true);
 										}}
@@ -3219,10 +3238,10 @@ export function ConnectionDetails() {
 							) : null}
 						</div>
 					) : (
-						<div className="pb-10 pt-6 text-center text-muted-foreground">
-							<p>
-								No results yet. Write a SQL query and click &quot;Run
-								Query&quot; to execute it.
+						<div className="flex min-h-40 items-center justify-center px-4 text-center">
+							<p className="max-w-md text-sm text-muted-foreground">
+								No results yet. Write a SQL query, then run it to see the output
+								here.
 							</p>
 						</div>
 					)}
@@ -3876,7 +3895,7 @@ export function ConnectionDetails() {
 	// Redis-specific layout without sidebar or tabs
 	if (connection.type === "redis") {
 		return (
-			<div className="flex flex-col h-screen">
+			<div className="workspace-canvas flex h-screen flex-col">
 				<RedisContentHeader
 					connection={connection}
 					navigate={navigate}
@@ -3886,7 +3905,7 @@ export function ConnectionDetails() {
 					onOpenSettings={openSettings}
 				/>
 
-				<div className="flex-1 p-4 min-w-0 overflow-auto">
+				<div className="min-w-0 flex-1 overflow-auto p-3">
 					{renderRedisView()}
 				</div>
 			</div>
@@ -3897,8 +3916,8 @@ export function ConnectionDetails() {
 		<SidebarProvider>
 			<Sidebar>
 				<SidebarHeader
-					className="border-b p-4 pt-10 select-none"
-					onMouseDown={handleDragStart}
+					className="app-titlebar select-none border-b p-3 pt-10"
+					data-tauri-drag-region
 				>
 					<div className="flex items-center justify-between gap-2">
 						<div className="flex items-center gap-2 min-w-0 flex-1">
@@ -3944,17 +3963,17 @@ export function ConnectionDetails() {
 						}
 						className="h-full min-h-0"
 					>
-						<TabsList className="w-full grid grid-cols-3">
-							<TabsTrigger value="objects" className="flex items-center gap-2">
-								<Table className="w-4 h-4" />
+						<TabsList className="grid w-full grid-cols-3">
+							<TabsTrigger value="objects">
+								<Table className="size-4" />
 								Objects
 							</TabsTrigger>
-							<TabsTrigger value="queries" className="flex items-center gap-2">
-								<Code className="w-4 h-4" />
+							<TabsTrigger value="queries">
+								<Code className="size-4" />
 								Queries
 							</TabsTrigger>
-							<TabsTrigger value="history" className="flex items-center gap-2">
-								<ClockCounterClockwise className="w-4 h-4" />
+							<TabsTrigger value="history">
+								<ClockCounterClockwise className="size-4" />
 								History
 							</TabsTrigger>
 						</TabsList>
@@ -4116,7 +4135,7 @@ export function ConnectionDetails() {
 				</SidebarContent>
 			</Sidebar>
 
-			<SidebarInset className="min-w-0 flex flex-col h-screen">
+			<SidebarInset className="workspace-canvas flex h-screen min-w-0 flex-col">
 				<ContentHeader
 					connection={connection}
 					navigate={navigate}
@@ -4134,7 +4153,7 @@ export function ConnectionDetails() {
 					onNewQuery={handleNewQuery}
 				/>
 
-				<div className="flex-1 p-4 min-w-0 overflow-auto">
+				<div className="min-w-0 flex-1 overflow-auto p-3">
 					{renderActiveTabContent()}
 				</div>
 			</SidebarInset>
