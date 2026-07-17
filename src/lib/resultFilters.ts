@@ -1,9 +1,14 @@
-export interface IntegerFilterValue {
-	kind: "integer";
+export interface ExactNumberFilterValue {
+	kind: "integer" | "decimal";
 	value: string;
 }
 
-export type FilterScalar = string | number | boolean | null | IntegerFilterValue;
+export type FilterScalar =
+	| string
+	| number
+	| boolean
+	| null
+	| ExactNumberFilterValue;
 
 export type FilterOperator =
 	| "equals"
@@ -18,6 +23,15 @@ export type FilterOperator =
 	| "in"
 	| "is_null"
 	| "is_not_null";
+
+export type FilterColumnKind =
+	| "text"
+	| "integer"
+	| "decimal"
+	| "boolean"
+	| "temporal"
+	| "uuid"
+	| "other";
 
 export interface FilterCondition {
 	column: string;
@@ -74,12 +88,97 @@ export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
 	is_not_null: "is not null",
 };
 
-export const FILTER_OPERATORS = Object.keys(
-	FILTER_OPERATOR_LABELS,
-) as FilterOperator[];
+const TEXT_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"contains",
+	"starts_with",
+	"ends_with",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+const ORDERED_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"greater_than",
+	"greater_than_or_equal",
+	"less_than",
+	"less_than_or_equal",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+const BOOLEAN_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"is_null",
+	"is_not_null",
+];
+
+const CONSERVATIVE_FILTER_OPERATORS: FilterOperator[] = [
+	"equals",
+	"not_equals",
+	"in",
+	"is_null",
+	"is_not_null",
+];
+
+export function getFilterOperatorsForColumn(
+	columnKind: FilterColumnKind,
+): FilterOperator[] {
+	switch (columnKind) {
+		case "text":
+			return TEXT_FILTER_OPERATORS;
+		case "integer":
+		case "decimal":
+		case "temporal":
+			return ORDERED_FILTER_OPERATORS;
+		case "boolean":
+			return BOOLEAN_FILTER_OPERATORS;
+		default:
+			return CONSERVATIVE_FILTER_OPERATORS;
+	}
+}
 
 export function operatorNeedsValue(operator: FilterOperator): boolean {
 	return operator !== "is_null" && operator !== "is_not_null";
+}
+
+export function changeFilterConditionColumn(
+	condition: FilterCondition,
+	column: string,
+	columnKind: FilterColumnKind,
+): FilterCondition {
+	const allowedOperators = getFilterOperatorsForColumn(columnKind);
+
+	return {
+		column,
+		operator: allowedOperators.includes(condition.operator)
+			? condition.operator
+			: "equals",
+		value: undefined,
+	};
+}
+
+export function changeFilterConditionOperator(
+	condition: FilterCondition,
+	operator: FilterOperator,
+): FilterCondition {
+	if (!operatorNeedsValue(operator)) {
+		return { ...condition, operator, value: undefined };
+	}
+
+	const changesValueShape =
+		(condition.operator === "in") !== (operator === "in");
+
+	return {
+		...condition,
+		operator,
+		value: changesValueShape ? "" : (condition.value ?? ""),
+	};
 }
 
 export function isConditionComplete(condition: FilterCondition): boolean {
@@ -138,32 +237,31 @@ export function describeFilterExpression(expression: FilterExpression): string {
 		.join(` ${expression.conjunction} `);
 }
 
-function coerceScalar(value: FilterScalar, dataType: string): FilterScalar {
+function coerceScalar(
+	value: FilterScalar,
+	columnKind: FilterColumnKind,
+): FilterScalar {
 	if (typeof value !== "string") return value;
-	const normalizedType = dataType.toLowerCase();
-	if (/bool/.test(normalizedType)) {
+	if (columnKind === "boolean") {
 		if (value.toLowerCase() === "true") return true;
 		if (value.toLowerCase() === "false") return false;
 	}
-	if (
-		/(^|\W)(tinyint|smallint|integer|bigint|int|serial)/.test(
-			normalizedType,
-		)
-	) {
+	if (columnKind === "integer") {
 		if (/^[+-]?\d+$/.test(value.trim())) {
 			return { kind: "integer", value: value.trim() };
 		}
 	}
-	if (/(^|\W)(decimal|numeric|real|float|double)/.test(normalizedType)) {
-		const number = Number(value);
-		if (Number.isFinite(number)) return number;
+	if (columnKind === "decimal") {
+		if (value.trim()) {
+			return { kind: "decimal", value: value.trim() };
+		}
 	}
 	return value;
 }
 
 export function coerceFilterExpression(
 	expression: FilterExpression,
-	columnTypes: Record<string, string>,
+	columnKinds: Record<string, FilterColumnKind>,
 ): FilterExpression {
 	return {
 		...expression,
@@ -172,14 +270,14 @@ export function coerceFilterExpression(
 				return { ...condition, value: undefined };
 			}
 
-			const type = columnTypes[condition.column] ?? "text";
+			const columnKind = columnKinds[condition.column] ?? "other";
 			const rawValues =
 				condition.operator === "in" && typeof condition.value === "string"
 					? condition.value.split(",").map((value) => value.trim())
 					: condition.value;
 			const value = Array.isArray(rawValues)
-				? rawValues.map((item) => coerceScalar(item, type))
-				: coerceScalar(rawValues ?? null, type);
+				? rawValues.map((item) => coerceScalar(item, columnKind))
+				: coerceScalar(rawValues ?? null, columnKind);
 
 			return { ...condition, value };
 		}),

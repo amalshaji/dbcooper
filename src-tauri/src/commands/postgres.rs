@@ -1,3 +1,4 @@
+use crate::database::filter::{classify_column_type, FilterDialect};
 use crate::database::{query_returns_rows, MAX_QUERY_RESULT_ROWS};
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
@@ -428,6 +429,7 @@ pub async fn get_table_structure(
             .map(
                 |(name, data_type, nullable, default, primary_key)| ColumnInfo {
                     name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Postgres),
                     data_type,
                     nullable,
                     default,

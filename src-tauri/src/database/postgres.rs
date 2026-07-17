@@ -7,8 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::filter::{
-    build_where_clause, compile_filter, structured_expression, CompiledFilter, FilterDialect,
-    FilterValue,
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
 };
 use super::{query_returns_rows, DatabaseDriver, PostgresConfig};
 use crate::database::queries::postgres::{
@@ -60,6 +60,7 @@ impl PostgresDriver {
                 FilterValue::Integer(value) => query.bind(value),
                 FilterValue::Float(value) => query.bind(value),
                 FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
             };
         }
         query
@@ -332,13 +333,7 @@ impl DatabaseDriver for PostgresDriver {
         let offset = (page - 1) * limit;
         let full_table_name = format!("\"{}\".\"{}\"", schema, table);
         let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
-            let columns = self
-                .get_table_structure(schema, table)
-                .await?
-                .columns
-                .into_iter()
-                .map(|column| column.name)
-                .collect::<Vec<_>>();
+            let columns = self.get_table_structure(schema, table).await?.columns;
             Some(compile_filter(
                 expression,
                 &columns,
@@ -547,6 +542,7 @@ impl DatabaseDriver for PostgresDriver {
                 .map(
                     |(name, data_type, nullable, default, primary_key)| ColumnInfo {
                         name,
+                        filter_kind: classify_column_type(&data_type, FilterDialect::Postgres),
                         data_type,
                         nullable,
                         default,
@@ -653,8 +649,12 @@ impl DatabaseDriver for PostgresDriver {
             let table_type: String = row.try_get("type").map_err(|e| e.to_string())?;
 
             let columns_json: Value = row.try_get("columns").map_err(|e| e.to_string())?;
-            let columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
+            let mut columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
                 .map_err(|e| format!("Failed to parse columns: {}", e))?;
+            for column in &mut columns {
+                column.filter_kind =
+                    classify_column_type(&column.data_type, FilterDialect::Postgres);
+            }
 
             let foreign_keys_json: Value =
                 row.try_get("foreign_keys").map_err(|e| e.to_string())?;

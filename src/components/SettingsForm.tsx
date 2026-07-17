@@ -18,8 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { type Theme, useTheme } from "@/contexts/ThemeContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
+import { ThemeSelector } from "./ThemeSelector";
 
 interface SettingsFormProps {
 	onSaveSuccess?: () => void;
@@ -125,19 +126,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 						</p>
 					)}
 				</div>
-				<div className="flex rounded-md border bg-muted/50 p-0.5">
-					{(["light", "dark", "system"] as Theme[]).map((t) => (
-						<Button
-							key={t}
-							variant={theme === t ? "secondary" : "ghost"}
-							onClick={() => setTheme(t)}
-							className="flex-1 capitalize"
-							size={compact ? "sm" : "default"}
-						>
-							{t}
-						</Button>
-					))}
-				</div>
+				<ThemeSelector
+					theme={theme}
+					compact={compact}
+					onThemeChange={setTheme}
+				/>
 			</div>
 
 			<div className={sectionClass}>

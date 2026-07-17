@@ -5,8 +5,8 @@ use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
 use super::filter::{
-    build_where_clause, compile_filter, structured_expression, CompiledFilter, FilterDialect,
-    FilterValue,
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
 };
 use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
@@ -41,6 +41,7 @@ impl SqliteDriver {
                 FilterValue::Integer(value) => query.bind(value),
                 FilterValue::Float(value) => query.bind(value),
                 FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
             };
         }
         query
@@ -206,13 +207,7 @@ impl DatabaseDriver for SqliteDriver {
 
         let offset = (page - 1) * limit;
         let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
-            let columns = self
-                .get_table_structure("main", table)
-                .await?
-                .columns
-                .into_iter()
-                .map(|column| column.name)
-                .collect::<Vec<_>>();
+            let columns = self.get_table_structure("main", table).await?.columns;
             Some(compile_filter(expression, &columns, FilterDialect::Sqlite)?)
         } else {
             None
@@ -316,6 +311,7 @@ impl DatabaseDriver for SqliteDriver {
 
                 ColumnInfo {
                     name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: notnull == 0,
                     default,
@@ -506,6 +502,7 @@ impl DatabaseDriver for SqliteDriver {
             if let Some(table) = tables_map.get_mut(&table_name) {
                 table.columns.push(ColumnInfo {
                     name: column_name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: not_null == 0,
                     default: default_value,

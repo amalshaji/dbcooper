@@ -109,9 +109,49 @@ pub struct ColumnInfo {
     pub name: String,
     #[serde(rename = "type")]
     pub data_type: String,
+    #[serde(default)]
+    pub filter_kind: FilterColumnKind,
     pub nullable: bool,
     pub default: Option<String>,
     pub primary_key: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterColumnKind {
+    Text,
+    Integer,
+    Decimal,
+    Boolean,
+    Temporal,
+    Uuid,
+    Other,
+}
+
+impl Default for FilterColumnKind {
+    fn default() -> Self {
+        Self::Other
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn column_info_accepts_internal_schema_json_without_filter_kind() {
+        let column: ColumnInfo = serde_json::from_value(json!({
+            "name": "id",
+            "type": "bigint",
+            "nullable": false,
+            "default": null,
+            "primary_key": true
+        }))
+        .unwrap();
+
+        assert_eq!(column.filter_kind, FilterColumnKind::Other);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
