@@ -3,7 +3,12 @@ export interface IntegerFilterValue {
 	value: string;
 }
 
-export type FilterScalar = string | number | boolean | null | IntegerFilterValue;
+export type FilterScalar =
+	| string
+	| number
+	| boolean
+	| null
+	| IntegerFilterValue;
 
 export type FilterOperator =
 	| "equals"
@@ -83,10 +88,6 @@ export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
 	is_not_null: "is not null",
 };
 
-export const FILTER_OPERATORS = Object.keys(
-	FILTER_OPERATOR_LABELS,
-) as FilterOperator[];
-
 const TEXT_FILTER_OPERATORS: FilterOperator[] = [
 	"equals",
 	"not_equals",
@@ -127,13 +128,13 @@ const CONSERVATIVE_FILTER_OPERATORS: FilterOperator[] = [
 
 function normalizeColumnType(dataType: string): string {
 	let normalizedType = dataType.trim().toLowerCase().replace(/\s+/g, " ");
-	let wrappedType = normalizedType.match(/^(?:nullable|lowcardinality)\((.*)\)$/);
+	let wrappedType = normalizedType.match(
+		/^(?:nullable|lowcardinality)\((.*)\)$/,
+	);
 
 	while (wrappedType) {
 		normalizedType = wrappedType[1].trim();
-		wrappedType = normalizedType.match(
-			/^(?:nullable|lowcardinality)\((.*)\)$/,
-		);
+		wrappedType = normalizedType.match(/^(?:nullable|lowcardinality)\((.*)\)$/);
 	}
 
 	return normalizedType;
@@ -202,6 +203,40 @@ export function getFilterOperatorsForColumn(
 
 export function operatorNeedsValue(operator: FilterOperator): boolean {
 	return operator !== "is_null" && operator !== "is_not_null";
+}
+
+export function changeFilterConditionColumn(
+	condition: FilterCondition,
+	column: string,
+	dataType: string,
+): FilterCondition {
+	const allowedOperators = getFilterOperatorsForColumn(dataType);
+
+	return {
+		column,
+		operator: allowedOperators.includes(condition.operator)
+			? condition.operator
+			: "equals",
+		value: undefined,
+	};
+}
+
+export function changeFilterConditionOperator(
+	condition: FilterCondition,
+	operator: FilterOperator,
+): FilterCondition {
+	if (!operatorNeedsValue(operator)) {
+		return { ...condition, operator, value: undefined };
+	}
+
+	const changesValueShape =
+		(condition.operator === "in") !== (operator === "in");
+
+	return {
+		...condition,
+		operator,
+		value: changesValueShape ? "" : (condition.value ?? ""),
+	};
 }
 
 export function isConditionComplete(condition: FilterCondition): boolean {

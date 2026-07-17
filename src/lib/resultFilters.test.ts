@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
+	changeFilterConditionColumn,
+	changeFilterConditionOperator,
 	coerceFilterExpression,
-	createTableFilterState,
 	createCellFilter,
+	createTableFilterState,
 	describeFilterExpression,
+	type FilterExpression,
 	getFilterColumnKind,
 	getFilterOperatorsForColumn,
 	getFilterRequest,
 	isConditionComplete,
-	type FilterExpression,
 } from "./resultFilters";
 
 describe("result filters", () => {
@@ -162,6 +164,92 @@ describe("result filters", () => {
 		]);
 	});
 
+	test("clears values and replaces incompatible operators when columns change", () => {
+		expect(
+			changeFilterConditionColumn(
+				{
+					column: "name",
+					operator: "contains",
+					value: "cooper",
+				},
+				"age",
+				"integer",
+			),
+		).toEqual({
+			column: "age",
+			operator: "equals",
+			value: undefined,
+		});
+		expect(
+			changeFilterConditionColumn(
+				{
+					column: "age",
+					operator: "greater_than",
+					value: "18",
+				},
+				"score",
+				"numeric",
+			),
+		).toEqual({
+			column: "score",
+			operator: "greater_than",
+			value: undefined,
+		});
+	});
+
+	test("preserves compatible scalar values and clears list or null transitions", () => {
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"contains",
+			),
+		).toEqual({
+			column: "name",
+			operator: "contains",
+			value: "cooper",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"in",
+			),
+		).toEqual({
+			column: "name",
+			operator: "in",
+			value: "",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "in", value: "a, b" },
+				"in",
+			),
+		).toEqual({
+			column: "name",
+			operator: "in",
+			value: "a, b",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "in", value: "a, b" },
+				"not_equals",
+			),
+		).toEqual({
+			column: "name",
+			operator: "not_equals",
+			value: "",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"is_null",
+			),
+		).toEqual({
+			column: "name",
+			operator: "is_null",
+			value: undefined,
+		});
+	});
+
 	test("coerces wrapped ClickHouse scalar and list values", () => {
 		const expression = coerceFilterExpression(
 			{
@@ -236,9 +324,7 @@ describe("result filters", () => {
 		).toEqual({
 			structuredFilter: {
 				conjunction: "and",
-				conditions: [
-					{ column: "status", operator: "equals", value: "active" },
-				],
+				conditions: [{ column: "status", operator: "equals", value: "active" }],
 			},
 		});
 	});

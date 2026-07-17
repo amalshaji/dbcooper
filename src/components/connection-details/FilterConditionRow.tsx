@@ -1,6 +1,5 @@
 import { X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -9,14 +8,16 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import {
-	FILTER_OPERATORS,
+	changeFilterConditionColumn,
+	changeFilterConditionOperator,
 	FILTER_OPERATOR_LABELS,
-	operatorNeedsValue,
 	type FilterCondition,
 	type FilterExpression,
 	type FilterOperator,
+	getFilterOperatorsForColumn,
 } from "@/lib/resultFilters";
 import type { TableColumn } from "@/types/tabTypes";
+import { FilterValueInput } from "./FilterValueInput";
 
 interface FilterConditionRowProps {
 	condition: FilterCondition;
@@ -41,15 +42,11 @@ export function FilterConditionRow({
 	onRemove,
 	onApply,
 }: FilterConditionRowProps) {
-	const inputValue = Array.isArray(condition.value)
-		? condition.value
-				.map((value) =>
-					typeof value === "object" && value !== null ? value.value : String(value),
-				)
-				.join(", ")
-		: typeof condition.value === "object" && condition.value !== null
-			? condition.value.value
-			: String(condition.value ?? "");
+	const selectedColumn =
+		columns.find((column) => column.name === condition.column) ?? columns[0];
+	const filterOperators = getFilterOperatorsForColumn(
+		selectedColumn?.type ?? "unknown",
+	);
 
 	return (
 		<div className="flex items-center gap-2">
@@ -66,9 +63,18 @@ export function FilterConditionRow({
 			)}
 			<Select
 				value={condition.column}
-				onValueChange={(column) => onChange({ column })}
+				onValueChange={(columnName) => {
+					const column = columns.find((item) => item.name === columnName);
+					onChange(
+						changeFilterConditionColumn(
+							condition,
+							columnName,
+							column?.type ?? "unknown",
+						),
+					);
+				}}
 			>
-				<SelectTrigger size="sm" className="w-40">
+				<SelectTrigger size="sm" className="w-40" aria-label="Filter column">
 					<SelectValue placeholder="Column" />
 				</SelectTrigger>
 				<SelectContent>
@@ -82,34 +88,32 @@ export function FilterConditionRow({
 			<Select
 				value={condition.operator}
 				onValueChange={(operator) =>
-					onChange({
-						operator: operator as FilterOperator,
-						value: operatorNeedsValue(operator as FilterOperator)
-							? (condition.value ?? "")
-							: undefined,
-					})
+					onChange(
+						changeFilterConditionOperator(
+							condition,
+							operator as FilterOperator,
+						),
+					)
 				}
 			>
-			<SelectTrigger size="sm" className="w-40">
+				<SelectTrigger size="sm" className="w-40" aria-label="Filter operator">
 					<SelectValue />
 				</SelectTrigger>
 				<SelectContent>
-					{FILTER_OPERATORS.map((operator) => (
+					{filterOperators.map((operator) => (
 						<SelectItem key={operator} value={operator}>
 							{FILTER_OPERATOR_LABELS[operator]}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
-			{operatorNeedsValue(condition.operator) && (
-				<Input
-					value={inputValue}
-					onChange={(event) => onChange({ value: event.target.value })}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && canApply) onApply();
-					}}
-					placeholder={condition.operator === "in" ? "value, value" : "Value"}
-					className="h-7 flex-1 font-mono text-xs"
+			{selectedColumn && (
+				<FilterValueInput
+					condition={condition}
+					column={selectedColumn}
+					canApply={canApply}
+					onChange={(value) => onChange({ value })}
+					onApply={onApply}
 				/>
 			)}
 			<Button
