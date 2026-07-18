@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "check": "bun run test && bun run typecheck && bun run lint && bun run build",
-    "audit:prod": "bunx bun@1.3.14 audit --prod --audit-level high --ignore GHSA-r5fr-rjxr-66jc",
+    "audit:prod": "bunx bun@1.3.14 audit --prod --audit-level high",
     "preview": "vite preview",
     "icons": "tauri icon icon.png --ios-color '#061B40' && bun run build:macos-icons",
     "tauri": "tauri"
@@ -78,7 +78,7 @@
   },
   "overrides": {
     "flatted": "^3.4.2",
-    "picomatch": "^4.0.5",
+    "lodash": "4.18.1",
     "rollup": "^4.62.2"
   }
 }
