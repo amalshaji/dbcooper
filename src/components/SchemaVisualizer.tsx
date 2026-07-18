@@ -349,24 +349,24 @@ export function SchemaVisualizer({
 		}
 	}, [tableFilter, filteredTable, selectedTablesArray, onSelectedTablesChange]);
 
-	const { nodes: initialNodes, edges: initialEdges } = useMemo(() => {
+	const layoutedElements = useMemo(() => {
 		if (!schemaOverview || filteredTables.length === 0) {
 			return { nodes: [], edges: [] };
 		}
 		return getLayoutedElements(filteredTables, showColumns);
 	}, [schemaOverview, filteredTables, showColumns]);
 
-	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+	const [nodes, setNodes, onNodesChange] = useNodesState(
+		layoutedElements.nodes,
+	);
+	const [edges, setEdges, onEdgesChange] = useEdgesState(
+		layoutedElements.edges,
+	);
 
 	useEffect(() => {
-		const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
-			filteredTables,
-			showColumns,
-		);
-		setNodes(newNodes);
-		setEdges(newEdges);
-	}, [filteredTables, showColumns, setNodes, setEdges]);
+		setNodes(layoutedElements.nodes);
+		setEdges(layoutedElements.edges);
+	}, [layoutedElements, setNodes, setEdges]);
 
 	const onConnect = useCallback(
 		(params: Connection) => setEdges((eds) => addEdge(params, eds)),
