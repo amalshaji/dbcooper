@@ -196,7 +196,7 @@ export function ConnectionForm({
 			} else {
 				toast.error(result.message || "Connection failed");
 			}
-		} catch (error) {
+		} catch {
 			toast.error("Failed to test connection");
 		} finally {
 			setIsTesting(false);

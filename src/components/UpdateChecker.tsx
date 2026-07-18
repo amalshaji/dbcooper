@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { ArrowRight } from "@phosphor-icons/react";
@@ -19,6 +19,7 @@ export function UpdateChecker() {
 	const updateRef = useRef<Update | null>(null);
 	const downloadedBytesRef = useRef(0);
 	const totalBytesRef = useRef<number | null>(null);
+	const hasCheckedOnStartupRef = useRef(false);
 
 	const formatBytes = (bytes: number): string => {
 		if (bytes < 1024) return `${bytes} B`;
@@ -41,47 +42,44 @@ export function UpdateChecker() {
 			? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
 			: null;
 
-	useEffect(() => {
-		checkSettingsAndUpdate();
-	}, []);
+	const checkForUpdates = useCallback(
+		async (manual: boolean = false) => {
+			if (manual && checkingManually) return;
 
-	const checkSettingsAndUpdate = async () => {
+			try {
+				if (manual) setCheckingManually(true);
+				const update = await check();
+				if (update?.available) {
+					setUpdateAvailable(true);
+					setUpdateVersion(update.version);
+					updateRef.current = update;
+				} else if (manual) {
+					toast.info("You're on the latest version");
+				}
+			} catch (error) {
+				console.error("Failed to check for updates:", error);
+				if (manual) toast.error("Failed to check for updates");
+			} finally {
+				if (manual) setCheckingManually(false);
+			}
+		},
+		[checkingManually],
+	);
+
+	const checkSettingsAndUpdate = useCallback(async () => {
 		try {
 			const checkOnStartup = await api.settings.get("check_updates_on_startup");
-			if (checkOnStartup !== "false") {
-				await checkForUpdates(false);
-			}
+			if (checkOnStartup !== "false") await checkForUpdates(false);
 		} catch {
 			await checkForUpdates(false);
 		}
-	};
+	}, [checkForUpdates]);
 
-	const checkForUpdates = async (manual: boolean = false) => {
-		if (manual && checkingManually) return;
-
-		try {
-			if (manual) {
-				setCheckingManually(true);
-			}
-			const update = await check();
-			if (update?.available) {
-				setUpdateAvailable(true);
-				setUpdateVersion(update.version);
-				updateRef.current = update;
-			} else if (manual) {
-				toast.info("You're on the latest version");
-			}
-		} catch (error) {
-			console.error("Failed to check for updates:", error);
-			if (manual) {
-				toast.error("Failed to check for updates");
-			}
-		} finally {
-			if (manual) {
-				setCheckingManually(false);
-			}
-		}
-	};
+	useEffect(() => {
+		if (hasCheckedOnStartupRef.current) return;
+		hasCheckedOnStartupRef.current = true;
+		checkSettingsAndUpdate();
+	}, [checkSettingsAndUpdate]);
 
 	const handleDownload = async () => {
 		const update = updateRef.current;

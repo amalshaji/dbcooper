@@ -501,11 +501,10 @@ export function ConnectionDetails() {
 					// Append new keys as they stream in
 					if (event.payload.keys.length > 0) {
 						setRedisKeys((prev) => {
-							const newKeys = event.payload.keys.map((key) => ({
+							const newKeys: RedisKeyInfo[] = event.payload.keys.map((key) => ({
 								key,
 								key_type: "",
 								ttl: -2,
-								size: null,
 							}));
 							return [...(prev || []), ...newKeys];
 						});

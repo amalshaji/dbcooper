@@ -12,6 +12,9 @@ import {
 	type Connection,
 	type Edge,
 	type Node,
+	type NodeTypes,
+	type OnEdgesChange,
+	type OnNodesChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
@@ -41,7 +44,7 @@ import {
 } from "@phosphor-icons/react";
 import type { SchemaOverview, TableWithStructure } from "@/types/tabTypes";
 
-const nodeTypes = { tableNode: TableNode };
+const nodeTypes: NodeTypes = { tableNode: TableNode };
 
 interface SchemaVisualizerProps {
 	schemaOverview: SchemaOverview | null;
@@ -70,7 +73,6 @@ function getLayoutedElements(
 	const referencedColumnsMap = new Map<string, Set<string>>();
 
 	tables.forEach((table) => {
-		const fullName = `${table.schema}.${table.name}`;
 		table.foreign_keys.forEach((fk) => {
 			const targetTable = `${table.schema}.${fk.references_table}`;
 			if (!referencedColumnsMap.has(targetTable)) {
@@ -351,7 +353,7 @@ export function SchemaVisualizer({
 			return { nodes: [], edges: [] };
 		}
 		return getLayoutedElements(filteredTables, showColumns);
-	}, [filteredTables, showColumns]);
+	}, [schemaOverview, filteredTables, showColumns]);
 
 	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
 	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -487,11 +489,9 @@ export function SchemaVisualizer({
 						</div>
 						<div className="flex items-center gap-2">
 							<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-								<SheetTrigger asChild>
-									<Button variant="outline" size="sm">
-										<Funnel className="w-4 h-4" />
-										Filter ({selectedTables.size}/{allTableNames.length})
-									</Button>
+								<SheetTrigger render={<Button variant="outline" size="sm" />}>
+									<Funnel className="w-4 h-4" />
+									Filter ({selectedTables.size}/{allTableNames.length})
 								</SheetTrigger>
 								<SheetContent side="right" className="w-[400px]">
 									<SheetHeader>
@@ -618,11 +618,9 @@ export function SchemaVisualizer({
 					</div>
 					<div className="flex items-center gap-2">
 						<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-							<SheetTrigger asChild>
-								<Button variant="outline" size="sm">
-									<Funnel className="w-4 h-4" />
-									Filter ({selectedTables.size}/{allTableNames.length})
-								</Button>
+							<SheetTrigger render={<Button variant="outline" size="sm" />}>
+								<Funnel className="w-4 h-4" />
+								Filter ({selectedTables.size}/{allTableNames.length})
 							</SheetTrigger>
 							<SheetContent side="right" className="w-[400px]">
 								<SheetHeader>
@@ -751,10 +749,10 @@ function SchemaVisualizerFlow({
 }: {
 	nodes: Node[];
 	edges: Edge[];
-	onNodesChange: (changes: any) => void;
-	onEdgesChange: (changes: any) => void;
+	onNodesChange: OnNodesChange;
+	onEdgesChange: OnEdgesChange;
 	onConnect: (connection: Connection) => void;
-	nodeTypes: any;
+	nodeTypes: NodeTypes;
 	downloadTrigger: number;
 	onDownloadStateChange: (isDownloading: boolean) => void;
 }) {

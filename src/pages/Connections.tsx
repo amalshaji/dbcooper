@@ -182,23 +182,25 @@ export function Connections() {
 
 	const handleDuplicateConnection = async (connection: Connection) => {
 		try {
-			// Create a copy of the connection data without the id and uuid
-			const {
-				id,
-				uuid,
-				name,
-				created_at,
-				updated_at,
-				ssh_use_key,
-				...connectionData
-			} = connection;
 			const duplicatedData: ConnectionFormData = {
-				...connectionData,
-				name: `${name} (Copy)`,
+				type: connection.type,
+				name: `${connection.name} (Copy)`,
+				host: connection.host,
+				port: connection.port,
+				database: connection.database,
+				username: connection.username,
+				password: connection.password,
 				ssl: Boolean(connection.ssl),
+				db_type: connection.db_type,
+				file_path: connection.file_path ?? undefined,
 				ssh_enabled: connection.ssh_enabled
 					? Boolean(connection.ssh_enabled)
 					: undefined,
+				ssh_host: connection.ssh_host,
+				ssh_port: connection.ssh_port,
+				ssh_user: connection.ssh_user,
+				ssh_password: connection.ssh_password,
+				ssh_key_path: connection.ssh_key_path,
 				ssh_use_key: connection.ssh_use_key
 					? Boolean(connection.ssh_use_key)
 					: undefined,

@@ -39,10 +39,11 @@ interface FieldValue {
 
 function isAutoIncrementColumn(column: TableColumn): boolean {
 	const hasDefault =
-		column.default &&
+		column.default !== null &&
+		column.default !== undefined &&
 		column.default.toLowerCase() !== "null" &&
 		column.default.trim() !== "";
-	const defaultLower = hasDefault ? column.default.toLowerCase() : "";
+	const defaultLower = hasDefault ? (column.default?.toLowerCase() ?? "") : "";
 	const defaultIsFunction =
 		hasDefault &&
 		(defaultLower.includes("nextval") ||
@@ -114,7 +115,8 @@ export function RowInsertSheet({
 		for (const column of columns) {
 			const fieldValue = fieldValues[column.name];
 			const hasDefault =
-				column.default &&
+				column.default !== null &&
+				column.default !== undefined &&
 				column.default.toLowerCase() !== "null" &&
 				column.default.trim() !== "";
 
