@@ -67,6 +67,8 @@ export function RedisKeySheet({
 	useEffect(() => {
 		if (open) {
 			if (mode === "edit" && keyDetails) {
+				// Synchronize the editable draft when the selected key changes.
+				// eslint-disable-next-line react-hooks/set-state-in-effect
 				setKey(keyDetails.key);
 				setKeyType(keyDetails.key_type as RedisKeyType);
 				setTtlEnabled(keyDetails.ttl !== -1);

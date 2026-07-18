@@ -69,6 +69,8 @@ export function DataTable<TData>({
 		value: unknown;
 	} | null>(null);
 
+	// TanStack Table returns functions that cannot be safely memoized by React Compiler.
+	// eslint-disable-next-line react-hooks/incompatible-library
 	const table = useReactTable({
 		data,
 		columns,

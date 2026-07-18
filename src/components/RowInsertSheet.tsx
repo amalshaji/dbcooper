@@ -87,6 +87,8 @@ export function RowInsertSheet({
 					initialValues[col.name] = { value: "", isRawSql: false };
 				}
 			}
+			// Opening the sheet initializes a draft from the current column definitions.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setFieldValues(initialValues);
 		} else {
 			setFieldValues({});

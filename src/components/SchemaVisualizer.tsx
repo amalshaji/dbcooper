@@ -21,6 +21,7 @@ import dagre from "dagre";
 import { toSvg } from "html-to-image";
 import { toast } from "sonner";
 import { TableNode } from "./SchemaVisualizer/TableNode";
+import { SchemaFilterTrigger } from "./SchemaVisualizer/SchemaFilterTrigger";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,11 +35,9 @@ import {
 	SheetDescription,
 	SheetHeader,
 	SheetTitle,
-	SheetTrigger,
 } from "@/components/ui/sheet";
 import {
 	ArrowsClockwise,
-	Funnel,
 	MagnifyingGlass,
 	DownloadSimple,
 } from "@phosphor-icons/react";
@@ -276,6 +275,8 @@ export function SchemaVisualizer({
 			if (selectedTablesArray.length === 0) {
 				onSelectedTablesChange(allTableNames);
 			}
+			// Record that the initial table selection has been applied once.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setHasInitialized(true);
 		}
 	}, [
@@ -489,10 +490,10 @@ export function SchemaVisualizer({
 						</div>
 						<div className="flex items-center gap-2">
 							<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-								<SheetTrigger render={<Button variant="outline" size="sm" />}>
-									<Funnel className="w-4 h-4" />
-									Filter ({selectedTables.size}/{allTableNames.length})
-								</SheetTrigger>
+								<SchemaFilterTrigger
+									selectedCount={selectedTables.size}
+									totalCount={allTableNames.length}
+								/>
 								<SheetContent side="right" className="w-[400px]">
 									<SheetHeader>
 										<SheetTitle>Filter Tables</SheetTitle>
@@ -618,10 +619,10 @@ export function SchemaVisualizer({
 					</div>
 					<div className="flex items-center gap-2">
 						<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-							<SheetTrigger render={<Button variant="outline" size="sm" />}>
-								<Funnel className="w-4 h-4" />
-								Filter ({selectedTables.size}/{allTableNames.length})
-							</SheetTrigger>
+							<SchemaFilterTrigger
+								selectedCount={selectedTables.size}
+								totalCount={allTableNames.length}
+							/>
 							<SheetContent side="right" className="w-[400px]">
 								<SheetHeader>
 									<SheetTitle>Filter Tables</SheetTitle>

@@ -36,23 +36,6 @@ export default defineConfig([
 		},
 	},
 	{
-		// TanStack Table returns compiler-incompatible functions by design.
-		files: ["src/components/DataTable.tsx"],
-		rules: { "react-hooks/incompatible-library": "off" },
-	},
-	{
-		// These effects synchronize local UI state with an opened sheet or viewport.
-		files: [
-			"src/components/QueryResultSheet.tsx",
-			"src/components/RedisKeySheet.tsx",
-			"src/components/RowEditSheet.tsx",
-			"src/components/RowInsertSheet.tsx",
-			"src/components/SchemaVisualizer.tsx",
-			"src/hooks/use-mobile.tsx",
-		],
-		rules: { "react-hooks/set-state-in-effect": "off" },
-	},
-	{
 		// Shared UI and context modules intentionally export components with helpers.
 		files: [
 			"src/components/ui/badge.tsx",

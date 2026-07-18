@@ -92,6 +92,8 @@ export function RowEditSheet({
 	// Reset edited values when row changes
 	useEffect(() => {
 		if (row) {
+			// Synchronize the editable draft when the selected row changes.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setEditedValues(getRowFieldValues(row));
 		} else {
 			setEditedValues({});
