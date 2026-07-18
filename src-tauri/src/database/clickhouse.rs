@@ -9,6 +9,7 @@ use super::filter::{
 use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
+    TABLES_QUERY, TABLE_COLUMNS_QUERY, TABLE_INDEXES_QUERY,
 };
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
@@ -143,6 +144,14 @@ impl ClickhouseDriver {
             .collect()
     }
 
+    fn catalog_params(database: &str, table: Option<&str>) -> Vec<(String, String)> {
+        let mut params = vec![("param_database".to_string(), database.to_string())];
+        if let Some(table) = table {
+            params.push(("param_table".to_string(), table.to_string()));
+        }
+        params
+    }
+
     /// Execute a non-SELECT query
     async fn execute_command(&self, query: &str) -> Result<(), String> {
         let url = self.build_url();
@@ -163,10 +172,6 @@ impl ClickhouseDriver {
         }
 
         Ok(())
-    }
-
-    fn escape_string_literal(value: &str) -> String {
-        value.replace('\\', "\\\\").replace('\'', "\\'")
     }
 
     fn parse_function_arguments(arguments: &str, create_query: &str) -> String {
@@ -241,12 +246,10 @@ impl DatabaseDriver for ClickhouseDriver {
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
-        let query = format!(
-            "SELECT database, name, engine FROM system.tables WHERE database = '{}'  ORDER BY name",
-            self.config.database
-        );
-
-        let rows = self.execute_query_json(&query).await?;
+        let params = Self::catalog_params(&self.config.database, None);
+        let rows = self
+            .execute_query_json_with_params(TABLES_QUERY, &params)
+            .await?;
 
         Ok(rows
             .into_iter()
@@ -342,15 +345,10 @@ impl DatabaseDriver for ClickhouseDriver {
         table: &str,
     ) -> Result<TableStructure, String> {
         // Get columns
-        let columns_query = format!(
-            "SELECT name, type, default_kind, default_expression, is_in_primary_key 
-             FROM system.columns 
-             WHERE database = '{}' AND table = '{}'
-             ORDER BY position",
-            self.config.database, table
-        );
-
-        let columns = self.execute_query_json(&columns_query).await?;
+        let params = Self::catalog_params(&self.config.database, Some(table));
+        let columns = self
+            .execute_query_json_with_params(TABLE_COLUMNS_QUERY, &params)
+            .await?;
 
         let column_infos: Vec<ColumnInfo> = columns
             .into_iter()
@@ -377,14 +375,8 @@ impl DatabaseDriver for ClickhouseDriver {
             .collect();
 
         // Get indexes (data skipping indexes)
-        let indexes_query = format!(
-            "SELECT name, expr, type FROM system.data_skipping_indices 
-             WHERE database = '{}' AND table = '{}'",
-            self.config.database, table
-        );
-
         let indexes = self
-            .execute_query_json(&indexes_query)
+            .execute_query_json_with_params(TABLE_INDEXES_QUERY, &params)
             .await
             .unwrap_or_default();
 
@@ -409,18 +401,16 @@ impl DatabaseDriver for ClickhouseDriver {
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
-        let columns_query =
-            COLUMNS_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
-        let columns_rows = self.execute_query_json(&columns_query).await?;
-
-        let indexes_query =
-            INDEXES_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
+        let params = Self::catalog_params(&self.config.database, None);
+        let columns_rows = self
+            .execute_query_json_with_params(COLUMNS_QUERY, &params)
+            .await?;
         let indexes_rows = self
-            .execute_query_json(&indexes_query)
+            .execute_query_json_with_params(INDEXES_QUERY, &params)
             .await
             .unwrap_or_default();
         let functions_rows = self
-            .execute_query_json(FUNCTION_SUMMARIES_QUERY)
+            .execute_query_json_with_params(FUNCTION_SUMMARIES_QUERY, &params)
             .await
             .unwrap_or_default();
 
@@ -520,9 +510,10 @@ impl DatabaseDriver for ClickhouseDriver {
         name: &str,
         identity_args: &str,
     ) -> Result<FunctionDefinition, String> {
-        let query = FUNCTION_DEFINITION_QUERY.replace("{name}", &Self::escape_string_literal(name));
+        let mut params = Self::catalog_params(&self.config.database, None);
+        params.push(("param_name".to_string(), name.to_string()));
         let row = self
-            .execute_query_json(&query)
+            .execute_query_json_with_params(FUNCTION_DEFINITION_QUERY, &params)
             .await?
             .into_iter()
             .next()
@@ -606,5 +597,53 @@ impl DatabaseDriver for ClickhouseDriver {
                 }),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_queries_keep_hostile_values_out_of_sql() {
+        let database = "catalog' OR 1 = 1 --";
+        let table = "table'} UNION ALL SELECT * --";
+        let params = ClickhouseDriver::catalog_params(database, Some(table));
+
+        for query in [TABLES_QUERY, TABLE_COLUMNS_QUERY, TABLE_INDEXES_QUERY] {
+            assert!(!query.contains(database));
+            assert!(!query.contains(table));
+            assert!(query.contains("{database:String}"));
+        }
+        assert!(TABLE_COLUMNS_QUERY.contains("{table:String}"));
+        assert!(TABLE_INDEXES_QUERY.contains("{table:String}"));
+        assert_eq!(
+            params,
+            vec![
+                ("param_database".to_string(), database.to_string()),
+                ("param_table".to_string(), table.to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn overview_and_function_queries_use_typed_params() {
+        let database = "catalog' ; DROP DATABASE prod --";
+        let function = "function' OR name != '";
+        let mut params = ClickhouseDriver::catalog_params(database, None);
+        params.push(("param_name".to_string(), function.to_string()));
+
+        for query in [COLUMNS_QUERY, INDEXES_QUERY, FUNCTION_SUMMARIES_QUERY] {
+            assert!(!query.contains(database));
+            assert!(query.contains("{database:String}"));
+        }
+        assert!(!FUNCTION_DEFINITION_QUERY.contains(function));
+        assert!(FUNCTION_DEFINITION_QUERY.contains("{database:String}"));
+        assert!(FUNCTION_DEFINITION_QUERY.contains("{name:String}"));
+        assert_eq!(
+            params[0],
+            ("param_database".to_string(), database.to_string())
+        );
+        assert_eq!(params[1], ("param_name".to_string(), function.to_string()));
     }
 }
