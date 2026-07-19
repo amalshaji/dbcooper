@@ -1,10 +1,18 @@
 import { useEffect, useState, useRef } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/tauri";
+import {
+	resolveUpdateChannel,
+	resolveUpdateChannelEvent,
+	type UpdateChannel,
+	UPDATE_CHANNEL_CHANGED_EVENT,
+} from "@/lib/updateChannel";
+import { checkForUpdate } from "@/lib/updater";
 import { toast } from "sonner";
 
 export function UpdateChecker() {
@@ -17,6 +25,7 @@ export function UpdateChecker() {
 	const [downloadedBytes, setDownloadedBytes] = useState(0);
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
 	const updateRef = useRef<Update | null>(null);
+	const updateGenerationRef = useRef(0);
 	const downloadedBytesRef = useRef(0);
 	const totalBytesRef = useRef<number | null>(null);
 
@@ -42,34 +51,102 @@ export function UpdateChecker() {
 			: null;
 
 	useEffect(() => {
-		checkSettingsAndUpdate();
+		let unlisten: UnlistenFn | undefined;
+		let disposed = false;
+
+		listen<unknown>(UPDATE_CHANNEL_CHANGED_EVENT, (event) => {
+			const channel = resolveUpdateChannelEvent(event.payload);
+			clearCurrentUpdate();
+			void checkForUpdates(false, channel);
+		})
+			.then((stopListening) => {
+				if (disposed) {
+					stopListening();
+				} else {
+					unlisten = stopListening;
+				}
+			})
+			.catch((error) => {
+				console.error("Failed to listen for update channel changes:", error);
+			});
+
+		void checkSettingsAndUpdate();
+
+		return () => {
+			disposed = true;
+			unlisten?.();
+			updateGenerationRef.current += 1;
+			const update = updateRef.current;
+			updateRef.current = null;
+			void update?.close().catch(() => {});
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
+	const clearCurrentUpdate = () => {
+		updateGenerationRef.current += 1;
+		const update = updateRef.current;
+		updateRef.current = null;
+		void update?.close().catch(() => {});
+		setUpdateAvailable(false);
+		setUpdateVersion("");
+		setDownloading(false);
+		setReadyToInstall(false);
+		setDownloadStarted(false);
+		setDownloadedBytes(0);
+		setTotalBytes(null);
+		downloadedBytesRef.current = 0;
+		totalBytesRef.current = null;
+	};
+
 	const checkSettingsAndUpdate = async () => {
 		try {
-			const checkOnStartup = await api.settings.get("check_updates_on_startup");
+			const [checkOnStartup, savedChannel] = await Promise.all([
+				api.settings.get("check_updates_on_startup"),
+				api.settings.get("update_channel"),
+			]);
 			if (checkOnStartup !== "false") {
-				await checkForUpdates(false);
+				await checkForUpdates(false, resolveUpdateChannel(savedChannel));
 			}
 		} catch {
-			await checkForUpdates(false);
+			await checkForUpdates(false, "stable");
 		}
 	};
 
-	const checkForUpdates = async (manual: boolean = false) => {
+	const checkForUpdates = async (
+		manual: boolean = false,
+		channel?: UpdateChannel,
+	) => {
 		if (manual && checkingManually) return;
+
+		const generation = updateGenerationRef.current + 1;
+		updateGenerationRef.current = generation;
 
 		try {
 			if (manual) {
 				setCheckingManually(true);
 			}
-			const update = await check();
-			if (update?.available) {
+			const selectedChannel =
+				channel ??
+				resolveUpdateChannel(await api.settings.get("update_channel"));
+			const update = await checkForUpdate(selectedChannel);
+			if (generation !== updateGenerationRef.current) {
+				void update?.close().catch(() => {});
+				return;
+			}
+
+			const previousUpdate = updateRef.current;
+			updateRef.current = update;
+			if (previousUpdate && previousUpdate !== update) {
+				void previousUpdate.close().catch(() => {});
+			}
+
+			if (update) {
 				setUpdateAvailable(true);
 				setUpdateVersion(update.version);
-				updateRef.current = update;
 			} else if (manual) {
+				setUpdateAvailable(false);
+				setUpdateVersion("");
 				toast.info("You're on the latest version");
 			}
 		} catch (error) {
@@ -87,6 +164,7 @@ export function UpdateChecker() {
 	const handleDownload = async () => {
 		const update = updateRef.current;
 		if (!update || downloading || readyToInstall) return;
+		const generation = updateGenerationRef.current;
 
 		try {
 			setDownloading(true);
@@ -97,6 +175,8 @@ export function UpdateChecker() {
 			totalBytesRef.current = null;
 
 			await update.download((event) => {
+				if (generation !== updateGenerationRef.current) return;
+
 				if (event.event === "Started") {
 					setDownloadStarted(true);
 					const contentLength = event.data.contentLength ?? null;
@@ -120,6 +200,13 @@ export function UpdateChecker() {
 					totalBytesRef.current = downloadedBytesRef.current;
 				}
 			});
+			if (
+				generation !== updateGenerationRef.current ||
+				updateRef.current !== update
+			) {
+				void update.close().catch(() => {});
+				return;
+			}
 			setReadyToInstall(true);
 		} catch (error) {
 			console.error("Failed to download update:", error);

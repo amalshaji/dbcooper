@@ -4,7 +4,8 @@ import {
 	EyeSlash,
 	WarningCircle,
 } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { emit } from "@tauri-apps/api/event";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,8 +20,15 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
+import { loadSettingsFormData } from "@/lib/settingsFormData";
 import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
+import {
+	resolveUpdateChannel,
+	type UpdateChannel,
+	UPDATE_CHANNEL_CHANGED_EVENT,
+} from "@/lib/updateChannel";
 import { ThemeSelector } from "./ThemeSelector";
+import { UpdateChannelSetting } from "./UpdateChannelSetting";
 
 interface SettingsFormProps {
 	onSaveSuccess?: () => void;
@@ -38,9 +46,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [showApiKey, setShowApiKey] = useState(false);
+	const savedUpdateChannelRef = useRef<UpdateChannel>("stable");
 
 	const { theme, setTheme } = useTheme();
 	const [checkUpdates, setCheckUpdates] = useState(true);
+	const [canaryUpdates, setCanaryUpdates] = useState(false);
 	const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
 	const [detectedHarnesses, setDetectedHarnesses] = useState<AiHarnessStatus[]>(
 		[],
@@ -55,35 +65,45 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 	const loadSettings = async () => {
 		setLoading(true);
+		const pendingData = loadSettingsFormData(
+			api.settings.getAll,
+			api.ai.detectHarnesses,
+		);
 		try {
-			const [settings, harnesses] = await Promise.all([
-				api.settings.getAll(),
-				api.ai.detectHarnesses(),
-			]);
+			const settings = await pendingData.settings;
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
+			const updateChannel = resolveUpdateChannel(settings.update_channel);
+			setCanaryUpdates(updateChannel === "canary");
+			savedUpdateChannelRef.current = updateChannel;
 			setAiProvider((settings.ai_provider as AiProvider) || "openai");
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
 			setOpenaiModel(settings.openai_model || "gpt-4.1");
-			setDetectedHarnesses(harnesses);
 		} catch (error) {
 			console.error("Failed to load settings:", error);
 		} finally {
 			setLoading(false);
 		}
+		setDetectedHarnesses(await pendingData.harnesses);
 	};
 
 	const handleSave = async () => {
 		setSaving(true);
 		try {
+			const updateChannel: UpdateChannel = canaryUpdates ? "canary" : "stable";
 			await api.settings.setMany({
 				check_updates_on_startup: checkUpdates.toString(),
+				update_channel: updateChannel,
 				ai_provider: aiProvider,
 				openai_endpoint: openaiEndpoint,
 				openai_api_key: openaiApiKey,
 				openai_model: openaiModel,
 			});
 
+			if (updateChannel !== savedUpdateChannelRef.current) {
+				await emit(UPDATE_CHANNEL_CHANGED_EVENT, updateChannel);
+				savedUpdateChannelRef.current = updateChannel;
+			}
 			window.dispatchEvent(new Event("ai-settings-changed"));
 			toast.success("Settings saved");
 			onSaveSuccess?.();
@@ -159,6 +179,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 						onCheckedChange={setCheckUpdates}
 					/>
 				</div>
+				<UpdateChannelSetting
+					enabled={canaryUpdates}
+					onEnabledChange={setCanaryUpdates}
+					compact={compact}
+				/>
 			</div>
 
 			<div className={sectionClass}>
