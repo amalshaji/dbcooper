@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useReducer } from "react";
 import { ArrowLeft, Table } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,113 +19,131 @@ import {
 } from "../lib/createTableForm";
 import type { CreateTableRequest, TableInfo } from "../lib/tauri";
 import { CreateTableDefinition } from "./CreateTableDefinition";
-import { CreateTableReview } from "./CreateTableReview";
 
 interface CreateTableSheetProps {
-	open: boolean;
 	dbType: CreateTableDbType;
 	initialSchema?: string;
 	availableSchemas: string[];
-	onOpenChange: (open: boolean) => void;
+	onClose: () => void;
 	onPreview: (request: CreateTableRequest) => Promise<string>;
 	onCreate: (request: CreateTableRequest) => Promise<TableInfo>;
 	onCreated: (table: TableInfo) => void;
 }
 
-interface CreateTableActionButtonProps {
-	creating: boolean;
-	onClick: () => void;
+interface CreateTableSession {
+	draft: CreateTableDraft;
+	step: "definition" | "review";
+	previewSql: string;
+	error: string | null;
+	status: "idle" | "previewing" | "creating";
 }
 
-export function CreateTableActionButton({
-	creating,
-	onClick,
-}: CreateTableActionButtonProps) {
-	return (
-		<Button type="button" disabled={creating} onClick={onClick}>
-			{creating ? <Spinner /> : <Table />}
-			Create table
-		</Button>
-	);
+type CreateTableSessionAction =
+	| { type: "draftChanged"; draft: CreateTableDraft }
+	| { type: "previewStarted" }
+	| { type: "previewSucceeded"; sql: string }
+	| { type: "createStarted" }
+	| { type: "failed"; error: string }
+	| { type: "back" };
+
+function reduceCreateTableSession(
+	state: CreateTableSession,
+	action: CreateTableSessionAction,
+): CreateTableSession {
+	switch (action.type) {
+		case "draftChanged":
+			return { ...state, draft: action.draft, error: null };
+		case "previewStarted":
+			return { ...state, status: "previewing", error: null };
+		case "previewSucceeded":
+			return {
+				...state,
+				step: "review",
+				previewSql: action.sql,
+				status: "idle",
+			};
+		case "createStarted":
+			return { ...state, status: "creating", error: null };
+		case "failed":
+			return { ...state, status: "idle", error: action.error };
+		case "back":
+			return { ...state, step: "definition", error: null };
+	}
 }
 
 export function CreateTableSheet({
-	open,
 	dbType,
 	initialSchema,
 	availableSchemas,
-	onOpenChange,
+	onClose,
 	onPreview,
 	onCreate,
 	onCreated,
 }: CreateTableSheetProps) {
-	const [draft, setDraft] = useState<CreateTableDraft>(() =>
-		createInitialTableDraft(dbType, initialSchema),
+	const [session, dispatch] = useReducer(
+		reduceCreateTableSession,
+		null,
+		(): CreateTableSession => ({
+			draft: createInitialTableDraft(dbType, initialSchema),
+			step: "definition",
+			previewSql: "",
+			error: null,
+			status: "idle",
+		}),
 	);
-	const [step, setStep] = useState<"definition" | "review">("definition");
-	const [previewSql, setPreviewSql] = useState("");
-	const [error, setError] = useState<string | null>(null);
-	const [previewing, setPreviewing] = useState(false);
-	const [creating, setCreating] = useState(false);
-
-	useEffect(() => {
-		if (!open) return;
-		setDraft(createInitialTableDraft(dbType, initialSchema));
-		setStep("definition");
-		setPreviewSql("");
-		setError(null);
-		setPreviewing(false);
-		setCreating(false);
-	}, [open, dbType, initialSchema]);
+	const { draft, step, previewSql, error, status } = session;
+	const previewing = status === "previewing";
+	const creating = status === "creating";
 
 	const handleReview = async () => {
 		const validationError = getCreateTableValidationError(draft, dbType);
 		if (validationError) {
-			setError(validationError);
+			dispatch({ type: "failed", error: validationError });
 			return;
 		}
 
-		setPreviewing(true);
-		setError(null);
+		dispatch({ type: "previewStarted" });
 		try {
 			const sql = await onPreview(buildCreateTableRequest(draft, dbType));
-			setPreviewSql(sql);
-			setStep("review");
+			dispatch({ type: "previewSucceeded", sql });
 		} catch (previewError) {
-			setError(
-				previewError instanceof Error
+			dispatch({
+				type: "failed",
+				error:
+					previewError instanceof Error
 					? previewError.message
 					: String(previewError),
-			);
-		} finally {
-			setPreviewing(false);
+			});
 		}
 	};
 
 	const handleCreate = async () => {
-		setCreating(true);
-		setError(null);
+		if (creating) return;
+		dispatch({ type: "createStarted" });
 
 		let createdTable: TableInfo;
 		try {
 			createdTable = await onCreate(buildCreateTableRequest(draft, dbType));
 		} catch (createError) {
-			setError(
-				createError instanceof Error ? createError.message : String(createError),
-			);
-			setCreating(false);
+			dispatch({
+				type: "failed",
+				error:
+					createError instanceof Error
+						? createError.message
+					: String(createError),
+			});
 			return;
 		}
 
-		onOpenChange(false);
+		onClose();
 		onCreated(createdTable);
 	};
 
 	return (
 		<Sheet
-			open={open}
+			open
 			onOpenChange={(nextOpen) => {
-				if (!creating) onOpenChange(nextOpen);
+				if (!nextOpen && !creating) onClose();
 			}}
 		>
 			<SheetContent
@@ -148,11 +166,25 @@ export function CreateTableSheet({
 							draft={draft}
 							dbType={dbType}
 							availableSchemas={availableSchemas}
-							onChange={setDraft}
-							onClearError={() => setError(null)}
+							onChange={(nextDraft) =>
+								dispatch({ type: "draftChanged", draft: nextDraft })
+							}
 						/>
 					) : (
-						<CreateTableReview sql={previewSql} />
+						<div className="space-y-3">
+							<div>
+								<h3 className="text-sm font-medium">Generated SQL</h3>
+								<p className="text-xs text-muted-foreground">
+									This statement is regenerated from the definition when created.
+								</p>
+							</div>
+							<pre
+								aria-label="Generated SQL"
+								className="overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs leading-relaxed select-text"
+							>
+								{previewSql}
+							</pre>
+						</div>
 					)}
 
 					{error && (
@@ -171,10 +203,7 @@ export function CreateTableSheet({
 							type="button"
 							variant="outline"
 							disabled={creating}
-							onClick={() => {
-								setStep("definition");
-								setError(null);
-							}}
+							onClick={() => dispatch({ type: "back" })}
 						>
 							<ArrowLeft />
 							Back
@@ -184,7 +213,7 @@ export function CreateTableSheet({
 						type="button"
 						variant="ghost"
 						disabled={creating || previewing}
-						onClick={() => onOpenChange(false)}
+						onClick={onClose}
 					>
 						Cancel
 					</Button>
@@ -198,10 +227,14 @@ export function CreateTableSheet({
 							Review SQL
 						</Button>
 					) : (
-						<CreateTableActionButton
-							creating={creating}
+						<Button
+							type="button"
+							disabled={creating}
 							onClick={() => void handleCreate()}
-						/>
+						>
+							{creating ? <Spinner /> : <Table />}
+							Create table
+						</Button>
 					)}
 				</SheetFooter>
 			</SheetContent>

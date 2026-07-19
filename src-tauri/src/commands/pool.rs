@@ -366,7 +366,9 @@ pub async fn pool_get_function_definition(
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================
 
-use crate::commands::database::{escape_sql_identifier, format_sql_value, validate_raw_sql_value};
+use crate::database::sql_policy::{
+    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+};
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]

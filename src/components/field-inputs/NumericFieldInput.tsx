@@ -2,7 +2,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FunctionCombobox } from "./FunctionCombobox";
 import { SqlFunctionBadge } from "./SqlFunctionBadge";
-import { isSqlFunction } from "@/lib/sqlFunctions";
+import { isSqlFunction } from "@/lib/databaseCatalog";
 import type { FieldInputProps } from "./types";
 
 function isIntegerType(columnType: string): boolean {
@@ -21,6 +21,7 @@ export function NumericFieldInput({
 	isRawSql,
 	isNull,
 	suggestedFunctions,
+	dbType,
 	onValueChange,
 	isReadonly = false,
 }: FieldInputProps) {
@@ -87,7 +88,7 @@ export function NumericFieldInput({
 				suggestedFunctions={suggestedFunctions}
 				placeholder={placeholder}
 				onValueChange={(newValue, isFunction) => {
-					if (isFunction || isSqlFunction(newValue)) {
+					if (isFunction || isSqlFunction(newValue, dbType)) {
 						onValueChange(newValue, true);
 					} else if (newValue === "") {
 						onValueChange(null, false);

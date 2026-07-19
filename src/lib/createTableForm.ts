@@ -1,8 +1,20 @@
-import { getSuggestedFunctions } from "./sqlFunctions";
+import {
+	getCreateTableTypes,
+	getDatabaseLabel,
+	getDefaultSchema,
+	getLiteralKind,
+	getSuggestedFunctions,
+	type CreateTableDbType,
+} from "./databaseCatalog";
 import type { CreateTableRequest } from "./tauri";
 
-export type CreateTableDbType = "postgres" | "sqlite";
 export type DefaultKind = "none" | "literal" | "expression";
+export type { CreateTableDbType } from "./databaseCatalog";
+
+export type CreateTableColumnDefaultDraft =
+	| { kind: "none" }
+	| { kind: "literal"; value: string }
+	| { kind: "expression"; value: string };
 
 export interface CreateTableColumnDraft {
 	id: string;
@@ -11,8 +23,7 @@ export interface CreateTableColumnDraft {
 	nullable: boolean;
 	primaryKey: boolean;
 	unique: boolean;
-	defaultKind: DefaultKind;
-	defaultValue: string;
+	default: CreateTableColumnDefaultDraft;
 }
 
 export interface CreateTableDraft {
@@ -20,51 +31,6 @@ export interface CreateTableDraft {
 	tableName: string;
 	columns: CreateTableColumnDraft[];
 }
-
-export const CREATE_TABLE_TYPES: Record<CreateTableDbType, readonly string[]> = {
-	postgres: [
-		"SMALLINT",
-		"INTEGER",
-		"BIGINT",
-		"SERIAL",
-		"BIGSERIAL",
-		"REAL",
-		"DOUBLE PRECISION",
-		"NUMERIC",
-		"BOOLEAN",
-		"TEXT",
-		"VARCHAR",
-		"DATE",
-		"TIME",
-		"TIMESTAMP",
-		"TIMESTAMPTZ",
-		"UUID",
-		"JSON",
-		"JSONB",
-		"BYTEA",
-	],
-	sqlite: [
-		"INTEGER",
-		"REAL",
-		"TEXT",
-		"BLOB",
-		"NUMERIC",
-		"BOOLEAN",
-		"DATE",
-		"DATETIME",
-	],
-};
-
-const NUMERIC_TYPES = new Set([
-	"SMALLINT",
-	"INTEGER",
-	"BIGINT",
-	"SERIAL",
-	"BIGSERIAL",
-	"REAL",
-	"DOUBLE PRECISION",
-	"NUMERIC",
-]);
 
 const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/;
 
@@ -76,8 +42,7 @@ export function createEmptyTableColumn(): CreateTableColumnDraft {
 		nullable: true,
 		primaryKey: false,
 		unique: false,
-		defaultKind: "none",
-		defaultValue: "",
+		default: { kind: "none" },
 	};
 }
 
@@ -86,7 +51,10 @@ export function createInitialTableDraft(
 	initialSchema?: string,
 ): CreateTableDraft {
 	return {
-		schema: dbType === "sqlite" ? "main" : initialSchema || "public",
+		schema:
+			dbType === "sqlite"
+				? getDefaultSchema(dbType)
+				: initialSchema || getDefaultSchema(dbType),
 		tableName: "",
 		columns: [createEmptyTableColumn()],
 	};
@@ -133,28 +101,29 @@ export function getCreateTableValidationError(
 		if (names.has(name)) return "Column names must be unique";
 		names.add(name);
 
-		if (!CREATE_TABLE_TYPES[dbType].includes(dataType)) {
-			return `Unsupported ${dbType === "postgres" ? "PostgreSQL" : "SQLite"} data type: ${column.dataType}`;
+		if (!getCreateTableTypes(dbType).includes(dataType)) {
+			return `Unsupported ${getDatabaseLabel(dbType)} data type: ${column.dataType}`;
 		}
 
-		if (column.defaultKind === "literal" && NUMERIC_TYPES.has(dataType)) {
+		const literalKind = getLiteralKind(dbType, dataType);
+		if (column.default.kind === "literal" && literalKind === "number") {
 			if (
-				column.defaultValue.trim() === "" ||
-				!Number.isFinite(Number(column.defaultValue))
+				column.default.value.trim() === "" ||
+				!Number.isFinite(Number(column.default.value))
 			) {
 				return `Default for ${name} must be a number`;
 			}
 		}
 		if (
-			column.defaultKind === "literal" &&
-			dataType === "BOOLEAN" &&
-			!["true", "false"].includes(column.defaultValue.toLowerCase())
+			column.default.kind === "literal" &&
+			literalKind === "boolean" &&
+			!["true", "false"].includes(column.default.value.toLowerCase())
 		) {
 			return `Default for ${name} must be true or false`;
 		}
 		if (
-			column.defaultKind === "expression" &&
-			!getDefaultExpressions(dbType, dataType).includes(column.defaultValue)
+			column.default.kind === "expression" &&
+			!getDefaultExpressions(dbType, dataType).includes(column.default.value)
 		) {
 			return `Choose a supported default expression for ${name}`;
 		}
@@ -177,18 +146,19 @@ export function buildCreateTableRequest(
 			const dataType = column.dataType.trim().toUpperCase();
 			let defaultValue: CreateTableRequest["columns"][number]["default"] = null;
 
-			if (column.defaultKind === "literal") {
-				let value: string | number | boolean = column.defaultValue;
-				if (NUMERIC_TYPES.has(dataType)) {
-					value = Number(column.defaultValue);
-				} else if (dataType === "BOOLEAN") {
-					value = column.defaultValue.toLowerCase() === "true";
+			if (column.default.kind === "literal") {
+				let value: string | number | boolean = column.default.value;
+				const literalKind = getLiteralKind(dbType, dataType);
+				if (literalKind === "number") {
+					value = Number(column.default.value);
+				} else if (literalKind === "boolean") {
+					value = column.default.value.toLowerCase() === "true";
 				}
 				defaultValue = { kind: "literal", value };
-			} else if (column.defaultKind === "expression") {
+			} else if (column.default.kind === "expression") {
 				defaultValue = {
 					kind: "expression",
-					value: column.defaultValue,
+					value: column.default.value,
 				};
 			}
 

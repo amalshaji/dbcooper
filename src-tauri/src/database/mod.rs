@@ -7,6 +7,7 @@ pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
 pub mod redis;
+pub mod sql_policy;
 pub mod sqlite;
 
 use crate::db::models::{

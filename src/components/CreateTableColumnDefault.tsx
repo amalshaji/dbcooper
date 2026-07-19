@@ -13,6 +13,7 @@ import {
 	type DefaultKind,
 	getDefaultExpressions,
 } from "../lib/createTableForm";
+import { getLiteralKind } from "../lib/databaseCatalog";
 
 interface CreateTableColumnDefaultProps {
 	column: CreateTableColumnDraft;
@@ -28,28 +29,32 @@ export function CreateTableColumnDefault({
 	onChange,
 }: CreateTableColumnDefaultProps) {
 	const expressions = getDefaultExpressions(dbType, column.dataType);
-	const update = (updates: Partial<CreateTableColumnDraft>) => {
-		onChange({ ...column, ...updates });
-	};
+	const literalKind = getLiteralKind(dbType, column.dataType);
 
 	const handleKindChange = (kind: DefaultKind | null) => {
 		if (!kind) return;
-		update({
-			defaultKind: kind,
-			defaultValue:
+		onChange({
+			...column,
+			default:
 				kind === "expression"
-					? expressions[0] || ""
-					: kind === "literal" && column.dataType === "BOOLEAN"
-						? "false"
-						: "",
+					? { kind, value: expressions[0] || "" }
+					: kind === "literal"
+						? { kind, value: literalKind === "boolean" ? "false" : "" }
+						: { kind },
 		});
+	};
+	const defaultValue =
+		column.default.kind === "none" ? "" : column.default.value;
+	const updateDefaultValue = (value: string) => {
+		if (column.default.kind === "none") return;
+		onChange({ ...column, default: { ...column.default, value } });
 	};
 
 	return (
 		<div className="grid gap-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
 			<div className="space-y-1.5">
 				<Label htmlFor={`${inputId}-default-kind`}>Default</Label>
-				<Select value={column.defaultKind} onValueChange={handleKindChange}>
+				<Select value={column.default.kind} onValueChange={handleKindChange}>
 					<SelectTrigger id={`${inputId}-default-kind`} className="w-full">
 						<SelectValue />
 					</SelectTrigger>
@@ -62,18 +67,18 @@ export function CreateTableColumnDefault({
 					</SelectContent>
 				</Select>
 			</div>
-			{column.defaultKind !== "none" && (
+			{column.default.kind !== "none" && (
 				<div className="space-y-1.5">
 					<Label htmlFor={`${inputId}-default-value`}>
-						{column.defaultKind === "expression"
+						{column.default.kind === "expression"
 							? "Default expression"
 							: "Default value"}
 					</Label>
-					{column.defaultKind === "expression" ? (
+					{column.default.kind === "expression" ? (
 						<Select
-							value={column.defaultValue}
+							value={defaultValue}
 							onValueChange={(value) =>
-								value && update({ defaultValue: value })
+								value && updateDefaultValue(value)
 							}
 						>
 							<SelectTrigger
@@ -90,11 +95,11 @@ export function CreateTableColumnDefault({
 								))}
 							</SelectContent>
 						</Select>
-					) : column.dataType === "BOOLEAN" ? (
+					) : literalKind === "boolean" ? (
 						<Select
-							value={column.defaultValue || "false"}
+							value={defaultValue || "false"}
 							onValueChange={(value) =>
-								value && update({ defaultValue: value })
+								value && updateDefaultValue(value)
 							}
 						>
 							<SelectTrigger
@@ -111,14 +116,10 @@ export function CreateTableColumnDefault({
 					) : (
 						<Input
 							id={`${inputId}-default-value`}
-							value={column.defaultValue}
-							inputMode={
-								/INT|REAL|NUMERIC|SERIAL/.test(column.dataType)
-									? "decimal"
-									: "text"
-							}
+							value={defaultValue}
+							inputMode={literalKind === "number" ? "decimal" : "text"}
 							onChange={(event) =>
-								update({ defaultValue: event.target.value })
+								updateDefaultValue(event.target.value)
 							}
 						/>
 					)}

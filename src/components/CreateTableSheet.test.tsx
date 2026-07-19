@@ -1,6 +1,8 @@
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { ComponentProps, ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+
+if (!globalThis.document) GlobalRegistrator.register();
 
 mock.module("@/components/ui/button", () => ({
 	Button: ({ children, ...props }: ComponentProps<"button">) => (
@@ -28,6 +30,7 @@ mock.module("@/components/ui/select", () => ({
 	SelectContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
+	SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 	SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 	SelectTrigger: ({ children }: { children: ReactNode }) => (
 		<button type="button">{children}</button>
@@ -43,60 +46,110 @@ mock.module("@/components/ui/switch", () => ({
 	}: ComponentProps<"input"> & {
 		onCheckedChange?: (checked: boolean) => void;
 		size?: string;
-	}) => <input type="checkbox" defaultChecked={checked} {...props} />,
+	}) => <input type="checkbox" checked={checked} readOnly {...props} />,
 }));
 mock.module("@/components/ui/spinner", () => ({
 	Spinner: () => <span data-testid="spinner" />,
 }));
 
-const { CreateTableActionButton, CreateTableSheet } = await import(
-	"./CreateTableSheet"
+const { cleanup, fireEvent, render, screen, waitFor } = await import(
+	"@testing-library/react"
 );
-const { CreateTableReview } = await import("./CreateTableReview");
+const userEvent = (await import("@testing-library/user-event")).default;
+const { CreateTableSheet } = await import("./CreateTableSheet");
+
+afterEach(cleanup);
+
+async function defineTable() {
+	const user = userEvent.setup();
+	await user.type(screen.getByLabelText("Table name"), "events");
+	await user.type(screen.getByLabelText("Column name"), "id");
+	await user.click(screen.getByRole("button", { name: "Review SQL" }));
+	return user;
+}
 
 describe("CreateTableSheet", () => {
-	test("renders the initial SQLite definition step", () => {
-		const markup = renderToStaticMarkup(
+	test("previews and executes the reviewed request exactly once", async () => {
+		let createCalls = 0;
+		let finishCreate: ((table: {
+			schema: string;
+			name: string;
+			type: string;
+		}) => void) | undefined;
+		const onCreated = mock(() => {});
+		const onClose = mock(() => {});
+
+		render(
 			<CreateTableSheet
-				open
 				dbType="sqlite"
 				initialSchema="main"
-				availableSchemas={[]}
-				onOpenChange={() => {}}
-				onPreview={async () => ""}
-				onCreate={async () => ({
-					schema: "main",
-					name: "events",
-					type: "table",
-				})}
+				availableSchemas={["main"]}
+				onClose={onClose}
+				onPreview={async () =>
+					'CREATE TABLE "main"."events" ("id" TEXT);'
+				}
+				onCreate={() => {
+					createCalls += 1;
+					return new Promise((resolve) => {
+						finishCreate = resolve;
+					});
+				}}
+				onCreated={onCreated}
+			/>,
+		);
+
+		await defineTable();
+		expect(
+			(await screen.findByLabelText("Generated SQL")).textContent,
+		).toContain("CREATE TABLE");
+
+		const createButton = screen.getByRole("button", {
+			name: "Create table",
+		});
+		fireEvent.click(createButton);
+		fireEvent.click(createButton);
+
+		expect(createCalls).toBe(1);
+		expect((createButton as HTMLButtonElement).disabled).toBe(true);
+		expect(screen.getByTestId("spinner")).not.toBeNull();
+		expect(createButton.textContent).toContain("Create table");
+
+		finishCreate?.({ schema: "main", name: "events", type: "table" });
+		await waitFor(() => expect(onCreated).toHaveBeenCalledTimes(1));
+		expect(onClose).toHaveBeenCalledTimes(1);
+	});
+
+	test("keeps the definition intact when creation fails", async () => {
+		render(
+			<CreateTableSheet
+				dbType="sqlite"
+				initialSchema="main"
+				availableSchemas={["main"]}
+				onClose={() => {}}
+				onPreview={async () =>
+					'CREATE TABLE "main"."events" ("id" TEXT);'
+				}
+				onCreate={async () => {
+					throw new Error("table events already exists");
+				}}
 				onCreated={() => {}}
 			/>,
 		);
 
-		expect(markup).toContain("Create table");
-		expect(markup).toContain("Table name");
-		expect(markup).toContain('value="main"');
-		expect(markup).toContain("Column name");
-		expect(markup).toContain('aria-label="Primary key"');
-		expect(markup).toContain("Review SQL");
-	});
+		const user = await defineTable();
+		await screen.findByLabelText("Generated SQL");
+		await user.click(screen.getByRole("button", { name: "Create table" }));
 
-	test("keeps the Create table label while submitting", () => {
-		const markup = renderToStaticMarkup(
-			<CreateTableActionButton creating onClick={() => {}} />,
+		expect((await screen.findByRole("alert")).textContent).toContain(
+			"table events already exists",
 		);
+		await user.click(screen.getByRole("button", { name: "Back" }));
 
-		expect(markup).toContain('data-testid="spinner"');
-		expect(markup).toContain("Create table");
-	});
-
-	test("renders the generated SQL review with an accessible label", () => {
-		const markup = renderToStaticMarkup(
-			<CreateTableReview sql={'CREATE TABLE "main"."events" ("id" INTEGER);'} />,
+		expect((screen.getByLabelText("Table name") as HTMLInputElement).value).toBe(
+			"events",
 		);
-
-		expect(markup).toContain('aria-label="Generated SQL"');
-		expect(markup).toContain("CREATE TABLE");
-		expect(markup).toContain("regenerated from the definition");
+		expect(
+			(screen.getByLabelText("Column name") as HTMLInputElement).value,
+		).toBe("id");
 	});
 });

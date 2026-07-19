@@ -136,7 +136,6 @@ import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
-import { CreateTableSheet } from "@/components/CreateTableSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
 import { RedisKeySheet } from "@/components/RedisKeySheet";
 import { ExpandableText } from "@/components/ExpandableText";
@@ -153,6 +152,7 @@ import {
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { getCreateTableDbType } from "@/lib/databaseCatalog";
 import {
 	createCellFilter,
 	getFilterRequest,
@@ -569,9 +569,6 @@ export function ConnectionDetails() {
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
 	const [insertingRow, setInsertingRow] = useState(false);
-	const [createTableSheetOpen, setCreateTableSheetOpen] = useState(false);
-	const [createTableInitialSchema, setCreateTableInitialSchema] =
-		useState("public");
 
 	// Query result sheet state
 	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
@@ -607,21 +604,9 @@ export function ConnectionDetails() {
 	}, [tables, schemaOverview]);
 
 	const createTableDbType =
-		connection?.type !== "redis" &&
-		connection?.type !== "clickhouse" &&
-		(connection?.db_type === "postgres" || connection?.db_type === "sqlite")
-			? connection.db_type
+		connection?.type === "postgres" || connection?.type === "sqlite"
+			? getCreateTableDbType(connection.db_type)
 			: null;
-	const createTableSchemas = useMemo(() => {
-		if (createTableDbType === "sqlite") return ["main"];
-
-		const schemas = new Set<string>(["public"]);
-		tables.forEach((table) => schemas.add(table.schema));
-		schemaOverview?.functions.forEach((functionSummary) => {
-			schemas.add(functionSummary.schema);
-		});
-		return [...schemas].sort((left, right) => left.localeCompare(right));
-	}, [createTableDbType, tables, schemaOverview]);
 
 	useEffect(() => {
 		const fetchConnection = async () => {
@@ -1024,16 +1009,6 @@ export function ConnectionDetails() {
 			fetchForeignKeys(newTab);
 		},
 		[tabs, fetchTableData, fetchForeignKeys],
-	);
-
-	const handleOpenCreateTable = useCallback(
-		(schema?: string) => {
-			setCreateTableInitialSchema(
-				createTableDbType === "sqlite" ? "main" : schema || "public",
-			);
-			setCreateTableSheetOpen(true);
-		},
-		[createTableDbType],
 	);
 
 	const handleTableCreated = useCallback(
@@ -4030,8 +4005,18 @@ export function ConnectionDetails() {
 									activeTab?.type === "query" ? (activeTab as QueryTab) : null
 								}
 								onInsertQueryText={handleInsertQueryText}
-								canCreateTable={createTableDbType !== null}
-								onCreateTable={handleOpenCreateTable}
+								createTable={
+									uuid && createTableDbType
+										? {
+												dbType: createTableDbType,
+												onPreview: (request) =>
+													api.pool.previewCreateTable(uuid, request),
+												onCreate: (request) =>
+													api.pool.createTable(uuid, request),
+												onCreated: handleTableCreated,
+											}
+										: undefined
+								}
 							/>
 						</TabsContent>
 						<TabsContent
@@ -4268,21 +4253,6 @@ export function ConnectionDetails() {
 				/>
 			)}
 
-			{uuid && createTableDbType && (
-				<CreateTableSheet
-					open={createTableSheetOpen}
-					dbType={createTableDbType}
-					initialSchema={createTableInitialSchema}
-					availableSchemas={createTableSchemas}
-					onOpenChange={setCreateTableSheetOpen}
-					onPreview={(request) =>
-						api.pool.previewCreateTable(uuid, request)
-					}
-					onCreate={(request) => api.pool.createTable(uuid, request)}
-					onCreated={handleTableCreated}
-				/>
-			)}
-
 			{/* Query Result Sheet */}
 			<QueryResultSheet
 				open={queryResultSheetOpen}
@@ -4295,40 +4265,38 @@ export function ConnectionDetails() {
 			/>
 
 			{/* Command Palette */}
-			{connection.type !== "redis" && (
-				<CommandPalette
-					open={commandPaletteOpen}
-					onOpenChange={setCommandPaletteOpen}
-					activeTab={activeTab}
-					tabs={tabs}
-					onNavigateBack={() => navigate("/")}
-					onToggleSidebar={handleToggleSidebar}
-					onNewQuery={handleNewQuery}
-					onCloseTab={handleCloseTab}
-					onNextTab={handleNextTab}
-					onPreviousTab={handlePreviousTab}
-					onRunQuery={handleRunQuery}
-					onSaveQuery={handleSaveQueryFromPalette}
-					onRefresh={() => {
-						if (activeTab?.type === "query") {
-							handleRunQuery();
-						} else if (activeTab?.type === "table-data") {
-							handleRefreshTableData();
-						}
-					}}
-					onExportCSV={handleExportCSV}
-					onClearFilter={handleClearFilter}
-					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
-					onOpenTableData={handleOpenTableData}
-					onOpenFunctionDefinition={handleOpenFunctionDefinition}
-					onSwitchSidebarTab={setSidebarTab}
-					onOpenSettings={openSettings}
-					onToggleTheme={toggleTheme}
-					tables={tables}
-					functions={schemaOverview?.functions || []}
-					connectionType={connection.type}
-				/>
-			)}
+			<CommandPalette
+				open={commandPaletteOpen}
+				onOpenChange={setCommandPaletteOpen}
+				activeTab={activeTab}
+				tabs={tabs}
+				onNavigateBack={() => navigate("/")}
+				onToggleSidebar={handleToggleSidebar}
+				onNewQuery={handleNewQuery}
+				onCloseTab={handleCloseTab}
+				onNextTab={handleNextTab}
+				onPreviousTab={handlePreviousTab}
+				onRunQuery={handleRunQuery}
+				onSaveQuery={handleSaveQueryFromPalette}
+				onRefresh={() => {
+					if (activeTab?.type === "query") {
+						handleRunQuery();
+					} else if (activeTab?.type === "table-data") {
+						handleRefreshTableData();
+					}
+				}}
+				onExportCSV={handleExportCSV}
+				onClearFilter={handleClearFilter}
+				onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+				onOpenTableData={handleOpenTableData}
+				onOpenFunctionDefinition={handleOpenFunctionDefinition}
+				onSwitchSidebarTab={setSidebarTab}
+				onOpenSettings={openSettings}
+				onToggleTheme={toggleTheme}
+				tables={tables}
+				functions={schemaOverview?.functions || []}
+				connectionType={connection.type}
+			/>
 		</SidebarProvider>
 	);
 }

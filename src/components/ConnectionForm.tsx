@@ -393,7 +393,7 @@ export function ConnectionForm({
 										<Input
 											id="connection-database"
 											type="text"
-											required={formData.type !== "redis"}
+											required
 											value={formData.database}
 											onChange={(e) =>
 												setFormData({ ...formData, database: e.target.value })

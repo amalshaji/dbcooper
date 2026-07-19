@@ -28,8 +28,7 @@ describe("create table form", () => {
 				nullable: true,
 				primaryKey: true,
 				unique: false,
-				defaultKind: "none",
-				defaultValue: "",
+				default: { kind: "none" },
 			},
 			{
 				id: "attempts",
@@ -38,8 +37,7 @@ describe("create table form", () => {
 				nullable: false,
 				primaryKey: false,
 				unique: false,
-				defaultKind: "literal",
-				defaultValue: "0",
+				default: { kind: "literal", value: "0" },
 			},
 			{
 				id: "created",
@@ -48,8 +46,7 @@ describe("create table form", () => {
 				nullable: false,
 				primaryKey: false,
 				unique: false,
-				defaultKind: "expression",
-				defaultValue: "current_timestamp",
+				default: { kind: "expression", value: "current_timestamp" },
 			},
 		];
 
@@ -105,8 +102,10 @@ describe("create table form", () => {
 
 		draft.columns = [draft.columns[0]];
 		draft.columns[0].dataType = "INTEGER";
-		draft.columns[0].defaultKind = "literal";
-		draft.columns[0].defaultValue = "not-a-number";
+		draft.columns[0].default = {
+			kind: "literal",
+			value: "not-a-number",
+		};
 		expect(getCreateTableValidationError(draft, "sqlite")).toBe(
 			"Default for event_id must be a number",
 		);

@@ -1,5 +1,5 @@
 import type { TableColumn } from "@/types/tabTypes";
-import { getSuggestedFunctions } from "@/lib/sqlFunctions";
+import { getSuggestedFunctions } from "@/lib/databaseCatalog";
 import { BooleanFieldInput } from "./BooleanFieldInput";
 import { JsonFieldInput } from "./JsonFieldInput";
 import { TextFieldInput } from "./TextFieldInput";

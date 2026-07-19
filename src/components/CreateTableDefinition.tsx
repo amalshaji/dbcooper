@@ -14,7 +14,6 @@ interface CreateTableDefinitionProps {
 	dbType: CreateTableDbType;
 	availableSchemas: string[];
 	onChange: (draft: CreateTableDraft) => void;
-	onClearError: () => void;
 }
 
 export function CreateTableDefinition({
@@ -22,11 +21,9 @@ export function CreateTableDefinition({
 	dbType,
 	availableSchemas,
 	onChange,
-	onClearError,
 }: CreateTableDefinitionProps) {
 	const update = (updates: Partial<CreateTableDraft>) => {
 		onChange({ ...draft, ...updates });
-		onClearError();
 	};
 
 	return (

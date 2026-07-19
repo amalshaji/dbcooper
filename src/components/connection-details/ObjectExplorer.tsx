@@ -38,7 +38,10 @@ import {
 	SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
-import { ObjectExplorerCreateTableAction } from "./ObjectExplorerCreateTableAction";
+import {
+	ObjectExplorerCreateTable,
+	type ObjectExplorerCreateTableCapability,
+} from "./ObjectExplorerCreateTable";
 import type {
 	FunctionSummary,
 	QueryTab,
@@ -68,8 +71,7 @@ interface ObjectExplorerProps {
 	onOpenFunctionDefinition: (functionSummary: FunctionSummary) => void;
 	activeQueryTab: QueryTab | null;
 	onInsertQueryText: (text: string) => void;
-	canCreateTable: boolean;
-	onCreateTable: (schema?: string) => void;
+	createTable?: ObjectExplorerCreateTableCapability;
 }
 
 interface SchemaObjects {
@@ -368,8 +370,7 @@ export function ObjectExplorer({
 	onOpenFunctionDefinition,
 	activeQueryTab,
 	onInsertQueryText,
-	canCreateTable,
-	onCreateTable,
+	createTable,
 }: ObjectExplorerProps) {
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedSchemaPreference, setSelectedSchemaPreference] = useState("");
@@ -445,10 +446,13 @@ export function ObjectExplorer({
 							? `${selectedSchemaTotal} objects`
 							: `${totalObjectCount} objects`}
 				</div>
-				<ObjectExplorerCreateTableAction
-					visible={canCreateTable}
-					onCreateTable={() => onCreateTable(selectedSchema || undefined)}
-				/>
+				{createTable && (
+					<ObjectExplorerCreateTable
+						capability={createTable}
+						schemas={schemaEntries.map((entry) => entry.schema)}
+						selectedSchema={selectedSchema || undefined}
+					/>
+				)}
 			</div>
 
 			<div className="min-h-0 flex-1 overflow-auto px-1">

@@ -1,65 +1,11 @@
 use std::collections::HashSet;
 
+use super::sql_policy::{
+    database_label, escape_sql_identifier, format_sql_value, supports_create_table_type,
+    validate_default_expression,
+};
 use crate::db::models::{ColumnDefault, CreateTableColumn, CreateTableRequest};
 use serde_json::Value;
-
-const POSTGRES_TYPES: &[&str] = &[
-    "SMALLINT",
-    "INTEGER",
-    "BIGINT",
-    "SERIAL",
-    "BIGSERIAL",
-    "REAL",
-    "DOUBLE PRECISION",
-    "NUMERIC",
-    "BOOLEAN",
-    "TEXT",
-    "VARCHAR",
-    "DATE",
-    "TIME",
-    "TIMESTAMP",
-    "TIMESTAMPTZ",
-    "UUID",
-    "JSON",
-    "JSONB",
-    "BYTEA",
-];
-
-const SQLITE_TYPES: &[&str] = &[
-    "INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC", "BOOLEAN", "DATE", "DATETIME",
-];
-
-const POSTGRES_EXPRESSIONS: &[&str] = &[
-    "now()",
-    "current_timestamp",
-    "localtimestamp",
-    "current_date",
-    "now()::date",
-    "current_time",
-    "localtime",
-    "gen_random_uuid()",
-    "uuid_generate_v4()",
-    "true",
-    "false",
-    "'{}'::json",
-    "'[]'::json",
-    "'{}'::jsonb",
-    "'[]'::jsonb",
-];
-
-const SQLITE_EXPRESSIONS: &[&str] = &[
-    "current_timestamp",
-    "current_date",
-    "current_time",
-    "datetime('now')",
-    "datetime('now', 'localtime')",
-    "date('now')",
-    "date('now', 'localtime')",
-    "time('now')",
-    "time('now', 'localtime')",
-    "1",
-    "0",
-];
 
 #[derive(Clone, Copy)]
 enum CreateTableDialect {
@@ -68,24 +14,10 @@ enum CreateTableDialect {
 }
 
 impl CreateTableDialect {
-    fn label(self) -> &'static str {
+    fn key(self) -> &'static str {
         match self {
-            Self::Postgres => "PostgreSQL",
-            Self::Sqlite => "SQLite",
-        }
-    }
-
-    fn data_types(self) -> &'static [&'static str] {
-        match self {
-            Self::Postgres => POSTGRES_TYPES,
-            Self::Sqlite => SQLITE_TYPES,
-        }
-    }
-
-    fn default_expressions(self) -> &'static [&'static str] {
-        match self {
-            Self::Postgres => POSTGRES_EXPRESSIONS,
-            Self::Sqlite => SQLITE_EXPRESSIONS,
+            Self::Postgres => "postgres",
+            Self::Sqlite => "sqlite",
         }
     }
 }
@@ -151,10 +83,10 @@ fn build_column_definition(
     dialect: CreateTableDialect,
 ) -> Result<String, String> {
     let data_type = column.data_type.trim().to_ascii_uppercase();
-    if !dialect.data_types().contains(&data_type.as_str()) {
+    if !supports_create_table_type(dialect.key(), &data_type)? {
         return Err(format!(
             "Unsupported {} data type: {}",
-            dialect.label(),
+            database_label(dialect.key())?,
             column.data_type
         ));
     }
@@ -162,7 +94,7 @@ fn build_column_definition(
     let mut definition = format!("{} {}", quote_identifier(&column.name), data_type);
     if let Some(default) = &column.default {
         definition.push_str(" DEFAULT ");
-        definition.push_str(&format_default(default, dialect)?);
+        definition.push_str(&format_default(default, dialect, &data_type)?);
     }
     if !column.nullable || column.primary_key {
         definition.push_str(" NOT NULL");
@@ -174,18 +106,16 @@ fn build_column_definition(
     Ok(definition)
 }
 
-fn format_default(default: &ColumnDefault, dialect: CreateTableDialect) -> Result<String, String> {
+fn format_default(
+    default: &ColumnDefault,
+    dialect: CreateTableDialect,
+    data_type: &str,
+) -> Result<String, String> {
     match default {
         ColumnDefault::Literal { value } => format_literal(value),
         ColumnDefault::Expression { value } => {
             let expression = value.trim();
-            let normalized = expression.to_ascii_lowercase();
-            if !dialect.default_expressions().contains(&normalized.as_str()) {
-                return Err(format!(
-                    "Default expression is not supported for {}",
-                    dialect.label()
-                ));
-            }
+            validate_default_expression(dialect.key(), data_type, expression)?;
             Ok(expression.to_string())
         }
     }
@@ -193,9 +123,7 @@ fn format_default(default: &ColumnDefault, dialect: CreateTableDialect) -> Resul
 
 fn format_literal(value: &Value) -> Result<String, String> {
     match value {
-        Value::Bool(value) => Ok(if *value { "TRUE" } else { "FALSE" }.to_string()),
-        Value::Number(value) => Ok(value.to_string()),
-        Value::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => Ok(format_sql_value(value)),
         _ => Err("Default literal must be text, a number, or a boolean".to_string()),
     }
 }
@@ -219,7 +147,7 @@ fn validate_identifier(identifier: &str, field: &str) -> Result<(), String> {
 }
 
 fn quote_identifier(identifier: &str) -> String {
-    format!("\"{}\"", identifier.replace('"', "\"\""))
+    format!("\"{}\"", escape_sql_identifier(identifier))
 }
 
 #[cfg(test)]
@@ -336,7 +264,25 @@ mod tests {
         );
         assert_eq!(
             build_sqlite_create_table_sql(&expression_request).unwrap_err(),
-            "Default expression is not supported for SQLite"
+            "Default expression is not supported for SQLite DATETIME"
+        );
+    }
+
+    #[test]
+    fn builders_reject_defaults_that_do_not_match_the_column_type() {
+        let mut attempts = column("attempts", "integer");
+        attempts.default = Some(ColumnDefault::Expression {
+            value: "gen_random_uuid()".to_string(),
+        });
+        let request = CreateTableRequest {
+            schema: "public".to_string(),
+            name: "jobs".to_string(),
+            columns: vec![attempts],
+        };
+
+        assert_eq!(
+            build_postgres_create_table_sql(&request).unwrap_err(),
+            "Default expression is not supported for PostgreSQL INTEGER"
         );
     }
 }

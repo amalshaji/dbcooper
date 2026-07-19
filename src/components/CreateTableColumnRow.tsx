@@ -10,8 +10,8 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { getCreateTableTypes } from "../lib/databaseCatalog";
 import {
-	CREATE_TABLE_TYPES,
 	type CreateTableColumnDraft,
 	type CreateTableDbType,
 	getDefaultExpressions,
@@ -43,13 +43,11 @@ export function CreateTableColumnRow({
 		if (!dataType) return;
 		const nextExpressions = getDefaultExpressions(dbType, dataType);
 		const shouldClearExpression =
-			column.defaultKind === "expression" &&
-			!nextExpressions.includes(column.defaultValue);
+			column.default.kind === "expression" &&
+			!nextExpressions.includes(column.default.value);
 		update({
 			dataType,
-			...(shouldClearExpression
-				? { defaultKind: "none" as const, defaultValue: "" }
-				: {}),
+			...(shouldClearExpression ? { default: { kind: "none" as const } } : {}),
 		});
 	};
 
@@ -73,7 +71,7 @@ export function CreateTableColumnRow({
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							{CREATE_TABLE_TYPES[dbType].map((dataType) => (
+							{getCreateTableTypes(dbType).map((dataType) => (
 								<SelectItem key={dataType} value={dataType}>
 									{dataType}
 								</SelectItem>
