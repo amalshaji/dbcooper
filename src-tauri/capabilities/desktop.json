@@ -10,7 +10,6 @@
     "window-*"
   ],
   "permissions": [
-    "updater:default",
     "process:default"
   ]
 }

@@ -20,7 +20,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
 import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
+import { resolveUpdateChannel } from "@/lib/updateChannel";
 import { ThemeSelector } from "./ThemeSelector";
+import { UpdateChannelSetting } from "./UpdateChannelSetting";
 
 interface SettingsFormProps {
 	onSaveSuccess?: () => void;
@@ -41,6 +43,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 	const { theme, setTheme } = useTheme();
 	const [checkUpdates, setCheckUpdates] = useState(true);
+	const [canaryUpdates, setCanaryUpdates] = useState(false);
 	const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
 	const [detectedHarnesses, setDetectedHarnesses] = useState<AiHarnessStatus[]>(
 		[],
@@ -61,6 +64,9 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 				api.ai.detectHarnesses(),
 			]);
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
+			setCanaryUpdates(
+				resolveUpdateChannel(settings.update_channel) === "canary",
+			);
 			setAiProvider((settings.ai_provider as AiProvider) || "openai");
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
@@ -78,6 +84,7 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 		try {
 			await api.settings.setMany({
 				check_updates_on_startup: checkUpdates.toString(),
+				update_channel: canaryUpdates ? "canary" : "stable",
 				ai_provider: aiProvider,
 				openai_endpoint: openaiEndpoint,
 				openai_api_key: openaiApiKey,
@@ -159,6 +166,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 						onCheckedChange={setCheckUpdates}
 					/>
 				</div>
+				<UpdateChannelSetting
+					enabled={canaryUpdates}
+					onEnabledChange={setCanaryUpdates}
+					compact={compact}
+				/>
 			</div>
 
 			<div className={sectionClass}>

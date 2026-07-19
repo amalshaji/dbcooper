@@ -20,6 +20,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-canary.*'
 
 permissions:
   contents: write
@@ -35,14 +36,21 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            exit 0
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${{ inputs.tag }}"
           fi
-          if [ -z "${{ inputs.tag }}" ]; then
+
+          if [ -z "$tag" ]; then
             echo "Error: tag input required"
             exit 1
           fi
-          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if ! echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: stable releases require a vMAJOR.MINOR.PATCH tag"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:

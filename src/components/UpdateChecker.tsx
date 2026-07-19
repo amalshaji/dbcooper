@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/tauri";
+import {
+	resolveUpdateChannel,
+	type UpdateChannel,
+} from "@/lib/updateChannel";
 import { toast } from "sonner";
 
 export function UpdateChecker() {
@@ -16,7 +19,6 @@ export function UpdateChecker() {
 	const [downloadStarted, setDownloadStarted] = useState(false);
 	const [downloadedBytes, setDownloadedBytes] = useState(0);
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
-	const updateRef = useRef<Update | null>(null);
 	const downloadedBytesRef = useRef(0);
 	const totalBytesRef = useRef<number | null>(null);
 
@@ -48,28 +50,38 @@ export function UpdateChecker() {
 
 	const checkSettingsAndUpdate = async () => {
 		try {
-			const checkOnStartup = await api.settings.get("check_updates_on_startup");
+			const [checkOnStartup, savedChannel] = await Promise.all([
+				api.settings.get("check_updates_on_startup"),
+				api.settings.get("update_channel"),
+			]);
 			if (checkOnStartup !== "false") {
-				await checkForUpdates(false);
+				await checkForUpdates(false, resolveUpdateChannel(savedChannel));
 			}
 		} catch {
-			await checkForUpdates(false);
+			await checkForUpdates(false, "stable");
 		}
 	};
 
-	const checkForUpdates = async (manual: boolean = false) => {
+	const checkForUpdates = async (
+		manual: boolean = false,
+		channel?: UpdateChannel,
+	) => {
 		if (manual && checkingManually) return;
 
 		try {
 			if (manual) {
 				setCheckingManually(true);
 			}
-			const update = await check();
-			if (update?.available) {
+			const selectedChannel =
+				channel ??
+				resolveUpdateChannel(await api.settings.get("update_channel"));
+			const update = await api.updates.check(selectedChannel);
+			if (update) {
 				setUpdateAvailable(true);
 				setUpdateVersion(update.version);
-				updateRef.current = update;
 			} else if (manual) {
+				setUpdateAvailable(false);
+				setUpdateVersion("");
 				toast.info("You're on the latest version");
 			}
 		} catch (error) {
@@ -85,8 +97,7 @@ export function UpdateChecker() {
 	};
 
 	const handleDownload = async () => {
-		const update = updateRef.current;
-		if (!update || downloading || readyToInstall) return;
+		if (!updateAvailable || downloading || readyToInstall) return;
 
 		try {
 			setDownloading(true);
@@ -96,7 +107,7 @@ export function UpdateChecker() {
 			downloadedBytesRef.current = 0;
 			totalBytesRef.current = null;
 
-			await update.download((event) => {
+			await api.updates.download((event) => {
 				if (event.event === "Started") {
 					setDownloadStarted(true);
 					const contentLength = event.data.contentLength ?? null;
@@ -131,11 +142,10 @@ export function UpdateChecker() {
 	};
 
 	const handleInstall = async () => {
-		const update = updateRef.current;
-		if (!update || !readyToInstall) return;
+		if (!readyToInstall) return;
 
 		try {
-			await update.install();
+			await api.updates.install();
 			await relaunch();
 		} catch (error) {
 			console.error("Failed to install update:", error);

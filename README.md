@@ -103,6 +103,17 @@ Releases are automated via GitHub Actions. To publish a new version:
 4. GitHub Actions will create and push the tag (e.g., `v0.0.42`), then build a draft release
 5. Review and publish the release
 
+### Canary releases
+
+Every commit merged into `main` publishes a signed canary after the test suite
+passes. Canary versions use the next patch version with a build suffix, such as
+`v0.0.64-canary.142`.
+
+Canary updates are disabled by default. To receive them, open Settings and enable
+**Canary updates**. Disable the setting to return to the stable channel; if the
+installed canary is newer than the latest stable release, DBcooper will wait for
+the next newer stable release instead of downgrading.
+
 ### Required Secrets
 
 Set these in your GitHub repository settings:
