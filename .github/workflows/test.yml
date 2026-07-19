@@ -81,6 +81,9 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: macos-26
+    outputs:
+      tag: ${{ steps.canary.outputs.tag }}
+      version: ${{ steps.canary.outputs.version }}
     permissions:
       contents: write
 
@@ -146,11 +149,23 @@ jobs:
           prerelease: true
           args: '--target aarch64-apple-darwin'
 
+  promote-canary:
+    name: Promote canary feed
+    needs: canary
+    runs-on: ubuntu-latest
+    concurrency:
+      group: canary-feed
+      cancel-in-progress: false
+    permissions:
+      contents: write
+
+    steps:
       - name: Update canary feed
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CANARY_TAG: ${{ steps.canary.outputs.tag }}
-          CANARY_VERSION: ${{ steps.canary.outputs.version }}
+          GH_REPO: ${{ github.repository }}
+          CANARY_TAG: ${{ needs.canary.outputs.tag }}
+          CANARY_VERSION: ${{ needs.canary.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -159,13 +174,13 @@ jobs:
           gh release download "$CANARY_TAG" --pattern latest.json --dir "$feed_dir"
 
           manifest_path="$feed_dir/latest.json"
-          manifest_version="$(CANARY_MANIFEST="$manifest_path" bun -e "console.log((await Bun.file(process.env.CANARY_MANIFEST).json()).version)")"
+          manifest_version="$(jq -r '.version' "$manifest_path")"
           if [ "$manifest_version" != "$CANARY_VERSION" ]; then
             echo "Error: updater manifest version $manifest_version does not match $CANARY_VERSION"
             exit 1
           fi
 
-          current_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
           if [ "$current_main" != "$GITHUB_SHA" ]; then
             echo "A newer main commit exists; leaving the canary feed unchanged."
             exit 0
