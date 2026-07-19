@@ -1,7 +1,6 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
 import { isSqlFunction } from "@/lib/sqlFunctions";
-import type { UpdateChannel } from "@/lib/updateChannel";
 
 export interface Connection {
 	id: number;
@@ -178,26 +177,6 @@ export interface AiStatus {
 	error: string | null;
 }
 
-export interface UpdateMetadata {
-	version: string;
-	currentVersion: string;
-	body: string | null;
-	date: string | null;
-}
-
-export type UpdateDownloadEvent =
-	| {
-			event: "Started";
-			data: { contentLength: number | null };
-	  }
-	| {
-			event: "Progress";
-			data: { chunkLength: number };
-	  }
-	| {
-			event: "Finished";
-	  };
-
 // Redis types
 export interface RedisKeyInfo {
 	key: string;
@@ -252,19 +231,6 @@ export interface ConnectionsExport {
 }
 
 export const api = {
-	updates: {
-		check: (channel: UpdateChannel) =>
-			invoke<UpdateMetadata | null>("check_for_update", { channel }),
-
-		download: (onEvent: (event: UpdateDownloadEvent) => void) => {
-			const channel = new Channel<UpdateDownloadEvent>();
-			channel.onmessage = onEvent;
-			return invoke<void>("download_update", { onEvent: channel });
-		},
-
-		install: () => invoke<void>("install_update"),
-	},
-
 	connections: {
 		list: () => invoke<Connection[]>("get_connections"),
 

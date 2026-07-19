@@ -1,13 +1,18 @@
 import { useEffect, useState, useRef } from "react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
+import type { Update } from "@tauri-apps/plugin-updater";
 import { ArrowRight } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/tauri";
 import {
 	resolveUpdateChannel,
+	resolveUpdateChannelEvent,
 	type UpdateChannel,
+	UPDATE_CHANNEL_CHANGED_EVENT,
 } from "@/lib/updateChannel";
+import { checkForUpdate } from "@/lib/updater";
 import { toast } from "sonner";
 
 export function UpdateChecker() {
@@ -19,6 +24,8 @@ export function UpdateChecker() {
 	const [downloadStarted, setDownloadStarted] = useState(false);
 	const [downloadedBytes, setDownloadedBytes] = useState(0);
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
+	const updateRef = useRef<Update | null>(null);
+	const updateGenerationRef = useRef(0);
 	const downloadedBytesRef = useRef(0);
 	const totalBytesRef = useRef<number | null>(null);
 
@@ -44,9 +51,53 @@ export function UpdateChecker() {
 			: null;
 
 	useEffect(() => {
-		checkSettingsAndUpdate();
+		let unlisten: UnlistenFn | undefined;
+		let disposed = false;
+
+		listen<unknown>(UPDATE_CHANNEL_CHANGED_EVENT, (event) => {
+			const channel = resolveUpdateChannelEvent(event.payload);
+			clearCurrentUpdate();
+			void checkForUpdates(false, channel);
+		})
+			.then((stopListening) => {
+				if (disposed) {
+					stopListening();
+				} else {
+					unlisten = stopListening;
+				}
+			})
+			.catch((error) => {
+				console.error("Failed to listen for update channel changes:", error);
+			});
+
+		void checkSettingsAndUpdate();
+
+		return () => {
+			disposed = true;
+			unlisten?.();
+			updateGenerationRef.current += 1;
+			const update = updateRef.current;
+			updateRef.current = null;
+			void update?.close().catch(() => {});
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	const clearCurrentUpdate = () => {
+		updateGenerationRef.current += 1;
+		const update = updateRef.current;
+		updateRef.current = null;
+		void update?.close().catch(() => {});
+		setUpdateAvailable(false);
+		setUpdateVersion("");
+		setDownloading(false);
+		setReadyToInstall(false);
+		setDownloadStarted(false);
+		setDownloadedBytes(0);
+		setTotalBytes(null);
+		downloadedBytesRef.current = 0;
+		totalBytesRef.current = null;
+	};
 
 	const checkSettingsAndUpdate = async () => {
 		try {
@@ -68,6 +119,9 @@ export function UpdateChecker() {
 	) => {
 		if (manual && checkingManually) return;
 
+		const generation = updateGenerationRef.current + 1;
+		updateGenerationRef.current = generation;
+
 		try {
 			if (manual) {
 				setCheckingManually(true);
@@ -75,7 +129,18 @@ export function UpdateChecker() {
 			const selectedChannel =
 				channel ??
 				resolveUpdateChannel(await api.settings.get("update_channel"));
-			const update = await api.updates.check(selectedChannel);
+			const update = await checkForUpdate(selectedChannel);
+			if (generation !== updateGenerationRef.current) {
+				void update?.close().catch(() => {});
+				return;
+			}
+
+			const previousUpdate = updateRef.current;
+			updateRef.current = update;
+			if (previousUpdate && previousUpdate !== update) {
+				void previousUpdate.close().catch(() => {});
+			}
+
 			if (update) {
 				setUpdateAvailable(true);
 				setUpdateVersion(update.version);
@@ -97,7 +162,9 @@ export function UpdateChecker() {
 	};
 
 	const handleDownload = async () => {
-		if (!updateAvailable || downloading || readyToInstall) return;
+		const update = updateRef.current;
+		if (!update || downloading || readyToInstall) return;
+		const generation = updateGenerationRef.current;
 
 		try {
 			setDownloading(true);
@@ -107,7 +174,9 @@ export function UpdateChecker() {
 			downloadedBytesRef.current = 0;
 			totalBytesRef.current = null;
 
-			await api.updates.download((event) => {
+			await update.download((event) => {
+				if (generation !== updateGenerationRef.current) return;
+
 				if (event.event === "Started") {
 					setDownloadStarted(true);
 					const contentLength = event.data.contentLength ?? null;
@@ -131,6 +200,13 @@ export function UpdateChecker() {
 					totalBytesRef.current = downloadedBytesRef.current;
 				}
 			});
+			if (
+				generation !== updateGenerationRef.current ||
+				updateRef.current !== update
+			) {
+				void update.close().catch(() => {});
+				return;
+			}
 			setReadyToInstall(true);
 		} catch (error) {
 			console.error("Failed to download update:", error);
@@ -142,10 +218,11 @@ export function UpdateChecker() {
 	};
 
 	const handleInstall = async () => {
-		if (!readyToInstall) return;
+		const update = updateRef.current;
+		if (!update || !readyToInstall) return;
 
 		try {
-			await api.updates.install();
+			await update.install();
 			await relaunch();
 		} catch (error) {
 			console.error("Failed to install update:", error);

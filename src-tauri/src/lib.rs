@@ -31,7 +31,7 @@ use commands::queries::{
 };
 use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
 #[cfg(desktop)]
-use commands::updates::{check_for_update, download_update, install_update, UpdateState};
+use commands::updates::check_for_update;
 use database::pool_manager::PoolManager;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
@@ -192,11 +192,8 @@ pub fn run() {
         })
         .setup(|app| {
             #[cfg(desktop)]
-            {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
-                app.manage(UpdateState::default());
-            }
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             let pool = rt
@@ -254,10 +251,6 @@ pub fn run() {
             get_all_settings,
             #[cfg(desktop)]
             check_for_update,
-            #[cfg(desktop)]
-            download_update,
-            #[cfg(desktop)]
-            install_update,
             generate_sql,
             detect_ai_harnesses,
             get_ai_status,
