@@ -22,6 +22,7 @@ pub async fn pool_connect(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
+    crate::docker::ensure_created_connection_running(sqlite_pool.inner(), &uuid).await?;
     // Get connection details from database
     let conn: crate::db::models::Connection =
         sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
@@ -162,6 +163,7 @@ async fn ensure_connection(
     sqlite_pool: &SqlitePool,
     uuid: &str,
 ) -> Result<(), String> {
+    crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     // Acquire lock to serialize connect attempts for this UUID
     let lock = pool_manager.get_connect_lock(uuid).await;
     let _guard = lock.lock().await;

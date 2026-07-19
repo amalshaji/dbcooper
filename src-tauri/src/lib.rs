@@ -2,6 +2,7 @@ pub mod ai;
 pub mod commands;
 pub mod database;
 pub mod db;
+pub mod docker;
 mod ssh_tunnel;
 
 use commands::ai::{detect_ai_harnesses, generate_sql, get_ai_status};
@@ -31,6 +32,11 @@ use commands::queries::{
 };
 use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
 use database::pool_manager::PoolManager;
+use docker::{
+    docker_connection_states, docker_control_connection, docker_create_database,
+    docker_get_connection_string, docker_link_connection, docker_list_containers,
+    docker_prepare_connection,
+};
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
 
@@ -67,7 +73,7 @@ fn menu_target_window<R: tauri::Runtime>(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -263,7 +269,21 @@ pub fn run() {
             pool_update_table_row,
             pool_delete_table_row,
             pool_insert_table_row,
+            docker_list_containers,
+            docker_prepare_connection,
+            docker_create_database,
+            docker_link_connection,
+            docker_connection_states,
+            docker_control_connection,
+            docker_get_connection_string,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            let pool = app_handle.state::<sqlx::SqlitePool>().inner().clone();
+            tauri::async_runtime::block_on(docker::stop_created_databases(&pool));
+        }
+    });
 }
