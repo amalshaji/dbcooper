@@ -3,7 +3,7 @@
 //! Commands for managing the connection pool: connect, disconnect, status, health check.
 
 use crate::database::pool_manager::{ConnectionConfig, ConnectionStatus, PoolManager};
-use crate::db::models::TestConnectionResult;
+use crate::db::models::{CreateTableRequest, TableInfo, TestConnectionResult};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -265,6 +265,28 @@ pub async fn pool_get_table_structure(
     }
 }
 
+#[tauri::command]
+pub async fn pool_preview_create_table(
+    pool_manager: State<'_, PoolManager>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    request: CreateTableRequest,
+) -> Result<String, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    pool_manager.preview_create_table(&uuid, &request).await
+}
+
+#[tauri::command]
+pub async fn pool_create_table(
+    pool_manager: State<'_, PoolManager>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    request: CreateTableRequest,
+) -> Result<TableInfo, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    pool_manager.create_table(&uuid, &request).await
+}
+
 /// Execute query using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_execute_query(
@@ -344,7 +366,9 @@ pub async fn pool_get_function_definition(
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================
 
-use crate::commands::database::{escape_sql_identifier, format_sql_value, validate_raw_sql_value};
+use crate::database::sql_policy::{
+    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+};
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]

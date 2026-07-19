@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { isSqlFunction } from "@/lib/databaseCatalog";
 import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
-import { isSqlFunction } from "@/lib/sqlFunctions";
+import type { Connection, ConnectionFormData } from "@/types/connection";
 import type {
 	DeleteConnectionResult,
 	DockerConnectionDraft,
@@ -17,56 +18,31 @@ export type {
 	DockerContainerSummary,
 	DockerDatabaseEngine,
 } from "@/types/docker";
-
-export interface Connection {
-	id: number;
-	uuid: string;
-	type: string;
-	name: string;
-	host: string;
-	port: number;
-	database: string;
-	username: string;
-	password: string;
-	ssl: number;
-	db_type: string;
-	file_path: string | null;
-	ssh_enabled: number;
-	ssh_host: string;
-	ssh_port: number;
-	ssh_user: string;
-	ssh_password: string;
-	ssh_key_path: string;
-	ssh_use_key: number;
-	created_at: string;
-	updated_at: string;
-}
-
-export interface ConnectionFormData {
-	type: string;
-	uuid?: string;
-	name: string;
-	host: string;
-	port: number;
-	database: string;
-	username: string;
-	password: string;
-	ssl: boolean;
-	db_type: string;
-	file_path?: string;
-	ssh_enabled?: boolean;
-	ssh_host?: string;
-	ssh_port?: number;
-	ssh_user?: string;
-	ssh_password?: string;
-	ssh_key_path?: string;
-	ssh_use_key?: boolean;
-}
+export type { Connection, ConnectionFormData } from "@/types/connection";
 
 export interface TableInfo {
 	schema: string;
 	name: string;
 	type: string;
+}
+
+export type ColumnDefault =
+	| { kind: "literal"; value: string | number | boolean }
+	| { kind: "expression"; value: string };
+
+export interface CreateTableColumn {
+	name: string;
+	data_type: string;
+	nullable: boolean;
+	primary_key: boolean;
+	unique: boolean;
+	default: ColumnDefault | null;
+}
+
+export interface CreateTableRequest {
+	schema: string;
+	name: string;
+	columns: CreateTableColumn[];
 }
 
 export interface ColumnInfo {
@@ -493,7 +469,7 @@ export const api = {
 				// Validate raw SQL values before sending to backend
 				for (const update of updates) {
 					if (update.isRawSql && typeof update.value === "string") {
-						if (!isSqlFunction(update.value)) {
+						if (!isSqlFunction(update.value, connection.db_type)) {
 							throw new Error(
 								`Invalid raw SQL value: "${update.value}". Only whitelisted SQL functions are allowed for security.`,
 							);
@@ -569,7 +545,7 @@ export const api = {
 			// Validate raw SQL values before sending to backend
 			for (const value of values) {
 				if (value.isRawSql && typeof value.value === "string") {
-					if (!isSqlFunction(value.value)) {
+					if (!isSqlFunction(value.value, connection.db_type)) {
 						throw new Error(
 							`Invalid raw SQL value: "${value.value}". Only whitelisted SQL functions are allowed for security.`,
 						);
@@ -782,6 +758,12 @@ export const api = {
 				schema,
 				table,
 			}),
+
+		previewCreateTable: (uuid: string, request: CreateTableRequest) =>
+			invoke<string>("pool_preview_create_table", { uuid, request }),
+
+		createTable: (uuid: string, request: CreateTableRequest) =>
+			invoke<TableInfo>("pool_create_table", { uuid, request }),
 
 		executeQuery: (uuid: string, query: string) =>
 			invoke<QueryResult>("pool_execute_query", { uuid, query }),

@@ -16,8 +16,8 @@ use super::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
-    FunctionDefinition, QueryResult, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
+    TableStructure, TestConnectionResult,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -331,6 +331,30 @@ impl PoolManager {
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver.list_tables().await
+    }
+
+    pub async fn preview_create_table(
+        &self,
+        uuid: &str,
+        request: &CreateTableRequest,
+    ) -> Result<String, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.preview_create_table(request)
+    }
+
+    pub async fn create_table(
+        &self,
+        uuid: &str,
+        request: &CreateTableRequest,
+    ) -> Result<TableInfo, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.create_table(request).await
     }
 
     /// Get table data using the pooled connection

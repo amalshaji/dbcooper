@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
+use super::create_table::build_sqlite_create_table_sql;
 use super::filter::{
     build_where_clause, classify_column_type, compile_filter, structured_expression,
     CompiledFilter, FilterDialect, FilterValue,
@@ -13,8 +14,9 @@ use crate::database::queries::sqlite::{
     COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
-    TableFilter, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, CreateTableRequest, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
+    TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
+    TestConnectionResult,
 };
 use std::collections::HashMap;
 
@@ -191,6 +193,27 @@ impl DatabaseDriver for SqliteDriver {
                 table_type,
             })
             .collect())
+    }
+
+    fn preview_create_table(&self, request: &CreateTableRequest) -> Result<String, String> {
+        build_sqlite_create_table_sql(request)
+    }
+
+    async fn create_table(&self, request: &CreateTableRequest) -> Result<TableInfo, String> {
+        let sql = self.preview_create_table(request)?;
+        let pool = self.get_pool().await?;
+        let result = sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string());
+        pool.close().await;
+        result?;
+
+        Ok(TableInfo {
+            schema: request.schema.clone(),
+            name: request.name.clone(),
+            table_type: "table".to_string(),
+        })
     }
 
     async fn get_table_data(
