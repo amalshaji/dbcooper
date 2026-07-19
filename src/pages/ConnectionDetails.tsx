@@ -162,6 +162,11 @@ import {
 	isWrappableQuery,
 	stripTrailingSemicolon,
 } from "@/lib/connection-details/queryTableState";
+import { continueWhileCurrent } from "@/lib/connection-details/latestRequestRegistry";
+import {
+	TabRequestController,
+	type CurrentRequest,
+} from "@/lib/connection-details/tabRequestController";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -366,6 +371,9 @@ export function ConnectionDetails() {
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
+	const requestControllerRef = useRef(new TabRequestController());
+	const tabsRef = useRef(tabs);
+	tabsRef.current = tabs;
 
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
@@ -494,6 +502,16 @@ export function ConnectionDetails() {
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
 	const [insertingRow, setInsertingRow] = useState(false);
+
+	useEffect(() => {
+		const controller = requestControllerRef.current;
+		controller.reset();
+		setSavingRow(false);
+		setSavingInlineEdits(false);
+		setDeletingRow(false);
+		setInsertingRow(false);
+		return () => controller.reset();
+	}, [uuid]);
 
 	// Query result sheet state
 	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
@@ -687,8 +705,10 @@ export function ConnectionDetails() {
 
 	const fetchQueryHistory = useCallback(async () => {
 		if (!uuid) return;
+		const lifecycle = requestControllerRef.current.watchLifecycle();
 		try {
 			const data = await api.queries.history(uuid);
+			if (!lifecycle.isCurrent()) return;
 			setQueryHistory(data);
 		} catch (error) {
 			console.error("Failed to fetch query history:", error);
@@ -710,6 +730,7 @@ export function ConnectionDetails() {
 				rowsAffected?: number | null;
 				error?: string | null;
 			},
+			lifecycle: CurrentRequest,
 		) => {
 			if (!uuid) return;
 			api.queries
@@ -717,7 +738,9 @@ export function ConnectionDetails() {
 				// Only live-refresh the panel if it's actually open; otherwise the
 				// tab-switch effect refetches on demand.
 				.then(() => {
-					if (sidebarTab === "history") fetchQueryHistory();
+					if (lifecycle.isCurrent() && sidebarTab === "history") {
+						fetchQueryHistory();
+					}
 				})
 				.catch((e) => console.error("Failed to record query history:", e));
 		},
@@ -726,8 +749,11 @@ export function ConnectionDetails() {
 
 	useEffect(() => {
 		if (!uuid || sidebarTab !== "history") return;
+		const lifecycle = requestControllerRef.current.watchLifecycle();
 		setLoadingHistory(true);
-		fetchQueryHistory().finally(() => setLoadingHistory(false));
+		fetchQueryHistory().finally(() => {
+			if (lifecycle.isCurrent()) setLoadingHistory(false);
+		});
 	}, [uuid, sidebarTab, fetchQueryHistory]);
 
 	const updateTab = useCallback(
@@ -742,6 +768,7 @@ export function ConnectionDetails() {
 	const fetchTableData = useCallback(
 		async (tab: TableDataTab) => {
 			if (!uuid) return;
+			const request = requestControllerRef.current.beginTable(tab.id);
 
 			updateTab<TableDataTab>(tab.id, { loading: true });
 
@@ -760,8 +787,11 @@ export function ConnectionDetails() {
 					tab.sort?.direction,
 				);
 
-				updateTab<TableDataTab>(tab.id, { data, loading: false });
+				request.commit(() =>
+					updateTab<TableDataTab>(tab.id, { data, loading: false }),
+				);
 			} catch (error) {
+				if (!request.isCurrent()) return;
 				console.error("Failed to fetch table data:", error);
 				const errorMessage =
 					error instanceof Error ? error.message : String(error);
@@ -772,6 +802,16 @@ export function ConnectionDetails() {
 			}
 		},
 		[uuid, updateTab],
+	);
+	const refreshTableAfterMutation = useCallback(
+		(tabId: string, request: CurrentRequest) => {
+			if (!request.isCurrent()) return;
+			const residentTab = tabsRef.current.find(
+				(tab): tab is TableDataTab => tab.id === tabId && tab.type === "table-data",
+			);
+			if (residentTab) void fetchTableData(residentTab);
+		},
+		[fetchTableData],
 	);
 	const activeTableDataTab =
 		activeTab?.type === "table-data" ? activeTab : null;
@@ -1070,6 +1110,7 @@ export function ConnectionDetails() {
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
+			requestControllerRef.current.invalidateTab(tabId);
 			setTabs((prev) => {
 				const newTabs = prev.filter((t) => t.id !== tabId);
 
@@ -1161,12 +1202,15 @@ export function ConnectionDetails() {
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
 			if (!uuid) return;
+			const request = requestControllerRef.current.beginQuery(tab.id);
 
 			if (!tab.resultBaseQuery) {
-				updateTab<QueryTab>(tab.id, { executing: false });
-				toast.error(
-					"Query-level filter/sort is available only for SELECT-style query results",
-				);
+				request.commit(() => {
+					updateTab<QueryTab>(tab.id, { executing: false });
+					toast.error(
+						"Query-level filter/sort is available only for SELECT-style query results",
+					);
+				});
 				return;
 			}
 
@@ -1182,35 +1226,41 @@ export function ConnectionDetails() {
 				const executionTime = result.time_taken_ms ?? 0;
 
 				if (result.error) {
-					updateTab<QueryTab>(tab.id, {
-						error: result.error,
-						executionTime,
-						affectedRows: null,
-						executing: false,
-					});
+					request.commit(() =>
+						updateTab<QueryTab>(tab.id, {
+							error: result.error,
+							executionTime,
+							affectedRows: null,
+							executing: false,
+						}),
+					);
 					return;
 				}
 
-				updateTab<QueryTab>(tab.id, {
-					results: result.data as Record<string, unknown>[],
-					success: true,
-					error: null,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-					filter: nextFilter,
-					sort: nextSort,
-				});
+				request.commit(() =>
+					updateTab<QueryTab>(tab.id, {
+						results: result.data as Record<string, unknown>[],
+						success: true,
+						error: null,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+						filter: nextFilter,
+						sort: nextSort,
+					}),
+				);
 			} catch (error) {
-				updateTab<QueryTab>(tab.id, {
-					error:
-						error instanceof Error
-							? error.message
-							: "Failed to apply query filter/sort",
-					executionTime: null,
-					affectedRows: null,
-					executing: false,
-				});
+				request.commit(() =>
+					updateTab<QueryTab>(tab.id, {
+						error:
+							error instanceof Error
+								? error.message
+								: "Failed to apply query filter/sort",
+						executionTime: null,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 			}
 		},
 		[uuid, updateTab, connection?.db_type, connection?.type],
@@ -1331,6 +1381,9 @@ export function ConnectionDetails() {
 			toast.error("No statement at cursor position");
 			return;
 		}
+		const controller = requestControllerRef.current;
+		const request = controller.beginQuery(tab.id);
+		const lifecycle = controller.watchLifecycle();
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1347,7 +1400,7 @@ export function ConnectionDetails() {
 
 		try {
 			const result = await api.pool.executeQuery(uuid, queryToRun);
-			if (result.truncated) {
+			if (result.truncated && request.isCurrent()) {
 				toast.warning("Result limited to 10,000 rows", {
 					description: "Refine the query to load a smaller result window.",
 				});
@@ -1357,49 +1410,67 @@ export function ConnectionDetails() {
 			const executionTime = result.time_taken_ms ?? 0;
 
 			if (result.error) {
-				updateTab<QueryTab>(tab.id, {
-					error: result.error,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-				});
-				recordHistory(queryToRun, {
-					status: "error",
-					timeTakenMs: result.time_taken_ms ?? null,
-					error: result.error,
-				});
+				request.commit(() =>
+					updateTab<QueryTab>(tab.id, {
+						error: result.error,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
+				recordHistory(
+					queryToRun,
+					{
+						status: "error",
+						timeTakenMs: result.time_taken_ms ?? null,
+						error: result.error,
+					},
+					lifecycle,
+				);
 				return;
 			}
 
-			updateTab<QueryTab>(tab.id, {
-				results: result.data as Record<string, unknown>[],
-				success: true,
-				executionTime,
-				affectedRows: result.rows_affected ?? null,
-				executing: false,
-				filterInput: "",
-				filter: "",
-				sort: null,
-				resultBaseQuery: isWrappableQuery(queryToRun)
-					? stripTrailingSemicolon(queryToRun)
-					: null,
-			});
-			recordHistory(queryToRun, {
-				status: "success",
-				timeTakenMs: result.time_taken_ms ?? null,
-				rowCount: result.row_count ?? null,
-				rowsAffected: result.rows_affected ?? null,
-			});
+			request.commit(() =>
+				updateTab<QueryTab>(tab.id, {
+					results: result.data as Record<string, unknown>[],
+					success: true,
+					executionTime,
+					affectedRows: result.rows_affected ?? null,
+					executing: false,
+					filterInput: "",
+					filter: "",
+					sort: null,
+					resultBaseQuery: isWrappableQuery(queryToRun)
+						? stripTrailingSemicolon(queryToRun)
+						: null,
+				}),
+			);
+			recordHistory(
+				queryToRun,
+				{
+					status: "success",
+					timeTakenMs: result.time_taken_ms ?? null,
+					rowCount: result.row_count ?? null,
+					rowsAffected: result.rows_affected ?? null,
+				},
+				lifecycle,
+			);
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute query";
-			updateTab<QueryTab>(tab.id, {
-				error: message,
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
-			recordHistory(queryToRun, { status: "error", error: message });
+			request.commit(() =>
+				updateTab<QueryTab>(tab.id, {
+					error: message,
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
+			recordHistory(
+				queryToRun,
+				{ status: "error", error: message },
+				lifecycle,
+			);
 		}
 	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
 
@@ -1411,6 +1482,9 @@ export function ConnectionDetails() {
 
 		const statements = parseSqlStatements(tab.query);
 		if (statements.length === 0) return;
+		const controller = requestControllerRef.current;
+		const request = controller.beginQuery(tab.id);
+		const lifecycle = controller.watchLifecycle();
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1430,14 +1504,16 @@ export function ConnectionDetails() {
 		let lastError: string | null = null;
 		let lastBaseQuery: string | null = null;
 		let lastAffectedRows: number | null = null;
+		let currentQuery: string | null = null;
 
 		try {
 			for (const statement of statements) {
 				const queryToRun = statement.text.trim();
 				if (!queryToRun) continue;
+				currentQuery = queryToRun;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
-				if (result.truncated) {
+				if (result.truncated && request.isCurrent()) {
 					toast.warning("Result limited to 10,000 rows", {
 						description: "Refine the query to load a smaller result window.",
 					});
@@ -1446,11 +1522,16 @@ export function ConnectionDetails() {
 
 				if (result.error) {
 					lastError = result.error;
-					recordHistory(queryToRun, {
-						status: "error",
-						timeTakenMs: result.time_taken_ms ?? null,
-						error: result.error,
-					});
+					recordHistory(
+						queryToRun,
+						{
+							status: "error",
+							timeTakenMs: result.time_taken_ms ?? null,
+							error: result.error,
+						},
+						lifecycle,
+					);
+					if (!request.isCurrent()) return;
 					break;
 				}
 
@@ -1459,42 +1540,62 @@ export function ConnectionDetails() {
 				lastBaseQuery = isWrappableQuery(queryToRun)
 					? stripTrailingSemicolon(queryToRun)
 					: null;
-				recordHistory(queryToRun, {
-					status: "success",
-					timeTakenMs: result.time_taken_ms ?? null,
-					rowCount: result.row_count ?? null,
-					rowsAffected: result.rows_affected ?? null,
-				});
+				recordHistory(
+					queryToRun,
+					{
+						status: "success",
+						timeTakenMs: result.time_taken_ms ?? null,
+						rowCount: result.row_count ?? null,
+						rowsAffected: result.rows_affected ?? null,
+					},
+					lifecycle,
+				);
+				if (!request.isCurrent()) return;
+				currentQuery = null;
 			}
 
 			if (lastError) {
-				updateTab<QueryTab>(tab.id, {
-					error: lastError,
-					executionTime: totalTime,
-					affectedRows: null,
-					executing: false,
-				});
+				request.commit(() =>
+					updateTab<QueryTab>(tab.id, {
+						error: lastError,
+						executionTime: totalTime,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 			} else {
-				updateTab<QueryTab>(tab.id, {
-					results: lastResult,
-					success: true,
-					executionTime: totalTime,
-					affectedRows: lastAffectedRows,
-					executing: false,
-					filterInput: "",
-					filter: "",
-					sort: null,
-					resultBaseQuery: lastBaseQuery,
-				});
+				request.commit(() =>
+					updateTab<QueryTab>(tab.id, {
+						results: lastResult,
+						success: true,
+						executionTime: totalTime,
+						affectedRows: lastAffectedRows,
+						executing: false,
+						filterInput: "",
+						filter: "",
+						sort: null,
+						resultBaseQuery: lastBaseQuery,
+					}),
+				);
 			}
 		} catch (error) {
-			updateTab<QueryTab>(tab.id, {
-				error:
-					error instanceof Error ? error.message : "Failed to execute queries",
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
+			const message =
+				error instanceof Error ? error.message : "Failed to execute queries";
+			if (currentQuery) {
+				recordHistory(
+					currentQuery,
+					{ status: "error", error: message },
+					lifecycle,
+				);
+			}
+			request.commit(() =>
+				updateTab<QueryTab>(tab.id, {
+					error: message,
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
 		}
 	}, [activeTab, uuid, updateTab, recordHistory]);
 
@@ -1623,6 +1724,7 @@ export function ConnectionDetails() {
 				return;
 
 			const tab = activeTab as TableDataTab;
+			const tableRequest = requestControllerRef.current.watchTable(tab.id);
 			const [schema, tableName] = tab.tableName.split(".");
 
 			// Get primary key columns and values
@@ -1648,6 +1750,7 @@ export function ConnectionDetails() {
 					updates,
 				);
 
+				if (!tableRequest.isCurrent()) return;
 				if (result.error) {
 					toast.error("Failed to update row", { description: result.error });
 				} else {
@@ -1658,18 +1761,19 @@ export function ConnectionDetails() {
 					toast.success("Row updated successfully");
 					setRowEditSheetOpen(false);
 					setEditingRow(null);
-					fetchTableData(tab);
+					refreshTableAfterMutation(tab.id, tableRequest);
 				}
 			} catch (error) {
+				if (!tableRequest.isCurrent()) return;
 				console.error("Failed to update row:", error);
 				toast.error("Failed to update row", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setSavingRow(false);
+				if (tableRequest.isCurrent()) setSavingRow(false);
 			}
 		},
-		[connection, activeTab, editingRow, fetchTableData],
+		[connection, activeTab, editingRow, refreshTableAfterMutation],
 	);
 
 	const handleInlineCellSave = useCallback(
@@ -1718,6 +1822,7 @@ export function ConnectionDetails() {
 		if (!connection || !activeTab || activeTab.type !== "table-data") return;
 
 		const tab = activeTab as TableDataTab;
+		const tableRequest = requestControllerRef.current.watchTable(tab.id);
 		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
 		if (pendingEdits.length === 0) return;
 
@@ -1759,26 +1864,28 @@ export function ConnectionDetails() {
 
 		setSavingInlineEdits(true);
 		try {
-			for (const [rowKey, editGroup] of editsByRow) {
-				const primaryKeyValues = primaryKeyColumns.map(
-					(col) => editGroup.row[col],
-				);
-				const result = await api.pool.updateTableRow(
-					connection.uuid,
-					schema,
-					tableName,
-					primaryKeyColumns,
-					primaryKeyValues,
-					editGroup.updates,
-				);
-
-				if (result.error) {
-					throw new Error(result.error);
-				}
-
-				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
-			}
-
+			const completed = await continueWhileCurrent(
+				editsByRow,
+				() => tableRequest.isCurrent(),
+				async ([, editGroup]) => {
+					const primaryKeyValues = primaryKeyColumns.map(
+						(col) => editGroup.row[col],
+					);
+					return api.pool.updateTableRow(
+						connection.uuid,
+						schema,
+						tableName,
+						primaryKeyColumns,
+						primaryKeyValues,
+						editGroup.updates,
+					);
+				},
+				(result, [rowKey]) => {
+					if (result.error) throw new Error(result.error);
+					setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+				},
+			);
+			if (!completed) return;
 			setPendingInlineEditsByTab((prev) => {
 				const next = { ...prev };
 				delete next[tab.id];
@@ -1787,16 +1894,19 @@ export function ConnectionDetails() {
 			toast.success(
 				`Committed ${pendingEdits.length} inline change${pendingEdits.length === 1 ? "" : "s"}`,
 			);
-			await fetchTableData(tab);
+			refreshTableAfterMutation(tab.id, tableRequest);
 		} catch (error) {
+			if (!tableRequest.isCurrent()) return;
 			console.error("Failed to save inline changes:", error);
 			toast.error("Failed to save inline changes", {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setSavingInlineEdits(false);
+			if (tableRequest.isCurrent()) {
+				setSavingInlineEdits(false);
+			}
 		}
-	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
+	}, [connection, activeTab, pendingInlineEditsByTab, refreshTableAfterMutation]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
 		if (!activeTab || activeTab.type !== "table-data") return;
@@ -1823,6 +1933,7 @@ export function ConnectionDetails() {
 			return;
 
 		const tab = activeTab as TableDataTab;
+		const tableRequest = requestControllerRef.current.watchTable(tab.id);
 		const [schema, tableName] = tab.tableName.split(".");
 
 		// Get primary key columns and values
@@ -1847,6 +1958,7 @@ export function ConnectionDetails() {
 				primaryKeyValues,
 			);
 
+			if (!tableRequest.isCurrent()) return;
 			if (result.error) {
 				toast.error("Failed to delete row", { description: result.error });
 			} else {
@@ -1854,17 +1966,18 @@ export function ConnectionDetails() {
 				setRowEditSheetOpen(false);
 				setEditingRow(null);
 				// Refresh table data
-				fetchTableData(tab);
+				refreshTableAfterMutation(tab.id, tableRequest);
 			}
 		} catch (error) {
+			if (!tableRequest.isCurrent()) return;
 			console.error("Failed to delete row:", error);
 			toast.error("Failed to delete row", {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setDeletingRow(false);
+			if (tableRequest.isCurrent()) setDeletingRow(false);
 		}
-	}, [connection, activeTab, editingRow, fetchTableData]);
+	}, [connection, activeTab, editingRow, refreshTableAfterMutation]);
 
 	const handleInsertRow = useCallback(
 		async (
@@ -1877,6 +1990,7 @@ export function ConnectionDetails() {
 			if (!connection || !activeTab || activeTab.type !== "table-data") return;
 
 			const tab = activeTab as TableDataTab;
+			const tableRequest = requestControllerRef.current.watchTable(tab.id);
 			const [schema, tableName] = tab.tableName.split(".");
 
 			setInsertingRow(true);
@@ -1889,24 +2003,26 @@ export function ConnectionDetails() {
 					values,
 				);
 
+				if (!tableRequest.isCurrent()) return;
 				if (result.error) {
 					toast.error("Failed to insert row", { description: result.error });
 				} else {
 					toast.success("Row inserted successfully");
 					setRowInsertSheetOpen(false);
 					// Refresh table data
-					fetchTableData(tab);
+					refreshTableAfterMutation(tab.id, tableRequest);
 				}
 			} catch (error) {
+				if (!tableRequest.isCurrent()) return;
 				console.error("Failed to insert row:", error);
 				toast.error("Failed to insert row", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setInsertingRow(false);
+				if (tableRequest.isCurrent()) setInsertingRow(false);
 			}
 		},
-		[connection, activeTab, fetchTableData],
+		[connection, activeTab, refreshTableAfterMutation],
 	);
 
 	// Command palette handlers
