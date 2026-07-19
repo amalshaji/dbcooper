@@ -6,6 +6,7 @@ use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::create_table::build_postgres_create_table_sql;
 use super::filter::{
     build_where_clause, classify_column_type, compile_filter, structured_expression,
     CompiledFilter, FilterDialect, FilterValue,
@@ -15,9 +16,9 @@ use crate::database::queries::postgres::{
     FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, SCHEMA_OVERVIEW_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
-    SchemaOverview, TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
-    TestConnectionResult,
+    ColumnInfo, CreateTableRequest, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo,
+    QueryResult, SchemaOverview, TableDataResponse, TableFilter, TableInfo, TableStructure,
+    TableWithStructure, TestConnectionResult,
 };
 
 pub struct PostgresDriver {
@@ -316,6 +317,25 @@ impl DatabaseDriver for PostgresDriver {
                 table_type,
             })
             .collect())
+    }
+
+    fn preview_create_table(&self, request: &CreateTableRequest) -> Result<String, String> {
+        build_postgres_create_table_sql(request)
+    }
+
+    async fn create_table(&self, request: &CreateTableRequest) -> Result<TableInfo, String> {
+        let sql = self.preview_create_table(request)?;
+        let pool = self.get_pool_with_retry().await?;
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(TableInfo {
+            schema: request.schema.clone(),
+            name: request.name.clone(),
+            table_type: "table".to_string(),
+        })
     }
 
     async fn get_table_data(

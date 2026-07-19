@@ -69,6 +69,25 @@ export interface TableInfo {
 	type: string;
 }
 
+export type ColumnDefault =
+	| { kind: "literal"; value: string | number | boolean }
+	| { kind: "expression"; value: string };
+
+export interface CreateTableColumn {
+	name: string;
+	data_type: string;
+	nullable: boolean;
+	primary_key: boolean;
+	unique: boolean;
+	default: ColumnDefault | null;
+}
+
+export interface CreateTableRequest {
+	schema: string;
+	name: string;
+	columns: CreateTableColumn[];
+}
+
 export interface ColumnInfo {
 	name: string;
 	type: string;
@@ -782,6 +801,12 @@ export const api = {
 				schema,
 				table,
 			}),
+
+		previewCreateTable: (uuid: string, request: CreateTableRequest) =>
+			invoke<string>("pool_preview_create_table", { uuid, request }),
+
+		createTable: (uuid: string, request: CreateTableRequest) =>
+			invoke<TableInfo>("pool_create_table", { uuid, request }),
 
 		executeQuery: (uuid: string, query: string) =>
 			invoke<QueryResult>("pool_execute_query", { uuid, query }),

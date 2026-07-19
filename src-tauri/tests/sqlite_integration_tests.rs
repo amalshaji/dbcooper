@@ -10,7 +10,8 @@ use tempfile::{tempdir, TempDir};
 use dbcooper_lib::database::sqlite::SqliteDriver;
 use dbcooper_lib::database::{DatabaseDriver, SqliteConfig};
 use dbcooper_lib::db::models::{
-    FilterCondition, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
+    ColumnDefault, CreateTableColumn, CreateTableRequest, FilterCondition, FilterConjunction,
+    FilterExpression, FilterOperator, TableFilter,
 };
 use serde_json::json;
 
@@ -119,6 +120,68 @@ async fn test_list_tables_empty_database() {
 
     let tables = result.unwrap();
     assert!(tables.is_empty(), "New database should have no tables");
+}
+
+#[tokio::test]
+async fn test_create_table_builds_sqlite_table_and_reports_duplicates() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    let request = CreateTableRequest {
+        schema: "main".to_string(),
+        name: "project_notes".to_string(),
+        columns: vec![
+            CreateTableColumn {
+                name: "id".to_string(),
+                data_type: "integer".to_string(),
+                nullable: false,
+                primary_key: true,
+                unique: false,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "slug".to_string(),
+                data_type: "text".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: true,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "created_at".to_string(),
+                data_type: "datetime".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: false,
+                default: Some(ColumnDefault::Expression {
+                    value: "current_timestamp".to_string(),
+                }),
+            },
+        ],
+    };
+
+    let table = driver.create_table(&request).await.unwrap();
+    assert_eq!(table.schema, "main");
+    assert_eq!(table.name, "project_notes");
+    assert_eq!(table.table_type, "table");
+
+    let structure = driver
+        .get_table_structure("main", "project_notes")
+        .await
+        .unwrap();
+    assert_eq!(structure.columns.len(), 3);
+    assert!(structure.columns[0].primary_key);
+    assert!(!structure.columns[0].nullable);
+    assert_eq!(
+        structure.columns[2].default.as_deref(),
+        Some("current_timestamp")
+    );
+    assert!(structure
+        .indexes
+        .iter()
+        .any(|index| index.unique && index.columns == vec!["slug"]));
+
+    let duplicate_error = driver.create_table(&request).await.unwrap_err();
+    assert!(duplicate_error.contains("already exists"));
 }
 
 #[tokio::test]

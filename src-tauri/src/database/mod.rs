@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 
 pub mod clickhouse;
+pub mod create_table;
 pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
@@ -9,8 +10,8 @@ pub mod redis;
 pub mod sqlite;
 
 use crate::db::models::{
-    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableFilter, TableInfo,
-    TableStructure, TestConnectionResult,
+    CreateTableRequest, FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse,
+    TableFilter, TableInfo, TableStructure, TestConnectionResult,
 };
 
 pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
@@ -170,6 +171,16 @@ pub trait DatabaseDriver: Send + Sync {
 
     /// List all tables in the database
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String>;
+
+    /// Build the exact CREATE TABLE statement without executing it.
+    fn preview_create_table(&self, _request: &CreateTableRequest) -> Result<String, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
+
+    /// Create a table exactly once.
+    async fn create_table(&self, _request: &CreateTableRequest) -> Result<TableInfo, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
 
     /// Get paginated data from a table
     async fn get_table_data(

@@ -105,6 +105,30 @@ pub struct TableInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ColumnDefault {
+    Literal { value: serde_json::Value },
+    Expression { value: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTableColumn {
+    pub name: String,
+    pub data_type: String,
+    pub nullable: bool,
+    pub primary_key: bool,
+    pub unique: bool,
+    pub default: Option<ColumnDefault>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTableRequest {
+    pub schema: String,
+    pub name: String,
+    pub columns: Vec<CreateTableColumn>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnInfo {
     pub name: String,
     #[serde(rename = "type")]
