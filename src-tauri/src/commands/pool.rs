@@ -189,16 +189,15 @@ async fn reconnect(
     Ok(())
 }
 
-async fn execute_once<T, Operation, OperationFuture>(operation: Operation) -> Result<T, String>
-where
-    Operation: FnOnce() -> OperationFuture,
-    OperationFuture: std::future::Future<Output = Result<T, String>>,
-{
-    operation().await
+#[derive(Clone, Copy)]
+enum RetryPolicy {
+    Never,
+    ReconnectOnce,
 }
 
-async fn execute_read_only_with_retry<T, Operation, OperationFuture, Reconnect, ReconnectFuture>(
+async fn execute_with_retry_policy<T, Operation, OperationFuture, Reconnect, ReconnectFuture>(
     operation_name: &str,
+    retry_policy: RetryPolicy,
     mut operation: Operation,
     reconnect: Reconnect,
 ) -> Result<T, String>
@@ -210,6 +209,7 @@ where
 {
     match operation().await {
         Ok(result) => Ok(result),
+        Err(error) if matches!(retry_policy, RetryPolicy::Never) => Err(error),
         Err(error) => {
             println!(
                 "[Pool] {} failed: {}, retrying with fresh connection",
@@ -231,8 +231,9 @@ pub async fn pool_list_tables(
     // Ensure connected
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_read_only_with_retry(
+    execute_with_retry_policy(
         "list_tables",
+        RetryPolicy::ReconnectOnce,
         || pool_manager.list_tables(&uuid),
         || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
@@ -257,8 +258,9 @@ pub async fn pool_get_table_data(
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
     let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
 
-    execute_read_only_with_retry(
+    execute_with_retry_policy(
         "get_table_data",
+        RetryPolicy::ReconnectOnce,
         || {
             pool_manager.get_table_data(
                 &uuid,
@@ -287,8 +289,9 @@ pub async fn pool_get_table_structure(
 ) -> Result<crate::db::models::TableStructure, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_read_only_with_retry(
+    execute_with_retry_policy(
         "get_table_structure",
+        RetryPolicy::ReconnectOnce,
         || pool_manager.get_table_structure(&uuid, &schema, &table),
         || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
@@ -305,7 +308,13 @@ pub async fn pool_execute_query(
 ) -> Result<crate::db::models::QueryResult, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_once(|| pool_manager.execute_query(&uuid, &query)).await
+    execute_with_retry_policy(
+        "execute_query",
+        RetryPolicy::Never,
+        || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Get schema overview using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -317,8 +326,9 @@ pub async fn pool_get_schema_overview(
 ) -> Result<crate::db::models::SchemaOverview, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_read_only_with_retry(
+    execute_with_retry_policy(
         "get_schema_overview",
+        RetryPolicy::ReconnectOnce,
         || pool_manager.get_schema_overview(&uuid),
         || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
@@ -337,8 +347,9 @@ pub async fn pool_get_function_definition(
 ) -> Result<crate::db::models::FunctionDefinition, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_read_only_with_retry(
+    execute_with_retry_policy(
         "get_function_definition",
+        RetryPolicy::ReconnectOnce,
         || pool_manager.get_function_definition(&uuid, &schema, &name, &identity_args),
         || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
@@ -446,7 +457,13 @@ pub async fn pool_update_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_once(|| pool_manager.execute_query(&uuid, &query)).await
+    execute_with_retry_policy(
+        "update_table_row",
+        RetryPolicy::Never,
+        || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Delete a row from a table using the pooled connection
@@ -500,7 +517,13 @@ pub async fn pool_delete_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_once(|| pool_manager.execute_query(&uuid, &query)).await
+    execute_with_retry_policy(
+        "delete_table_row",
+        RetryPolicy::Never,
+        || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Insert a new row into a table using the pooled connection
@@ -581,24 +604,38 @@ pub async fn pool_insert_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    execute_once(|| pool_manager.execute_query(&uuid, &query)).await
+    execute_with_retry_policy(
+        "insert_table_row",
+        RetryPolicy::Never,
+        || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{execute_once, execute_read_only_with_retry};
+    use super::{execute_with_retry_policy, RetryPolicy};
     use std::cell::Cell;
 
     #[tokio::test]
-    async fn execute_policy_returns_first_error_without_reconnect() {
+    async fn never_retry_policy_returns_first_error_without_reconnect() {
         for command in ["arbitrary SQL", "update", "delete", "insert"] {
             let operation_calls = Cell::new(0);
             let reconnect_calls = Cell::new(0);
 
-            let result: Result<(), String> = execute_once(|| async {
-                operation_calls.set(operation_calls.get() + 1);
-                Err(format!("{command} failed"))
-            })
+            let result: Result<(), String> = execute_with_retry_policy(
+                command,
+                RetryPolicy::Never,
+                || async {
+                    operation_calls.set(operation_calls.get() + 1);
+                    Err(format!("{command} failed"))
+                },
+                || async {
+                    reconnect_calls.set(reconnect_calls.get() + 1);
+                    Ok(())
+                },
+            )
             .await;
 
             assert_eq!(result, Err(format!("{command} failed")));
@@ -612,8 +649,9 @@ mod tests {
         let operation_calls = Cell::new(0);
         let reconnect_calls = Cell::new(0);
 
-        let result = execute_read_only_with_retry(
+        let result = execute_with_retry_policy(
             "test_read",
+            RetryPolicy::ReconnectOnce,
             || async {
                 operation_calls.set(operation_calls.get() + 1);
                 if operation_calls.get() == 1 {
