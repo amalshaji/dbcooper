@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { DockerConnectionFields } from "@/components/docker/DockerConnectionFields";
+import { DockerContainerList } from "@/components/docker/DockerContainerList";
 import {
 	Dialog,
 	DialogContent,
@@ -8,10 +10,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
@@ -86,14 +85,6 @@ export function ConnectDockerDialog({
 		}
 	};
 
-	const updateDraft = (field: keyof DockerConnectionDraft, value: string) => {
-		if (!draft) return;
-		setDraft({
-			...draft,
-			[field]: field === "port" ? Number(value) : value,
-		});
-	};
-
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="max-w-xl">
@@ -112,72 +103,18 @@ export function ConnectDockerDialog({
 						</span>
 					</div>
 				) : draft ? (
-					<div className="grid grid-cols-2 gap-3">
-						<div className="col-span-2 space-y-2">
-							<Label htmlFor="link-name">Connection name</Label>
-							<Input
-								id="link-name"
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-							/>
-						</div>
-						{(["host", "port", "database", "username", "password"] as const).map(
-							(field) => (
-								<div
-									key={field}
-									className={
-										field === "password" ? "col-span-2 space-y-2" : "space-y-2"
-									}
-								>
-									<Label htmlFor={`link-${field}`} className="capitalize">
-										{field}
-									</Label>
-									<Input
-										id={`link-${field}`}
-										type={field === "password" ? "password" : "text"}
-										value={draft[field]}
-										onChange={(event) => updateDraft(field, event.target.value)}
-									/>
-								</div>
-							),
-						)}
-						<p className="col-span-2 text-xs text-muted-foreground">
-							Credentials are prefilled when the container exposes standard
-							environment variables. Review them before connecting.
-						</p>
-					</div>
+					<DockerConnectionFields
+						draft={draft}
+						name={name}
+						onNameChange={setName}
+						onDraftChange={setDraft}
+					/>
 				) : (
 					<div className="max-h-72 space-y-2 overflow-auto">
-						{containers.filter((container) => container.compatible).length ===
-						0 ? (
-							<p className="rounded-lg border p-4 text-sm text-muted-foreground">
-								No compatible PostgreSQL, Redis, or ClickHouse containers
-								were found.
-							</p>
-						) : (
-							containers
-								.filter((container) => container.compatible)
-								.map((container) => (
-									<button
-										key={container.id}
-										type="button"
-										onClick={() => selectContainer(container)}
-										className="flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted"
-									>
-										<span className="min-w-0">
-											<span className="block truncate text-sm font-medium">
-												{container.name}
-											</span>
-											<span className="block truncate text-xs text-muted-foreground">
-												{container.image}
-											</span>
-										</span>
-										<Badge variant="secondary" className="capitalize">
-											{container.state}
-										</Badge>
-									</button>
-								))
-						)}
+						<DockerContainerList
+							containers={containers}
+							onSelect={selectContainer}
+						/>
 					</div>
 				)}
 				<DialogFooter>
@@ -192,9 +129,7 @@ export function ConnectDockerDialog({
 					)}
 					<Button
 						variant={draft ? "default" : "outline"}
-						onClick={
-							draft ? link : () => onOpenChange(false)
-						}
+						onClick={draft ? link : () => onOpenChange(false)}
 						disabled={loading || (draft ? !name.trim() : false)}
 					>
 						{loading && <Spinner />}

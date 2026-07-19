@@ -1,6 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
 import { isSqlFunction } from "@/lib/sqlFunctions";
+import type {
+	DeleteConnectionResult,
+	DockerConnectionDraft,
+	DockerConnectionState,
+	DockerContainerSummary,
+	DockerDatabaseEngine,
+} from "@/types/docker";
+
+export type {
+	DeleteConnectionResult,
+	DockerConnectionDraft,
+	DockerConnectionState,
+	DockerContainerSummary,
+	DockerDatabaseEngine,
+} from "@/types/docker";
 
 export interface Connection {
 	id: number;
@@ -230,38 +245,6 @@ export interface ConnectionsExport {
 	connections: ExportedConnection[];
 }
 
-export type DockerDatabaseEngine = "postgres" | "redis" | "clickhouse";
-
-export interface DockerContainerSummary {
-	id: string;
-	name: string;
-	image: string;
-	state: string;
-	engine: DockerDatabaseEngine | null;
-	compatible: boolean;
-}
-
-export interface DockerConnectionDraft {
-	container_id: string;
-	container_name: string;
-	image: string;
-	engine: DockerDatabaseEngine;
-	host: string;
-	port: number;
-	database: string;
-	username: string;
-	password: string;
-	compose_project: string | null;
-	compose_service: string | null;
-}
-
-export interface DockerConnectionState {
-	connection_uuid: string;
-	ownership: "created" | "linked";
-	container_name: string;
-	status: "running" | "stopped" | "missing";
-}
-
 export const api = {
 	connections: {
 		list: () => invoke<Connection[]>("get_connections"),
@@ -276,7 +259,10 @@ export const api = {
 			invoke<Connection>("update_connection", { id, data }),
 
 		delete: (id: number, deleteDockerData = false) =>
-			invoke<boolean>("delete_connection", { id, deleteDockerData }),
+			invoke<DeleteConnectionResult>("delete_connection", {
+				id,
+				deleteDockerData,
+			}),
 
 		exportOne: (id: number) =>
 			invoke<ConnectionsExport>("export_connection", { id }),
@@ -297,7 +283,6 @@ export const api = {
 				request: { engine, name },
 			}),
 		linkConnection: (request: {
-			connection_uuid?: string;
 			name: string;
 			container_id: string;
 			engine: DockerDatabaseEngine;
@@ -307,8 +292,7 @@ export const api = {
 			username: string;
 			password: string;
 		}) => invoke<Connection>("docker_link_connection", { request }),
-		states: () =>
-			invoke<DockerConnectionState[]>("docker_connection_states"),
+		states: () => invoke<DockerConnectionState[]>("docker_connection_states"),
 		control: (uuid: string, action: "start" | "stop" | "restart") =>
 			invoke<void>("docker_control_connection", { uuid, action }),
 		connectionString: (uuid: string) =>

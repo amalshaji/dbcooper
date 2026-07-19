@@ -22,52 +22,12 @@ pub async fn pool_connect(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
-    crate::docker::ensure_created_connection_running(sqlite_pool.inner(), &uuid).await?;
-    // Get connection details from database
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let config = ConnectionConfig {
-        db_type: conn.db_type,
-        host: Some(conn.host),
-        port: Some(conn.port),
-        database: Some(conn.database),
-        username: Some(conn.username),
-        password: Some(conn.password),
-        ssl: Some(conn.ssl == 1),
-        file_path: conn.file_path,
-        ssh_enabled: conn.ssh_enabled == 1,
-        ssh_host: if conn.ssh_host.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_host)
-        },
-        ssh_port: Some(conn.ssh_port),
-        ssh_user: if conn.ssh_user.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_user)
-        },
-        ssh_password: if conn.ssh_password.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_password)
-        },
-        ssh_key_path: if conn.ssh_key_path.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_key_path)
-        },
-    };
-
     // Serialize with data-op (re)connects for this UUID so a UI-initiated
     // connect can't race a concurrent ensure_connection/reconnect.
     let lock = pool_manager.get_connect_lock(&uuid).await;
     let _guard = lock.lock().await;
+    crate::docker::ensure_created_connection_running(sqlite_pool.inner(), &uuid).await?;
+    let config = get_connection_config(sqlite_pool.inner(), &uuid).await?;
 
     match pool_manager.connect(&uuid, config).await {
         Ok(_) => Ok(ConnectionStatusResponse {
@@ -163,7 +123,6 @@ async fn ensure_connection(
     sqlite_pool: &SqlitePool,
     uuid: &str,
 ) -> Result<(), String> {
-    crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     // Acquire lock to serialize connect attempts for this UUID
     let lock = pool_manager.get_connect_lock(uuid).await;
     let _guard = lock.lock().await;
@@ -172,6 +131,7 @@ async fn ensure_connection(
     if pool_manager.get_cached(uuid).await.is_some() {
         return Ok(());
     }
+    crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     // Not connected, get config and connect
     let config = get_connection_config(sqlite_pool, uuid).await?;
     pool_manager.connect(uuid, config).await?;
@@ -191,6 +151,7 @@ async fn reconnect(
     pool_manager.disconnect(uuid).await;
 
     // Reconnect
+    crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     let config = get_connection_config(sqlite_pool, uuid).await?;
     pool_manager.connect(uuid, config).await?;
     Ok(())

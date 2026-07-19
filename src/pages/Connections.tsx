@@ -1,18 +1,9 @@
 import {
-	Copy,
 	Database,
 	Cube,
-	DotsThreeVertical,
-	Export,
 	Gear,
 	GithubLogo,
-	Lock,
-	PencilSimple,
 	Plus,
-	ArrowClockwise,
-	Play,
-	Stop,
-	Trash,
 	UploadSimple,
 } from "@phosphor-icons/react";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -22,41 +13,14 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ConnectionForm } from "@/components/ConnectionForm";
+import { ConnectionCard } from "@/components/connections/ConnectionCard";
+import { DeleteConnectionDialog } from "@/components/connections/DeleteConnectionDialog";
 import { ConnectDockerDialog } from "@/components/docker/ConnectDockerDialog";
 import { CreateDatabaseDialog } from "@/components/docker/CreateDatabaseDialog";
 import { EmptyState } from "@/components/EmptyState";
-import { ClickhouseIcon } from "@/components/icons/clickhouse";
-
-import { PostgresqlIcon } from "@/components/icons/postgres";
-import { RedisIcon } from "@/components/icons/redis";
-import { SqliteIcon } from "@/components/icons/sqlite";
 import { UpdateChecker } from "@/components/UpdateChecker";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
@@ -65,47 +29,6 @@ import {
 	type ConnectionsExport,
 	type DockerConnectionState,
 } from "@/lib/tauri";
-
-const getDbTypeConfig = (type: string) => {
-	switch (type) {
-		case "postgres":
-			return {
-				icon: PostgresqlIcon,
-				iconClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-				accentClass: "bg-blue-500",
-			};
-		case "mysql":
-			return {
-				icon: Database,
-				iconClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
-				accentClass: "bg-orange-500",
-			};
-		case "sqlite":
-			return {
-				icon: SqliteIcon,
-				iconClass: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
-				accentClass: "bg-cyan-500",
-			};
-		case "redis":
-			return {
-				icon: RedisIcon,
-				iconClass: "bg-red-500/10 text-red-600 dark:text-red-400",
-				accentClass: "bg-red-500",
-			};
-		case "clickhouse":
-			return {
-				icon: ClickhouseIcon,
-				iconClass: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
-				accentClass: "bg-yellow-500",
-			};
-		default:
-			return {
-				icon: Database,
-				iconClass: "bg-primary/10 text-primary",
-				accentClass: "bg-primary",
-			};
-	}
-};
 
 export function Connections() {
 	const navigate = useNavigate();
@@ -129,7 +52,7 @@ export function Connections() {
 		try {
 			const [data, states] = await Promise.all([
 				api.connections.list(),
-				api.docker.states().catch(() => []),
+				api.docker.states(),
 			]);
 			setConnections(data);
 			setDockerStates(
@@ -190,11 +113,20 @@ export function Connections() {
 
 		setIsDeleting(true);
 		try {
-			await api.connections.delete(deletingConnection.id, deleteDockerData);
+			const result = await api.connections.delete(
+				deletingConnection.id,
+				deleteDockerData,
+			);
 			await fetchConnections();
 			setDeletingConnection(null);
+			if (result.docker_cleanup_warning) {
+				toast.warning(
+					`Connection deleted, but Docker cleanup failed: ${result.docker_cleanup_warning}`,
+				);
+			}
 		} catch (error) {
 			console.error("Failed to delete connection:", error);
+			toast.error(String(error));
 		} finally {
 			setIsDeleting(false);
 		}
@@ -448,215 +380,24 @@ export function Connections() {
 							</div>
 
 							<div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-								{connections.map((connection) => {
-									const dbConfig = getDbTypeConfig(
-										connection.type || "postgres",
-									);
-									const DbIcon = dbConfig.icon;
-									const dockerState = dockerStates[connection.uuid];
-
-									return (
-										<ContextMenu key={connection.id}>
-											<ContextMenuTrigger>
-												<div className="group workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40">
-													<button
-														type="button"
-														onClick={() =>
-															navigate(`/connections/${connection.uuid}`)
-														}
-														onMouseDown={(e) => {
-															if (e.button === 1) {
-																e.preventDefault();
-																navigate(`/connections/${connection.uuid}`);
-															}
-														}}
-														aria-label={`Open ${connection.name}`}
-														className="absolute inset-0 cursor-pointer rounded-lg outline-none"
-													/>
-													<div
-														className={`absolute inset-y-3 left-0 w-0.5 rounded-r-full opacity-70 ${dbConfig.accentClass}`}
-													/>
-
-													<div className="pointer-events-none relative flex items-center gap-3 pl-1">
-														<div
-															className={`flex size-9 shrink-0 items-center justify-center rounded-md ${dbConfig.iconClass}`}
-														>
-															<DbIcon className="size-4" />
-														</div>
-
-														<div className="min-w-0 flex-1">
-															<div className="flex items-center gap-2">
-																<h3 className="truncate text-sm font-medium">
-																	{connection.name}
-																</h3>
-																{connection.ssl === 1 && (
-																	<Lock
-																		className="size-3 shrink-0 text-muted-foreground"
-																		weight="fill"
-																	/>
-																)}
-																{dockerState && (
-																	<Badge
-																		variant="outline"
-																		className="h-5 shrink-0 px-1.5 py-0 text-[10px]"
-																	>
-																		{dockerState.ownership === "created"
-																			? "Created by DBcooper"
-																			: "Linked Docker"}{" "}
-																		• {dockerState.status}
-																	</Badge>
-																)}
-															</div>
-															<p className="mt-0.5 truncate text-xs text-muted-foreground">
-																{connection.type === "sqlite"
-																	? connection.file_path?.split("/").pop() ||
-																		"Local file"
-																	: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
-															</p>
-														</div>
-
-														<DropdownMenu>
-															<DropdownMenuTrigger
-																onClick={(e) => e.stopPropagation()}
-																className="pointer-events-auto shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
-																aria-label={`Actions for ${connection.name}`}
-															>
-																<DotsThreeVertical
-																	className="size-4"
-																	weight="bold"
-																/>
-															</DropdownMenuTrigger>
-															<DropdownMenuContent
-																align="end"
-																side="bottom"
-																className="w-56 p-1.5 [&_[role=menuitem]]:cursor-pointer [&_[role=menuitem]]:whitespace-nowrap"
-															>
-																{dockerState && (
-																	<>
-																		<DropdownMenuItem
-																			className="focus:bg-muted focus:text-foreground"
-																			onClick={() =>
-																				handleCopyConnectionString(connection)
-																			}
-																		>
-																			<Copy className="w-4 h-4" />
-																			Copy connection string
-																		</DropdownMenuItem>
-																		{dockerState.status === "running" ? (
-																			<DropdownMenuItem
-																				className="focus:bg-muted focus:text-foreground"
-																				onClick={() =>
-																					handleDockerAction(connection, "stop")
-																				}
-																			>
-																				<Stop className="w-4 h-4" />
-																				Stop container
-																			</DropdownMenuItem>
-																		) : (
-																			<DropdownMenuItem
-																				className="focus:bg-muted focus:text-foreground"
-																				onClick={() =>
-																					handleDockerAction(
-																						connection,
-																						"start",
-																					)
-																				}
-																			>
-																				<Play className="w-4 h-4" />
-																				Start container
-																			</DropdownMenuItem>
-																		)}
-																		<DropdownMenuItem
-																			className="focus:bg-muted focus:text-foreground"
-																			onClick={() =>
-																				handleDockerAction(
-																					connection,
-																					"restart",
-																				)
-																			}
-																		>
-																			<ArrowClockwise className="w-4 h-4" />
-																			Restart container
-																		</DropdownMenuItem>
-																		<DropdownMenuSeparator className="my-1" />
-																	</>
-																)}
-																<DropdownMenuItem
-																	className="focus:bg-muted focus:text-foreground"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		handleEditConnection(connection);
-																	}}
-																>
-																	<PencilSimple className="w-4 h-4" />
-																	Edit
-																</DropdownMenuItem>
-																<DropdownMenuItem
-																	className="focus:bg-muted focus:text-foreground"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		handleDuplicateConnection(connection);
-																	}}
-																>
-																	<Copy className="w-4 h-4" />
-																	Duplicate
-																</DropdownMenuItem>
-																<DropdownMenuItem
-																	className="focus:bg-muted focus:text-foreground"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		handleExportConnection(connection);
-																	}}
-																>
-																	<Export className="w-4 h-4" />
-																	Export
-																</DropdownMenuItem>
-																<DropdownMenuSeparator className="my-1" />
-																<DropdownMenuItem
-																	variant="destructive"
-																	onClick={(e) => {
-																		e.stopPropagation();
-																		handleDeleteClick(connection);
-																	}}
-																>
-																	<Trash className="w-4 h-4" />
-																	Delete
-																</DropdownMenuItem>
-															</DropdownMenuContent>
-														</DropdownMenu>
-													</div>
-												</div>
-											</ContextMenuTrigger>
-											<ContextMenuContent className="[&_[role=menuitem]]:cursor-pointer">
-												<ContextMenuItem
-													onClick={() => handleEditConnection(connection)}
-												>
-													<PencilSimple className="w-4 h-4" />
-													Edit
-												</ContextMenuItem>
-												<ContextMenuItem
-													onClick={() => handleDuplicateConnection(connection)}
-												>
-													<Copy className="w-4 h-4" />
-													Duplicate
-												</ContextMenuItem>
-												<ContextMenuItem
-													onClick={() => handleExportConnection(connection)}
-												>
-													<Export className="w-4 h-4" />
-													Export
-												</ContextMenuItem>
-												<ContextMenuItem
-													variant="destructive"
-													onClick={() => handleDeleteClick(connection)}
-												>
-													<Trash className="w-4 h-4" />
-													Delete
-												</ContextMenuItem>
-											</ContextMenuContent>
-										</ContextMenu>
-									);
-								})}
+								{connections.map((connection) => (
+									<ConnectionCard
+										key={connection.id}
+										connection={connection}
+										dockerState={dockerStates[connection.uuid]}
+										onOpen={() => navigate(`/connections/${connection.uuid}`)}
+										onCopyConnectionString={() =>
+											handleCopyConnectionString(connection)
+										}
+										onDockerAction={(action) =>
+											handleDockerAction(connection, action)
+										}
+										onEdit={() => handleEditConnection(connection)}
+										onDuplicate={() => handleDuplicateConnection(connection)}
+										onExport={() => handleExportConnection(connection)}
+										onDelete={() => handleDeleteClick(connection)}
+									/>
+								))}
 							</div>
 						</div>
 					)}
@@ -681,51 +422,19 @@ export function Connections() {
 					onLinked={async () => fetchConnections()}
 				/>
 
-				<AlertDialog
-					open={!!deletingConnection}
-					onOpenChange={(open) => !open && handleCancelDelete()}
-				>
-					<AlertDialogContent>
-						<AlertDialogHeader>
-							<AlertDialogTitle>Delete Connection</AlertDialogTitle>
-							<AlertDialogDescription>
-								Are you sure you want to delete "{deletingConnection?.name}"?
-								The Docker container and its data are preserved by default.
-							</AlertDialogDescription>
-						</AlertDialogHeader>
-						{deletingConnection && dockerStates[deletingConnection.uuid] && (
-							<label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-								<Checkbox
-									checked={deleteDockerData}
-									onCheckedChange={setDeleteDockerData}
-									aria-label="Also delete Docker resources"
-								/>
-								<span>
-									{dockerStates[deletingConnection.uuid].ownership === "created"
-										? "Also delete the Docker container and its data volume"
-										: "Also delete the Docker container and its anonymous volumes"}
-									<span className="mt-1 block text-xs text-muted-foreground">
-										Named volumes and bind mounts on linked containers are
-										always preserved.
-									</span>
-								</span>
-							</label>
-						)}
-						<AlertDialogFooter>
-							<AlertDialogCancel disabled={isDeleting}>
-								Cancel
-							</AlertDialogCancel>
-							<AlertDialogAction
-								onClick={handleConfirmDelete}
-								disabled={isDeleting}
-								variant="destructive"
-							>
-								{isDeleting && <Spinner />}
-								Delete
-							</AlertDialogAction>
-						</AlertDialogFooter>
-					</AlertDialogContent>
-				</AlertDialog>
+				<DeleteConnectionDialog
+					connection={deletingConnection}
+					dockerState={
+						deletingConnection
+							? dockerStates[deletingConnection.uuid]
+							: undefined
+					}
+					deleteDockerData={deleteDockerData}
+					deleting={isDeleting}
+					onDeleteDockerDataChange={setDeleteDockerData}
+					onCancel={handleCancelDelete}
+					onConfirm={handleConfirmDelete}
+				/>
 			</main>
 		</div>
 	);

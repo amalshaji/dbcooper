@@ -112,24 +112,9 @@ pub async fn delete_connection(
     pool: State<'_, SqlitePool>,
     id: i64,
     delete_docker_data: Option<bool>,
-) -> Result<bool, String> {
-    let uuid: String = sqlx::query_scalar("SELECT uuid FROM connections WHERE id = ?")
-        .bind(id)
-        .fetch_one(pool.inner())
+) -> Result<crate::docker::DeleteConnectionResult, String> {
+    crate::docker::delete_saved_connection(pool.inner(), id, delete_docker_data.unwrap_or(false))
         .await
-        .map_err(|e| e.to_string())?;
-    crate::docker::remove_docker_resources(
-        pool.inner(),
-        &uuid,
-        delete_docker_data.unwrap_or(false),
-    )
-    .await?;
-    sqlx::query("DELETE FROM connections WHERE id = ?")
-        .bind(id)
-        .execute(pool.inner())
-        .await
-        .map(|_| true)
-        .map_err(|e| e.to_string())
 }
 
 /// Exported connection data (without id, uuid, timestamps)
