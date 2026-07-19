@@ -162,7 +162,7 @@ export function ConnectDockerDialog({
 										key={container.id}
 										type="button"
 										onClick={() => selectContainer(container)}
-										className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted"
+										className="flex w-full cursor-pointer items-center justify-between rounded-lg border p-3 text-left transition-colors hover:bg-muted"
 									>
 										<span className="min-w-0">
 											<span className="block truncate text-sm font-medium">

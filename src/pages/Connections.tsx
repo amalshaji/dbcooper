@@ -527,7 +527,7 @@ export function Connections() {
 														<DropdownMenu>
 															<DropdownMenuTrigger
 																onClick={(e) => e.stopPropagation()}
-																className="pointer-events-auto shrink-0 rounded-md p-1.5 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
+																className="pointer-events-auto shrink-0 cursor-pointer rounded-md p-1.5 text-muted-foreground opacity-0 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100"
 																aria-label={`Actions for ${connection.name}`}
 															>
 																<DotsThreeVertical
@@ -535,7 +535,11 @@ export function Connections() {
 																	weight="bold"
 																/>
 															</DropdownMenuTrigger>
-															<DropdownMenuContent align="end" side="bottom">
+															<DropdownMenuContent
+																align="end"
+																side="bottom"
+																className="[&_[role=menuitem]]:cursor-pointer"
+															>
 																{dockerState && (
 																	<>
 																		<DropdownMenuItem
@@ -617,7 +621,7 @@ export function Connections() {
 													</div>
 												</div>
 											</ContextMenuTrigger>
-											<ContextMenuContent>
+											<ContextMenuContent className="[&_[role=menuitem]]:cursor-pointer">
 												<ContextMenuItem
 													onClick={() => handleEditConnection(connection)}
 												>
