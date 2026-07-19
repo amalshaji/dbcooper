@@ -492,12 +492,6 @@ export function Connections() {
 																<h3 className="truncate text-sm font-medium">
 																	{connection.name}
 																</h3>
-																<Badge
-																	variant="secondary"
-																	className="h-5 shrink-0 px-1.5 py-0 text-[10px] capitalize"
-																>
-																	{connection.type || "postgres"}
-																</Badge>
 																{connection.ssl === 1 && (
 																	<Lock
 																		className="size-3 shrink-0 text-muted-foreground"
