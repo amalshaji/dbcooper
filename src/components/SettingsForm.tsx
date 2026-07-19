@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
+import { loadSettingsFormData } from "@/lib/settingsFormData";
 import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
 import { resolveUpdateChannel } from "@/lib/updateChannel";
 import { ThemeSelector } from "./ThemeSelector";
@@ -59,10 +60,10 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const loadSettings = async () => {
 		setLoading(true);
 		try {
-			const [settings, harnesses] = await Promise.all([
-				api.settings.getAll(),
-				api.ai.detectHarnesses(),
-			]);
+			const { settings, harnesses } = await loadSettingsFormData(
+				api.settings.getAll,
+				api.ai.detectHarnesses,
+			);
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
 			setCanaryUpdates(
 				resolveUpdateChannel(settings.update_channel) === "canary",
