@@ -54,6 +54,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -132,7 +133,9 @@ export function Connections() {
 			]);
 			setConnections(data);
 			setDockerStates(
-				Object.fromEntries(states.map((state) => [state.connection_uuid, state])),
+				Object.fromEntries(
+					states.map((state) => [state.connection_uuid, state]),
+				),
 			);
 		} catch (error) {
 			console.error("Failed to fetch connections:", error);
@@ -187,10 +190,7 @@ export function Connections() {
 
 		setIsDeleting(true);
 		try {
-			await api.connections.delete(
-				deletingConnection.id,
-				deleteDockerData,
-			);
+			await api.connections.delete(deletingConnection.id, deleteDockerData);
 			await fetchConnections();
 			setDeletingConnection(null);
 		} catch (error) {
@@ -424,10 +424,7 @@ export function Connections() {
 										<Cube className="size-4" />
 										Connect Docker
 									</Button>
-									<Button
-										onClick={() => setCreateDatabaseOpen(true)}
-										size="sm"
-									>
+									<Button onClick={() => setCreateDatabaseOpen(true)} size="sm">
 										<Plus className="size-4" weight="bold" />
 										Create database
 									</Button>
@@ -532,11 +529,12 @@ export function Connections() {
 															<DropdownMenuContent
 																align="end"
 																side="bottom"
-																className="[&_[role=menuitem]]:cursor-pointer"
+																className="w-56 p-1.5 [&_[role=menuitem]]:cursor-pointer [&_[role=menuitem]]:whitespace-nowrap"
 															>
 																{dockerState && (
 																	<>
 																		<DropdownMenuItem
+																			className="focus:bg-muted focus:text-foreground"
 																			onClick={() =>
 																				handleCopyConnectionString(connection)
 																			}
@@ -546,6 +544,7 @@ export function Connections() {
 																		</DropdownMenuItem>
 																		{dockerState.status === "running" ? (
 																			<DropdownMenuItem
+																				className="focus:bg-muted focus:text-foreground"
 																				onClick={() =>
 																					handleDockerAction(connection, "stop")
 																				}
@@ -555,8 +554,12 @@ export function Connections() {
 																			</DropdownMenuItem>
 																		) : (
 																			<DropdownMenuItem
+																				className="focus:bg-muted focus:text-foreground"
 																				onClick={() =>
-																					handleDockerAction(connection, "start")
+																					handleDockerAction(
+																						connection,
+																						"start",
+																					)
 																				}
 																			>
 																				<Play className="w-4 h-4" />
@@ -564,16 +567,22 @@ export function Connections() {
 																			</DropdownMenuItem>
 																		)}
 																		<DropdownMenuItem
+																			className="focus:bg-muted focus:text-foreground"
 																			onClick={() =>
-																				handleDockerAction(connection, "restart")
+																				handleDockerAction(
+																					connection,
+																					"restart",
+																				)
 																			}
 																		>
 																			<ArrowClockwise className="w-4 h-4" />
 																			Restart container
 																		</DropdownMenuItem>
+																		<DropdownMenuSeparator className="my-1" />
 																	</>
 																)}
 																<DropdownMenuItem
+																	className="focus:bg-muted focus:text-foreground"
 																	onClick={(e) => {
 																		e.stopPropagation();
 																		handleEditConnection(connection);
@@ -583,6 +592,7 @@ export function Connections() {
 																	Edit
 																</DropdownMenuItem>
 																<DropdownMenuItem
+																	className="focus:bg-muted focus:text-foreground"
 																	onClick={(e) => {
 																		e.stopPropagation();
 																		handleDuplicateConnection(connection);
@@ -592,6 +602,7 @@ export function Connections() {
 																	Duplicate
 																</DropdownMenuItem>
 																<DropdownMenuItem
+																	className="focus:bg-muted focus:text-foreground"
 																	onClick={(e) => {
 																		e.stopPropagation();
 																		handleExportConnection(connection);
@@ -600,6 +611,7 @@ export function Connections() {
 																	<Export className="w-4 h-4" />
 																	Export
 																</DropdownMenuItem>
+																<DropdownMenuSeparator className="my-1" />
 																<DropdownMenuItem
 																	variant="destructive"
 																	onClick={(e) => {
@@ -681,26 +693,24 @@ export function Connections() {
 								The Docker container and its data are preserved by default.
 							</AlertDialogDescription>
 						</AlertDialogHeader>
-						{deletingConnection &&
-							dockerStates[deletingConnection.uuid] && (
-								<label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-									<Checkbox
-										checked={deleteDockerData}
-										onCheckedChange={setDeleteDockerData}
-										aria-label="Also delete Docker resources"
-									/>
-									<span>
-										{dockerStates[deletingConnection.uuid].ownership ===
-										"created"
-											? "Also delete the Docker container and its data volume"
-											: "Also delete the Docker container and its anonymous volumes"}
-										<span className="mt-1 block text-xs text-muted-foreground">
-											Named volumes and bind mounts on linked containers are
-											always preserved.
-										</span>
+						{deletingConnection && dockerStates[deletingConnection.uuid] && (
+							<label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+								<Checkbox
+									checked={deleteDockerData}
+									onCheckedChange={setDeleteDockerData}
+									aria-label="Also delete Docker resources"
+								/>
+								<span>
+									{dockerStates[deletingConnection.uuid].ownership === "created"
+										? "Also delete the Docker container and its data volume"
+										: "Also delete the Docker container and its anonymous volumes"}
+									<span className="mt-1 block text-xs text-muted-foreground">
+										Named volumes and bind mounts on linked containers are
+										always preserved.
 									</span>
-								</label>
-							)}
+								</span>
+							</label>
+						)}
 						<AlertDialogFooter>
 							<AlertDialogCancel disabled={isDeleting}>
 								Cancel
