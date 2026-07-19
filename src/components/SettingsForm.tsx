@@ -65,11 +65,12 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 	const loadSettings = async () => {
 		setLoading(true);
+		const pendingData = loadSettingsFormData(
+			api.settings.getAll,
+			api.ai.detectHarnesses,
+		);
 		try {
-			const { settings, harnesses } = await loadSettingsFormData(
-				api.settings.getAll,
-				api.ai.detectHarnesses,
-			);
+			const settings = await pendingData.settings;
 			setCheckUpdates(settings.check_updates_on_startup !== "false");
 			const updateChannel = resolveUpdateChannel(settings.update_channel);
 			setCanaryUpdates(updateChannel === "canary");
@@ -78,12 +79,12 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
 			setOpenaiModel(settings.openai_model || "gpt-4.1");
-			setDetectedHarnesses(harnesses);
 		} catch (error) {
 			console.error("Failed to load settings:", error);
 		} finally {
 			setLoading(false);
 		}
+		setDetectedHarnesses(await pendingData.harnesses);
 	};
 
 	const handleSave = async () => {
