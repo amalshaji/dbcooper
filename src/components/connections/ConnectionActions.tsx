@@ -158,7 +158,6 @@ export function ConnectionActionsDropdown(props: ConnectionActionsProps) {
 						)}
 						<DropdownMenuItem
 							variant={action.destructive ? "destructive" : "default"}
-							className="focus:bg-muted focus:text-foreground"
 							onClick={action.run}
 						>
 							{action.icon}
