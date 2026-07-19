@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 use super::clickhouse::ClickhouseDriver;
 use super::postgres::PostgresDriver;
@@ -67,6 +67,25 @@ pub struct PoolManager {
     connect_locks: RwLock<HashMap<String, Arc<Mutex<()>>>>,
 }
 
+pub(crate) struct ConnectionLifecycle<'a> {
+    pool_manager: &'a PoolManager,
+    uuid: String,
+    _guard: OwnedMutexGuard<()>,
+}
+
+impl ConnectionLifecycle<'_> {
+    pub async fn connect(
+        &self,
+        config: ConnectionConfig,
+    ) -> Result<Arc<Box<dyn DatabaseDriver>>, String> {
+        self.pool_manager.connect_unlocked(&self.uuid, config).await
+    }
+
+    pub async fn invalidate(&self) {
+        self.pool_manager.remove_unlocked(&self.uuid).await;
+    }
+}
+
 impl Default for PoolManager {
     fn default() -> Self {
         Self::new()
@@ -81,8 +100,7 @@ impl PoolManager {
         }
     }
 
-    /// Get or create a lock for a specific connection UUID
-    pub async fn get_connect_lock(&self, uuid: &str) -> Arc<Mutex<()>> {
+    async fn get_connect_lock(&self, uuid: &str) -> Arc<Mutex<()>> {
         {
             let locks = self.connect_locks.read().await;
             if let Some(lock) = locks.get(uuid) {
@@ -95,6 +113,16 @@ impl PoolManager {
             .entry(uuid.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
+    }
+
+    pub(crate) async fn connection_lifecycle(&self, uuid: &str) -> ConnectionLifecycle<'_> {
+        let lock = self.get_connect_lock(uuid).await;
+        let guard = lock.lock_owned().await;
+        ConnectionLifecycle {
+            pool_manager: self,
+            uuid: uuid.to_string(),
+            _guard: guard,
+        }
     }
 
     /// Create a driver from configuration (with optional SSH tunnel)
@@ -203,7 +231,7 @@ impl PoolManager {
     }
 
     /// Explicitly connect (or reconnect) a connection
-    pub async fn connect(
+    async fn connect_unlocked(
         &self,
         uuid: &str,
         config: ConnectionConfig,
@@ -254,8 +282,7 @@ impl PoolManager {
         }
     }
 
-    /// Disconnect and remove a connection from the pool
-    pub async fn disconnect(&self, uuid: &str) {
+    async fn remove_unlocked(&self, uuid: &str) {
         let mut pools = self.pools.write().await;
         pools.remove(uuid);
     }
