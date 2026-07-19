@@ -272,40 +272,7 @@ pub(crate) async fn wait_until_ready(
 ) -> Result<(), String> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
-        let args = match engine {
-            DockerDatabaseEngine::Postgres => vec![
-                "exec",
-                container_id,
-                "pg_isready",
-                "-U",
-                username,
-                "-d",
-                database,
-            ],
-            DockerDatabaseEngine::Redis => vec![
-                "exec",
-                container_id,
-                "redis-cli",
-                "--user",
-                username,
-                "-a",
-                password,
-                "ping",
-            ],
-            DockerDatabaseEngine::Clickhouse => vec![
-                "exec",
-                container_id,
-                "clickhouse-client",
-                "--user",
-                username,
-                "--password",
-                password,
-                "--database",
-                database,
-                "--query",
-                "SELECT 1",
-            ],
-        };
+        let args = readiness_args(container_id, engine, username, password, database);
         if short(&args).await.is_ok() {
             return Ok(());
         }
@@ -313,6 +280,49 @@ pub(crate) async fn wait_until_ready(
             return Err("The database did not become ready within 45 seconds".to_string());
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+fn readiness_args<'a>(
+    container_id: &'a str,
+    engine: DockerDatabaseEngine,
+    username: &'a str,
+    password: &'a str,
+    database: &'a str,
+) -> Vec<&'a str> {
+    match engine {
+        DockerDatabaseEngine::Postgres => vec![
+            "exec",
+            container_id,
+            "pg_isready",
+            "-U",
+            username,
+            "-d",
+            database,
+        ],
+        DockerDatabaseEngine::Redis => vec![
+            "exec",
+            container_id,
+            "redis-cli",
+            "--user",
+            username,
+            "-a",
+            password,
+            "ping",
+        ],
+        DockerDatabaseEngine::Clickhouse => vec![
+            "exec",
+            container_id,
+            "clickhouse-client",
+            "--user",
+            username,
+            "--password",
+            password,
+            "--database",
+            database,
+            "--query",
+            "SELECT 1",
+        ],
     }
 }
 
@@ -351,5 +361,31 @@ mod tests {
             vec![5432, 6379]
         );
         assert_eq!(container_ports("127.0.0.1:15432->80/tcp"), vec![80]);
+    }
+
+    #[test]
+    fn builds_clickhouse_readiness_command() {
+        assert_eq!(
+            readiness_args(
+                "container-id",
+                DockerDatabaseEngine::Clickhouse,
+                "dbcooper",
+                "secret",
+                "analytics",
+            ),
+            vec![
+                "exec",
+                "container-id",
+                "clickhouse-client",
+                "--user",
+                "dbcooper",
+                "--password",
+                "secret",
+                "--database",
+                "analytics",
+                "--query",
+                "SELECT 1",
+            ]
+        );
     }
 }

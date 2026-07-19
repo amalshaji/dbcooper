@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { DOCKER_DATABASE_ENGINES } from "../../types/docker";
 
 mock.module("@/components/ui/dialog", () => ({
 	Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -28,6 +29,7 @@ mock.module("@/components/ui/spinner", () => ({
 }));
 mock.module("@/lib/tauri", () => ({
 	api: { docker: {} },
+	DOCKER_DATABASE_ENGINES,
 }));
 
 const { CreateDatabaseDialog } = await import("./CreateDatabaseDialog");
@@ -44,4 +46,18 @@ test("explains persistent container behavior before creation", () => {
 	expect(markup).toContain("Create database");
 	expect(markup).toContain("persistent Docker container and volume");
 	expect(markup).toContain("Your database and volume remain");
+});
+
+test("offers every Docker database engine supported by the backend", () => {
+	const markup = renderToStaticMarkup(
+		<CreateDatabaseDialog
+			open
+			onOpenChange={() => undefined}
+			onCreated={async () => undefined}
+		/>,
+	);
+
+	expect(markup).toContain('value="postgres"');
+	expect(markup).toContain('value="redis"');
+	expect(markup).toContain('value="clickhouse"');
 });

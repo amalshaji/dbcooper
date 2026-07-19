@@ -237,6 +237,8 @@ impl ManagedDatabasePlan {
                 format!("CLICKHOUSE_PASSWORD={password}"),
                 "-e".into(),
                 format!("CLICKHOUSE_DB={database}"),
+                "-e".into(),
+                "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1".into(),
             ]),
         }
         run_args.push(engine.image().to_string());
@@ -437,6 +439,52 @@ mod tests {
             detect_engine("my-company/database", &[6379]),
             Some(DockerDatabaseEngine::Redis)
         );
+        assert_eq!(
+            detect_engine("clickhouse/clickhouse-server:25.8-alpine", &[]),
+            Some(DockerDatabaseEngine::Clickhouse)
+        );
+        assert_eq!(
+            detect_engine("my-company/analytics", &[8123]),
+            Some(DockerDatabaseEngine::Clickhouse)
+        );
         assert_eq!(detect_engine("nginx:alpine", &[80]), None);
+    }
+
+    #[test]
+    fn creates_clickhouse_with_http_access_and_persistent_storage() {
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Clickhouse);
+
+        assert_eq!(plan.username, "dbcooper");
+        assert_eq!(plan.database, "dbcooper");
+        assert!(plan
+            .run_args
+            .windows(2)
+            .any(|args| args == ["-p", "127.0.0.1::8123"]));
+        assert!(plan
+            .run_args
+            .windows(2)
+            .any(|args| args == ["-v", &format!("{}:/var/lib/clickhouse", plan.volume_name)]));
+        assert!(plan
+            .run_args
+            .windows(2)
+            .any(|args| args == ["-e", "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1"]));
+        assert!(plan
+            .run_args
+            .contains(&"clickhouse/clickhouse-server:25.8-alpine".to_string()));
+    }
+
+    #[test]
+    fn formats_clickhouse_http_connection_string() {
+        assert_eq!(
+            connection_string(
+                DockerDatabaseEngine::Clickhouse,
+                "localhost",
+                "app user",
+                "p@ss/word",
+                18123,
+                "analytics db",
+            ),
+            "http://app%20user:p%40ss%2Fword@localhost:18123/?database=analytics%20db"
+        );
     }
 }

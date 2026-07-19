@@ -9,6 +9,7 @@ import type {
 	DockerDatabaseEngine,
 } from "@/types/docker";
 
+export { DOCKER_DATABASE_ENGINES } from "@/types/docker";
 export type {
 	DeleteConnectionResult,
 	DockerConnectionDraft,

@@ -33,6 +33,25 @@ Then you can open the app normally.
 
 Check out the full list of features on our [documentation site](https://dbcooper.amal.sh/#features).
 
+### Docker databases
+
+From the Connections screen, DBcooper can:
+
+- Create PostgreSQL 17, Redis 7, or ClickHouse 25.8 in a Docker container and save a ready-to-use connection.
+- Link a compatible PostgreSQL, Redis, or ClickHouse container that already exists in the current Docker context, including Docker Compose services.
+- Copy the complete connection string for a Docker-managed connection.
+- Stop and restart the linked container from the connection menu.
+
+Databases created by DBcooper use a persistent named volume. Quitting DBcooper
+stops the container without removing the container or its data, and opening the
+connection starts it again. Deleting a connection also preserves Docker data
+unless you explicitly choose to remove it.
+
+Linking an existing container requires its database port to be published to the
+host. DBcooper reads standard image environment variables, including Docker
+secret-style `*_FILE` values, and lets you review the detected connection fields
+before saving.
+
 ## FAQ
 
 Find answers to common questions on our [documentation site](https://dbcooper.amal.sh/#faq).
@@ -41,7 +60,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: Rust + Tauri v2
-- **Database**: SQLite (local storage) + PostgreSQL (connections)
+- **Database**: SQLite (local storage) + PostgreSQL, Redis, and ClickHouse connections
 - **UI**: shadcn/ui components
 - **Package Manager**: Bun
 

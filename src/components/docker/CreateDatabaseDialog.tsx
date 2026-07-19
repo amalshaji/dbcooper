@@ -14,8 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
+	DOCKER_DATABASE_ENGINES,
 	type Connection,
-	type DockerDatabaseEngine,
 } from "@/lib/tauri";
 
 interface CreateDatabaseDialogProps {
@@ -29,24 +29,21 @@ export function CreateDatabaseDialog({
 	onOpenChange,
 	onCreated,
 }: CreateDatabaseDialogProps) {
-	const [engine, setEngine] = useState<DockerDatabaseEngine>("postgres");
-	const [name, setName] = useState("Local PostgreSQL");
+	const [engine, setEngine] = useState<
+		(typeof DOCKER_DATABASE_ENGINES)[number]
+	>(DOCKER_DATABASE_ENGINES[0]);
+	const [name, setName] = useState<string>(engine.defaultName);
 	const [creating, setCreating] = useState(false);
 
 	useEffect(() => {
 		if (!open) return;
-		const labels: Record<DockerDatabaseEngine, string> = {
-			postgres: "Local PostgreSQL",
-			redis: "Local Redis",
-			clickhouse: "Local ClickHouse",
-		};
-		setName(labels[engine]);
+		setName(engine.defaultName);
 	}, [engine, open]);
 
 	const create = async () => {
 		setCreating(true);
 		try {
-			const connection = await api.docker.createDatabase(engine, name);
+			const connection = await api.docker.createDatabase(engine.value, name);
 			await onCreated(connection);
 			onOpenChange(false);
 			toast.success(`Created "${connection.name}"`, {
@@ -81,15 +78,20 @@ export function CreateDatabaseDialog({
 						<Label htmlFor="docker-engine">Database</Label>
 						<select
 							id="docker-engine"
-							value={engine}
-							onChange={(event) =>
-								setEngine(event.target.value as DockerDatabaseEngine)
-							}
+							value={engine.value}
+							onChange={(event) => {
+								const selected = DOCKER_DATABASE_ENGINES.find(
+									(option) => option.value === event.target.value,
+								);
+								if (selected) setEngine(selected);
+							}}
 							className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
 						>
-							<option value="postgres">PostgreSQL 17</option>
-							<option value="redis">Redis 7</option>
-							<option value="clickhouse">ClickHouse 25.8</option>
+							{DOCKER_DATABASE_ENGINES.map((option) => (
+								<option key={option.value} value={option.value}>
+									{option.label}
+								</option>
+							))}
 						</select>
 					</div>
 					<div className="space-y-2">

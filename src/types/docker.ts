@@ -1,4 +1,19 @@
-export type DockerDatabaseEngine = "postgres" | "redis" | "clickhouse";
+export const DOCKER_DATABASE_ENGINES = [
+	{
+		value: "postgres",
+		label: "PostgreSQL 17",
+		defaultName: "Local PostgreSQL",
+	},
+	{ value: "redis", label: "Redis 7", defaultName: "Local Redis" },
+	{
+		value: "clickhouse",
+		label: "ClickHouse 25.8",
+		defaultName: "Local ClickHouse",
+	},
+] as const;
+
+export type DockerDatabaseEngine =
+	(typeof DOCKER_DATABASE_ENGINES)[number]["value"];
 
 export interface DockerContainerSummary {
 	id: string;

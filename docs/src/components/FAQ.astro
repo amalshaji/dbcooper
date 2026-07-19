@@ -9,6 +9,10 @@ const faqs = [
 		answer: "PostgreSQL, SQLite, Redis, and ClickHouse today. More engines are planned for future releases.",
 	},
 	{
+		question: "Can DBcooper create a local database for me?",
+		answer: "Yes. With Docker running, DBcooper can create PostgreSQL 17, Redis 7, or ClickHouse 25.8 with a persistent volume and a ready-to-use connection. Quitting the app stops containers it created without deleting their data. You can also link compatible containers from the current Docker context, including Docker Compose services.",
+	},
+	{
 		question: "Does it work on Windows or Linux?",
 		answer: "DBcooper is macOS-only for now. Windows and Linux builds are being considered.",
 	},
