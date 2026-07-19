@@ -22,6 +22,8 @@ pub async fn pool_connect(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
+    let lifecycle = pool_manager.connection_lifecycle(&uuid).await;
+
     // Get connection details from database
     let conn: crate::db::models::Connection =
         sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
@@ -63,12 +65,7 @@ pub async fn pool_connect(
         },
     };
 
-    // Serialize with data-op (re)connects for this UUID so a UI-initiated
-    // connect can't race a concurrent ensure_connection/reconnect.
-    let lock = pool_manager.get_connect_lock(&uuid).await;
-    let _guard = lock.lock().await;
-
-    match pool_manager.connect(&uuid, config).await {
+    match lifecycle.connect(config).await {
         Ok(_) => Ok(ConnectionStatusResponse {
             status: ConnectionStatus::Connected,
             error: None,
@@ -86,7 +83,8 @@ pub async fn pool_disconnect(
     pool_manager: State<'_, PoolManager>,
     uuid: String,
 ) -> Result<(), String> {
-    pool_manager.disconnect(&uuid).await;
+    let lifecycle = pool_manager.connection_lifecycle(&uuid).await;
+    lifecycle.invalidate().await;
     Ok(())
 }
 
@@ -162,9 +160,7 @@ async fn ensure_connection(
     sqlite_pool: &SqlitePool,
     uuid: &str,
 ) -> Result<(), String> {
-    // Acquire lock to serialize connect attempts for this UUID
-    let lock = pool_manager.get_connect_lock(uuid).await;
-    let _guard = lock.lock().await;
+    let lifecycle = pool_manager.connection_lifecycle(uuid).await;
 
     // Check if already connected (another thread may have just connected)
     if pool_manager.get_cached(uuid).await.is_some() {
@@ -172,7 +168,7 @@ async fn ensure_connection(
     }
     // Not connected, get config and connect
     let config = get_connection_config(sqlite_pool, uuid).await?;
-    pool_manager.connect(uuid, config).await?;
+    lifecycle.connect(config).await?;
     Ok(())
 }
 
@@ -182,15 +178,14 @@ async fn reconnect(
     sqlite_pool: &SqlitePool,
     uuid: &str,
 ) -> Result<(), String> {
-    let lock = pool_manager.get_connect_lock(uuid).await;
-    let _guard = lock.lock().await;
+    let lifecycle = pool_manager.connection_lifecycle(uuid).await;
 
     // Disconnect stale connection
-    pool_manager.disconnect(uuid).await;
+    lifecycle.invalidate().await;
 
     // Reconnect
     let config = get_connection_config(sqlite_pool, uuid).await?;
-    pool_manager.connect(uuid, config).await?;
+    lifecycle.connect(config).await?;
     Ok(())
 }
 

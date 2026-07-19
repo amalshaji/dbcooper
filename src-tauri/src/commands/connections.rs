@@ -1,3 +1,4 @@
+use crate::database::pool_manager::PoolManager;
 use crate::db::models::{Connection, ConnectionFormData};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -66,14 +67,30 @@ pub async fn create_connection(
 #[tauri::command]
 pub async fn update_connection(
     pool: State<'_, SqlitePool>,
+    pool_manager: State<'_, PoolManager>,
     id: i64,
     data: ConnectionFormData,
 ) -> Result<Connection, String> {
+    update_connection_inner(pool.inner(), &pool_manager, id, data).await
+}
+
+async fn update_connection_inner(
+    pool: &SqlitePool,
+    pool_manager: &PoolManager,
+    id: i64,
+    data: ConnectionFormData,
+) -> Result<Connection, String> {
+    let uuid: String = sqlx::query_scalar("SELECT uuid FROM connections WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let lifecycle = pool_manager.connection_lifecycle(&uuid).await;
     let ssl = if data.ssl { 1 } else { 0 };
     let ssh_enabled = if data.ssh_enabled { 1 } else { 0 };
     let ssh_use_key = if data.ssh_use_key { 1 } else { 0 };
 
-    sqlx::query_as::<_, Connection>(
+    let connection = sqlx::query_as::<_, Connection>(
         r#"
         UPDATE connections
         SET type = ?, name = ?, host = ?, port = ?, database = ?, username = ?, password = ?, ssl = ?,
@@ -102,19 +119,40 @@ pub async fn update_connection(
     .bind(&data.ssh_key_path)
     .bind(ssh_use_key)
     .bind(id)
-    .fetch_one(pool.inner())
+    .fetch_one(pool)
     .await
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+    lifecycle.invalidate().await;
+    Ok(connection)
 }
 
 #[tauri::command]
-pub async fn delete_connection(pool: State<'_, SqlitePool>, id: i64) -> Result<bool, String> {
+pub async fn delete_connection(
+    pool: State<'_, SqlitePool>,
+    pool_manager: State<'_, PoolManager>,
+    id: i64,
+) -> Result<bool, String> {
+    delete_connection_inner(pool.inner(), &pool_manager, id).await
+}
+
+async fn delete_connection_inner(
+    pool: &SqlitePool,
+    pool_manager: &PoolManager,
+    id: i64,
+) -> Result<bool, String> {
+    let uuid: String = sqlx::query_scalar("SELECT uuid FROM connections WHERE id = ?")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let lifecycle = pool_manager.connection_lifecycle(&uuid).await;
     sqlx::query("DELETE FROM connections WHERE id = ?")
         .bind(id)
-        .execute(pool.inner())
+        .execute(pool)
         .await
-        .map(|_| true)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    lifecycle.invalidate().await;
+    Ok(true)
 }
 
 /// Exported connection data (without id, uuid, timestamps)
@@ -259,4 +297,154 @@ pub async fn import_connections(
     }
 
     Ok(imported_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{delete_connection_inner, update_connection_inner};
+    use crate::database::pool_manager::{ConnectionConfig, PoolManager};
+    use crate::db::models::ConnectionFormData;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::sync::Arc;
+    use tempfile::NamedTempFile;
+
+    async fn test_metadata_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE connections (
+                id INTEGER PRIMARY KEY, uuid TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL, name TEXT NOT NULL, host TEXT NOT NULL,
+                port INTEGER NOT NULL, database TEXT NOT NULL, username TEXT NOT NULL,
+                password TEXT NOT NULL, ssl INTEGER NOT NULL, db_type TEXT NOT NULL,
+                file_path TEXT, ssh_enabled INTEGER NOT NULL, ssh_host TEXT NOT NULL,
+                ssh_port INTEGER NOT NULL, ssh_user TEXT NOT NULL, ssh_password TEXT NOT NULL,
+                ssh_key_path TEXT NOT NULL, ssh_use_key INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        pool
+    }
+
+    async fn insert_connection(pool: &sqlx::SqlitePool, uuid: &str, file_path: &str) {
+        sqlx::query(
+            "INSERT INTO connections VALUES (1, ?, 'sqlite', 'test', '', 0, '', '', '', 0, 'sqlite', ?, 0, '', 22, '', '', '', 0, datetime('now'), datetime('now'))",
+        )
+        .bind(uuid)
+        .bind(file_path)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn form(file_path: &str) -> ConnectionFormData {
+        ConnectionFormData {
+            connection_type: "sqlite".into(),
+            name: "updated".into(),
+            host: String::new(),
+            port: 0,
+            database: String::new(),
+            username: String::new(),
+            password: String::new(),
+            ssl: false,
+            db_type: "sqlite".into(),
+            file_path: Some(file_path.into()),
+            ssh_enabled: false,
+            ssh_host: String::new(),
+            ssh_port: 22,
+            ssh_user: String::new(),
+            ssh_password: String::new(),
+            ssh_key_path: String::new(),
+            ssh_use_key: false,
+        }
+    }
+
+    async fn cache_sqlite(manager: &PoolManager, uuid: &str, file_path: &str) {
+        let lifecycle = manager.connection_lifecycle(uuid).await;
+        lifecycle
+            .connect(ConnectionConfig {
+                db_type: "sqlite".into(),
+                host: None,
+                port: None,
+                database: None,
+                username: None,
+                password: None,
+                ssl: None,
+                file_path: Some(file_path.into()),
+                ssh_enabled: false,
+                ssh_host: None,
+                ssh_port: None,
+                ssh_user: None,
+                ssh_password: None,
+                ssh_key_path: None,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn update_waits_for_lifecycle_and_invalidates_cached_driver() {
+        let database = NamedTempFile::new().unwrap();
+        let path = database.path().to_string_lossy().into_owned();
+        let pool = Arc::new(test_metadata_pool().await);
+        insert_connection(&pool, "connection-uuid", &path).await;
+        let manager = Arc::new(PoolManager::new());
+        cache_sqlite(&manager, "connection-uuid", &path).await;
+        let lifecycle = manager.connection_lifecycle("connection-uuid").await;
+
+        let task = tokio::spawn({
+            let pool = pool.clone();
+            let manager = manager.clone();
+            let path = path.clone();
+            async move { update_connection_inner(&pool, &manager, 1, form(&path)).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        assert!(!task.is_finished());
+
+        drop(lifecycle);
+        task.await.unwrap().unwrap();
+        assert!(manager.get_cached("connection-uuid").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn failed_delete_keeps_cached_driver() {
+        let database = NamedTempFile::new().unwrap();
+        let path = database.path().to_string_lossy().into_owned();
+        let pool = test_metadata_pool().await;
+        insert_connection(&pool, "connection-uuid", &path).await;
+        let manager = PoolManager::new();
+        cache_sqlite(&manager, "connection-uuid", &path).await;
+        pool.close().await;
+
+        assert!(delete_connection_inner(&pool, &manager, 1).await.is_err());
+        assert!(manager.get_cached("connection-uuid").await.is_some());
+    }
+
+    #[tokio::test]
+    async fn failed_update_keeps_cached_driver() {
+        let database = NamedTempFile::new().unwrap();
+        let path = database.path().to_string_lossy().into_owned();
+        let pool = test_metadata_pool().await;
+        insert_connection(&pool, "connection-uuid", &path).await;
+        sqlx::query(
+            "CREATE TRIGGER reject_update BEFORE UPDATE ON connections BEGIN SELECT RAISE(FAIL, 'rejected'); END",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let manager = PoolManager::new();
+        cache_sqlite(&manager, "connection-uuid", &path).await;
+
+        assert!(update_connection_inner(&pool, &manager, 1, form(&path))
+            .await
+            .is_err());
+        assert!(manager.get_cached("connection-uuid").await.is_some());
+    }
 }
