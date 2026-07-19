@@ -164,6 +164,7 @@ import {
 } from "@/lib/connection-details/queryTableState";
 import {
 	commitIfLatest,
+	continueWhileCurrent,
 	LatestRequestRegistry,
 } from "@/lib/connection-details/latestRequestRegistry";
 
@@ -374,11 +375,6 @@ export function ConnectionDetails() {
 	const tabsRef = useRef(tabs);
 	tabsRef.current = tabs;
 
-	useEffect(() => {
-		const registry = requestRegistryRef.current;
-		return () => registry.invalidateAll();
-	}, [uuid]);
-
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
 	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
@@ -506,6 +502,16 @@ export function ConnectionDetails() {
 	// Row insert state
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
 	const [insertingRow, setInsertingRow] = useState(false);
+
+	useEffect(() => {
+		const registry = requestRegistryRef.current;
+		registry.invalidateAll();
+		setSavingRow(false);
+		setSavingInlineEdits(false);
+		setDeletingRow(false);
+		setInsertingRow(false);
+		return () => registry.invalidateAll();
+	}, [uuid]);
 
 	// Query result sheet state
 	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
@@ -699,8 +705,11 @@ export function ConnectionDetails() {
 
 	const fetchQueryHistory = useCallback(async () => {
 		if (!uuid) return;
+		const registry = requestRegistryRef.current;
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 		try {
 			const data = await api.queries.history(uuid);
+			if (!registry.isCurrent(lifecycleCheckpoint)) return;
 			setQueryHistory(data);
 		} catch (error) {
 			console.error("Failed to fetch query history:", error);
@@ -722,6 +731,7 @@ export function ConnectionDetails() {
 				rowsAffected?: number | null;
 				error?: string | null;
 			},
+			lifecycleCheckpoint: ReturnType<LatestRequestRegistry["checkpoint"]>,
 		) => {
 			if (!uuid) return;
 			api.queries
@@ -729,7 +739,12 @@ export function ConnectionDetails() {
 				// Only live-refresh the panel if it's actually open; otherwise the
 				// tab-switch effect refetches on demand.
 				.then(() => {
-					if (sidebarTab === "history") fetchQueryHistory();
+					if (
+						requestRegistryRef.current.isCurrent(lifecycleCheckpoint) &&
+						sidebarTab === "history"
+					) {
+						fetchQueryHistory();
+					}
 				})
 				.catch((e) => console.error("Failed to record query history:", e));
 		},
@@ -738,8 +753,12 @@ export function ConnectionDetails() {
 
 	useEffect(() => {
 		if (!uuid || sidebarTab !== "history") return;
+		const registry = requestRegistryRef.current;
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 		setLoadingHistory(true);
-		fetchQueryHistory().finally(() => setLoadingHistory(false));
+		fetchQueryHistory().finally(() => {
+			if (registry.isCurrent(lifecycleCheckpoint)) setLoadingHistory(false);
+		});
 	}, [uuid, sidebarTab, fetchQueryHistory]);
 
 	const updateTab = useCallback(
@@ -1373,6 +1392,7 @@ export function ConnectionDetails() {
 		}
 		const registry = requestRegistryRef.current;
 		const request = registry.issue(`query:${tab.id}`);
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1411,7 +1431,7 @@ export function ConnectionDetails() {
 					status: "error",
 					timeTakenMs: result.time_taken_ms ?? null,
 					error: result.error,
-				});
+				}, lifecycleCheckpoint);
 				return;
 			}
 
@@ -1435,7 +1455,7 @@ export function ConnectionDetails() {
 				timeTakenMs: result.time_taken_ms ?? null,
 				rowCount: result.row_count ?? null,
 				rowsAffected: result.rows_affected ?? null,
-			});
+			}, lifecycleCheckpoint);
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute query";
@@ -1447,7 +1467,11 @@ export function ConnectionDetails() {
 					executing: false,
 				}),
 			);
-			recordHistory(queryToRun, { status: "error", error: message });
+			recordHistory(
+				queryToRun,
+				{ status: "error", error: message },
+				lifecycleCheckpoint,
+			);
 		}
 	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
 
@@ -1461,6 +1485,7 @@ export function ConnectionDetails() {
 		if (statements.length === 0) return;
 		const registry = requestRegistryRef.current;
 		const request = registry.issue(`query:${tab.id}`);
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1502,7 +1527,7 @@ export function ConnectionDetails() {
 						status: "error",
 						timeTakenMs: result.time_taken_ms ?? null,
 						error: result.error,
-					});
+					}, lifecycleCheckpoint);
 					if (!registry.isLatest(request)) return;
 					break;
 				}
@@ -1517,7 +1542,7 @@ export function ConnectionDetails() {
 					timeTakenMs: result.time_taken_ms ?? null,
 					rowCount: result.row_count ?? null,
 					rowsAffected: result.rows_affected ?? null,
-				});
+				}, lifecycleCheckpoint);
 				if (!registry.isLatest(request)) return;
 				currentQuery = null;
 			}
@@ -1550,7 +1575,11 @@ export function ConnectionDetails() {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute queries";
 			if (currentQuery) {
-				recordHistory(currentQuery, { status: "error", error: message });
+				recordHistory(
+					currentQuery,
+					{ status: "error", error: message },
+					lifecycleCheckpoint,
+				);
 			}
 			commitIfLatest(registry, request, () =>
 				updateTab<QueryTab>(tab.id, {
@@ -1736,7 +1765,7 @@ export function ConnectionDetails() {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setSavingRow(false);
+				if (registry.isCurrent(lifecycleCheckpoint)) setSavingRow(false);
 			}
 		},
 		[connection, activeTab, editingRow, refreshTableAfterMutation],
@@ -1832,27 +1861,28 @@ export function ConnectionDetails() {
 
 		setSavingInlineEdits(true);
 		try {
-			for (const [rowKey, editGroup] of editsByRow) {
-				const primaryKeyValues = primaryKeyColumns.map(
-					(col) => editGroup.row[col],
-				);
-				const result = await api.pool.updateTableRow(
-					connection.uuid,
-					schema,
-					tableName,
-					primaryKeyColumns,
-					primaryKeyValues,
-					editGroup.updates,
-				);
-
-				if (result.error) {
-					throw new Error(result.error);
-				}
-
-				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
-			}
-
-			if (!registry.isCurrent(lifecycleCheckpoint)) return;
+			const completed = await continueWhileCurrent(
+				editsByRow,
+				() => registry.isCurrent(lifecycleCheckpoint),
+				async ([, editGroup]) => {
+					const primaryKeyValues = primaryKeyColumns.map(
+						(col) => editGroup.row[col],
+					);
+					return api.pool.updateTableRow(
+						connection.uuid,
+						schema,
+						tableName,
+						primaryKeyColumns,
+						primaryKeyValues,
+						editGroup.updates,
+					);
+				},
+				(result, [rowKey]) => {
+					if (result.error) throw new Error(result.error);
+					setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+				},
+			);
+			if (!completed) return;
 			setPendingInlineEditsByTab((prev) => {
 				const next = { ...prev };
 				delete next[tab.id];
@@ -1869,7 +1899,9 @@ export function ConnectionDetails() {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setSavingInlineEdits(false);
+			if (registry.isCurrent(lifecycleCheckpoint)) {
+					setSavingInlineEdits(false);
+				}
 		}
 	}, [connection, activeTab, pendingInlineEditsByTab, refreshTableAfterMutation]);
 
@@ -1942,7 +1974,7 @@ export function ConnectionDetails() {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setDeletingRow(false);
+			if (registry.isCurrent(lifecycleCheckpoint)) setDeletingRow(false);
 		}
 	}, [connection, activeTab, editingRow, refreshTableAfterMutation]);
 
@@ -1988,7 +2020,7 @@ export function ConnectionDetails() {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setInsertingRow(false);
+				if (registry.isCurrent(lifecycleCheckpoint)) setInsertingRow(false);
 			}
 		},
 		[connection, activeTab, refreshTableAfterMutation],

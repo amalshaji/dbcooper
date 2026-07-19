@@ -6,6 +6,7 @@ import {
 	startAiGenerationSession,
 } from "@/lib/aiGenerationSession";
 import { api } from "@/lib/tauri";
+import { generateUuidV4 } from "@/lib/uuid";
 
 interface TableSchema {
 	schema: string;
@@ -62,7 +63,7 @@ export function useAIGeneration() {
 			setGenerating(true);
 			setError(null);
 
-			const sessionId = `ai-${Date.now()}-${crypto.randomUUID()}`;
+			const sessionId = `ai-${Date.now()}-${generateUuidV4()}`;
 			const request = startAiGenerationSession({
 				sessionId,
 				listen: <T>(eventName: string, handler: AiGenerationListener<T>) =>

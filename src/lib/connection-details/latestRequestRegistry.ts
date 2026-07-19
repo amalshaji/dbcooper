@@ -62,3 +62,18 @@ export function commitIfLatest(
 	commit();
 	return true;
 }
+
+export async function continueWhileCurrent<T, R>(
+	items: Iterable<T>,
+	isCurrent: () => boolean,
+	operation: (item: T) => Promise<R>,
+	onCompleted?: (result: R, item: T) => void,
+): Promise<boolean> {
+	for (const item of items) {
+		if (!isCurrent()) return false;
+		const result = await operation(item);
+		if (!isCurrent()) return false;
+		onCompleted?.(result, item);
+	}
+	return true;
+}

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { commitIfLatest, LatestRequestRegistry } from "./latestRequestRegistry";
+import {
+	commitIfLatest,
+	continueWhileCurrent,
+	LatestRequestRegistry,
+} from "./latestRequestRegistry";
 
 describe("LatestRequestRegistry", () => {
 	test("ignores an older table response after a newer request starts", () => {
@@ -90,5 +94,23 @@ describe("LatestRequestRegistry", () => {
 		await older;
 
 		expect(commits).toEqual(["newer"]);
+	});
+
+	test("batch continuation stops before another operation after lifecycle invalidation", async () => {
+		const registry = new LatestRequestRegistry();
+		const lifecycle = registry.checkpoint("lifecycle");
+		const completed: number[] = [];
+
+		const finished = await continueWhileCurrent(
+			[1, 2],
+			() => registry.isCurrent(lifecycle),
+			async (item) => {
+				completed.push(item);
+				registry.invalidateAll();
+			},
+		);
+
+		expect(finished).toBe(false);
+		expect(completed).toEqual([1]);
 	});
 });

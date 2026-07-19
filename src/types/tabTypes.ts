@@ -1,4 +1,5 @@
 import type { TableDataResponse } from "./tableData";
+import { generateUuidV4 } from "../lib/uuid";
 import {
 	createTableFilterState,
 	type TableFilterState,
@@ -126,7 +127,7 @@ export function formatFunctionSignature(
 
 export function createTableDataTab(tableName: string): TableDataTab {
 	return {
-		id: `table-data-${tableName}-${crypto.randomUUID()}`,
+		id: `table-data-${tableName}-${generateUuidV4()}`,
 		type: "table-data",
 		title: tableName.split(".").pop() || tableName,
 		tableName,
@@ -142,7 +143,7 @@ export function createTableDataTab(tableName: string): TableDataTab {
 
 export function createTableStructureTab(tableName: string): TableStructureTab {
 	return {
-		id: `table-structure-${tableName}-${crypto.randomUUID()}`,
+		id: `table-structure-${tableName}-${generateUuidV4()}`,
 		type: "table-structure",
 		title: `${tableName.split(".").pop() || tableName} (structure)`,
 		tableName,
@@ -157,7 +158,7 @@ export function createQueryTab(
 	savedQueryName: string | null = null,
 ): QueryTab {
 	return {
-		id: `query-${crypto.randomUUID()}`,
+		id: `query-${generateUuidV4()}`,
 		type: "query",
 		title: savedQueryName || "New Query",
 		query,
@@ -178,7 +179,7 @@ export function createQueryTab(
 
 export function createRedisQueryTab(pattern: string = "*"): RedisQueryTab {
 	return {
-		id: `redis-query-${crypto.randomUUID()}`,
+		id: `redis-query-${generateUuidV4()}`,
 		type: "redis-query",
 		title: "Redis Keys",
 		pattern,
@@ -192,7 +193,7 @@ export function createRedisQueryTab(pattern: string = "*"): RedisQueryTab {
 
 export function createSchemaVisualizerTab(): SchemaVisualizerTab {
 	return {
-		id: `schema-visualizer-${crypto.randomUUID()}`,
+		id: `schema-visualizer-${generateUuidV4()}`,
 		type: "schema-visualizer",
 		title: "Schema Visualizer",
 		schemaOverview: null,
@@ -206,7 +207,7 @@ export function createFunctionDefinitionTab(
 	functionSummary: FunctionSummary,
 ): FunctionDefinitionTab {
 	return {
-		id: `function-definition-${functionSummary.schema}-${functionSummary.name}-${functionSummary.identity_args}-${crypto.randomUUID()}`,
+		id: `function-definition-${functionSummary.schema}-${functionSummary.name}-${functionSummary.identity_args}-${generateUuidV4()}`,
 		type: "function-definition",
 		title: formatFunctionSignature(functionSummary, false),
 		functionSummary,
