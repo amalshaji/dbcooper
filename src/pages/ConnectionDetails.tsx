@@ -162,6 +162,10 @@ import {
 	isWrappableQuery,
 	stripTrailingSemicolon,
 } from "@/lib/connection-details/queryTableState";
+import {
+	commitIfLatest,
+	LatestRequestRegistry,
+} from "@/lib/connection-details/latestRequestRegistry";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -366,6 +370,7 @@ export function ConnectionDetails() {
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
+	const requestRegistryRef = useRef(new LatestRequestRegistry());
 
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
@@ -742,6 +747,8 @@ export function ConnectionDetails() {
 	const fetchTableData = useCallback(
 		async (tab: TableDataTab) => {
 			if (!uuid) return;
+			const registry = requestRegistryRef.current;
+			const request = registry.issue(`table:${tab.id}`);
 
 			updateTab<TableDataTab>(tab.id, { loading: true });
 
@@ -760,8 +767,11 @@ export function ConnectionDetails() {
 					tab.sort?.direction,
 				);
 
-				updateTab<TableDataTab>(tab.id, { data, loading: false });
+				commitIfLatest(registry, request, () =>
+					updateTab<TableDataTab>(tab.id, { data, loading: false }),
+				);
 			} catch (error) {
+				if (!registry.isLatest(request)) return;
 				console.error("Failed to fetch table data:", error);
 				const errorMessage =
 					error instanceof Error ? error.message : String(error);
@@ -1070,6 +1080,8 @@ export function ConnectionDetails() {
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
+			requestRegistryRef.current.invalidate(`table:${tabId}`);
+			requestRegistryRef.current.invalidate(`query:${tabId}`);
 			setTabs((prev) => {
 				const newTabs = prev.filter((t) => t.id !== tabId);
 
@@ -1161,12 +1173,16 @@ export function ConnectionDetails() {
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
 			if (!uuid) return;
+			const registry = requestRegistryRef.current;
+			const request = registry.issue(`query:${tab.id}`);
 
 			if (!tab.resultBaseQuery) {
-				updateTab<QueryTab>(tab.id, { executing: false });
-				toast.error(
-					"Query-level filter/sort is available only for SELECT-style query results",
-				);
+				commitIfLatest(registry, request, () => {
+					updateTab<QueryTab>(tab.id, { executing: false });
+					toast.error(
+						"Query-level filter/sort is available only for SELECT-style query results",
+					);
+				});
 				return;
 			}
 
@@ -1182,35 +1198,41 @@ export function ConnectionDetails() {
 				const executionTime = result.time_taken_ms ?? 0;
 
 				if (result.error) {
-					updateTab<QueryTab>(tab.id, {
-						error: result.error,
-						executionTime,
-						affectedRows: null,
-						executing: false,
-					});
+					commitIfLatest(registry, request, () =>
+						updateTab<QueryTab>(tab.id, {
+							error: result.error,
+							executionTime,
+							affectedRows: null,
+							executing: false,
+						}),
+					);
 					return;
 				}
 
-				updateTab<QueryTab>(tab.id, {
-					results: result.data as Record<string, unknown>[],
-					success: true,
-					error: null,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-					filter: nextFilter,
-					sort: nextSort,
-				});
+				commitIfLatest(registry, request, () =>
+					updateTab<QueryTab>(tab.id, {
+						results: result.data as Record<string, unknown>[],
+						success: true,
+						error: null,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+						filter: nextFilter,
+						sort: nextSort,
+					}),
+				);
 			} catch (error) {
-				updateTab<QueryTab>(tab.id, {
-					error:
-						error instanceof Error
-							? error.message
-							: "Failed to apply query filter/sort",
-					executionTime: null,
-					affectedRows: null,
-					executing: false,
-				});
+				commitIfLatest(registry, request, () =>
+					updateTab<QueryTab>(tab.id, {
+						error:
+							error instanceof Error
+								? error.message
+								: "Failed to apply query filter/sort",
+						executionTime: null,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 			}
 		},
 		[uuid, updateTab, connection?.db_type, connection?.type],
@@ -1331,6 +1353,8 @@ export function ConnectionDetails() {
 			toast.error("No statement at cursor position");
 			return;
 		}
+		const registry = requestRegistryRef.current;
+		const request = registry.issue(`query:${tab.id}`);
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1347,7 +1371,7 @@ export function ConnectionDetails() {
 
 		try {
 			const result = await api.pool.executeQuery(uuid, queryToRun);
-			if (result.truncated) {
+			if (result.truncated && registry.isLatest(request)) {
 				toast.warning("Result limited to 10,000 rows", {
 					description: "Refine the query to load a smaller result window.",
 				});
@@ -1357,12 +1381,14 @@ export function ConnectionDetails() {
 			const executionTime = result.time_taken_ms ?? 0;
 
 			if (result.error) {
-				updateTab<QueryTab>(tab.id, {
-					error: result.error,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-				});
+				commitIfLatest(registry, request, () =>
+					updateTab<QueryTab>(tab.id, {
+						error: result.error,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 				recordHistory(queryToRun, {
 					status: "error",
 					timeTakenMs: result.time_taken_ms ?? null,
@@ -1371,19 +1397,21 @@ export function ConnectionDetails() {
 				return;
 			}
 
-			updateTab<QueryTab>(tab.id, {
-				results: result.data as Record<string, unknown>[],
-				success: true,
-				executionTime,
-				affectedRows: result.rows_affected ?? null,
-				executing: false,
-				filterInput: "",
-				filter: "",
-				sort: null,
-				resultBaseQuery: isWrappableQuery(queryToRun)
-					? stripTrailingSemicolon(queryToRun)
-					: null,
-			});
+			commitIfLatest(registry, request, () =>
+				updateTab<QueryTab>(tab.id, {
+					results: result.data as Record<string, unknown>[],
+					success: true,
+					executionTime,
+					affectedRows: result.rows_affected ?? null,
+					executing: false,
+					filterInput: "",
+					filter: "",
+					sort: null,
+					resultBaseQuery: isWrappableQuery(queryToRun)
+						? stripTrailingSemicolon(queryToRun)
+						: null,
+				}),
+			);
 			recordHistory(queryToRun, {
 				status: "success",
 				timeTakenMs: result.time_taken_ms ?? null,
@@ -1393,12 +1421,14 @@ export function ConnectionDetails() {
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute query";
-			updateTab<QueryTab>(tab.id, {
-				error: message,
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
+			commitIfLatest(registry, request, () =>
+				updateTab<QueryTab>(tab.id, {
+					error: message,
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
 			recordHistory(queryToRun, { status: "error", error: message });
 		}
 	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
@@ -1411,6 +1441,8 @@ export function ConnectionDetails() {
 
 		const statements = parseSqlStatements(tab.query);
 		if (statements.length === 0) return;
+		const registry = requestRegistryRef.current;
+		const request = registry.issue(`query:${tab.id}`);
 
 		updateTab<QueryTab>(tab.id, {
 			executing: true,
@@ -1437,7 +1469,7 @@ export function ConnectionDetails() {
 				if (!queryToRun) continue;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
-				if (result.truncated) {
+				if (result.truncated && registry.isLatest(request)) {
 					toast.warning("Result limited to 10,000 rows", {
 						description: "Refine the query to load a smaller result window.",
 					});
@@ -1468,33 +1500,41 @@ export function ConnectionDetails() {
 			}
 
 			if (lastError) {
-				updateTab<QueryTab>(tab.id, {
-					error: lastError,
-					executionTime: totalTime,
-					affectedRows: null,
-					executing: false,
-				});
+				commitIfLatest(registry, request, () =>
+					updateTab<QueryTab>(tab.id, {
+						error: lastError,
+						executionTime: totalTime,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 			} else {
-				updateTab<QueryTab>(tab.id, {
-					results: lastResult,
-					success: true,
-					executionTime: totalTime,
-					affectedRows: lastAffectedRows,
-					executing: false,
-					filterInput: "",
-					filter: "",
-					sort: null,
-					resultBaseQuery: lastBaseQuery,
-				});
+				commitIfLatest(registry, request, () =>
+					updateTab<QueryTab>(tab.id, {
+						results: lastResult,
+						success: true,
+						executionTime: totalTime,
+						affectedRows: lastAffectedRows,
+						executing: false,
+						filterInput: "",
+						filter: "",
+						sort: null,
+						resultBaseQuery: lastBaseQuery,
+					}),
+				);
 			}
 		} catch (error) {
-			updateTab<QueryTab>(tab.id, {
-				error:
-					error instanceof Error ? error.message : "Failed to execute queries",
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
+			commitIfLatest(registry, request, () =>
+				updateTab<QueryTab>(tab.id, {
+					error:
+						error instanceof Error
+							? error.message
+							: "Failed to execute queries",
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
 		}
 	}, [activeTab, uuid, updateTab, recordHistory]);
 
