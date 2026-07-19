@@ -222,6 +222,36 @@ fn env_map(inspect: &Value) -> std::collections::HashMap<String, String> {
         .collect()
 }
 
+async fn container_env_value(
+    container_id: &str,
+    env: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> String {
+    if let Some(value) = env.get(key) {
+        return value.clone();
+    }
+    let file_key = format!("{key}_FILE");
+    if let Some(path) = env.get(&file_key) {
+        return docker(&["exec", container_id, "cat", path])
+            .await
+            .unwrap_or_default();
+    }
+    String::new()
+}
+
+fn command_option(inspect: &Value, option: &str) -> String {
+    let command = inspect["Config"]["Cmd"].as_array();
+    command
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|pair| pair[0] == option)
+        .map(|pair| pair[1].to_string())
+        .unwrap_or_default()
+}
+
 fn exposed_ports(inspect: &Value) -> Vec<i64> {
     inspect["NetworkSettings"]["Ports"]
         .as_object()
@@ -340,22 +370,24 @@ pub async fn docker_prepare_connection(
         .ok_or_else(|| "This container is not a supported database".to_string())?;
     let env = env_map(&inspect);
     let labels = inspect["Config"]["Labels"].as_object();
-    let value = |key: &str| env.get(key).cloned().unwrap_or_default();
     let (database, username, password) = match engine {
         DockerDatabaseEngine::Postgres => (
-            value("POSTGRES_DB"),
-            value("POSTGRES_USER"),
-            value("POSTGRES_PASSWORD"),
+            container_env_value(&container_id, &env, "POSTGRES_DB").await,
+            container_env_value(&container_id, &env, "POSTGRES_USER").await,
+            container_env_value(&container_id, &env, "POSTGRES_PASSWORD").await,
         ),
-        DockerDatabaseEngine::Redis => (
-            "0".to_string(),
-            "default".to_string(),
-            value("REDIS_PASSWORD"),
-        ),
+        DockerDatabaseEngine::Redis => ("0".to_string(), "default".to_string(), {
+            let password = container_env_value(&container_id, &env, "REDIS_PASSWORD").await;
+            if password.is_empty() {
+                command_option(&inspect, "--requirepass")
+            } else {
+                password
+            }
+        }),
         DockerDatabaseEngine::Clickhouse => (
-            value("CLICKHOUSE_DB"),
-            value("CLICKHOUSE_USER"),
-            value("CLICKHOUSE_PASSWORD"),
+            container_env_value(&container_id, &env, "CLICKHOUSE_DB").await,
+            container_env_value(&container_id, &env, "CLICKHOUSE_USER").await,
+            container_env_value(&container_id, &env, "CLICKHOUSE_PASSWORD").await,
         ),
     };
     let defaults = match engine {
@@ -833,5 +865,16 @@ mod tests {
             Some(DockerDatabaseEngine::Clickhouse)
         );
         assert_eq!(detect_engine("nginx:alpine", &[80]), None);
+    }
+
+    #[test]
+    fn reads_redis_password_from_container_command() {
+        let inspect = serde_json::json!({
+            "Config": {
+                "Cmd": ["redis-server", "--appendonly", "yes", "--requirepass", "secret"]
+            }
+        });
+
+        assert_eq!(command_option(&inspect, "--requirepass"), "secret");
     }
 }
