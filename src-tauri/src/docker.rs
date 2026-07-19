@@ -143,9 +143,9 @@ pub fn connection_string(
     let password = encode_component(password);
     let database = encode_component(database);
     match engine {
-        DockerDatabaseEngine::Postgres => format!(
-            "postgresql://{user}:{password}@127.0.0.1:{port}/{database}?sslmode=disable"
-        ),
+        DockerDatabaseEngine::Postgres => {
+            format!("postgresql://{user}:{password}@127.0.0.1:{port}/{database}?sslmode=disable")
+        }
         DockerDatabaseEngine::Redis => {
             format!("redis://{user}:{password}@127.0.0.1:{port}/{database}")
         }
@@ -183,6 +183,10 @@ fn docker_path() -> Result<PathBuf, String> {
         .into_iter()
         .map(PathBuf::from),
     );
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".orbstack/bin/docker"));
+        candidates.push(home.join(".docker/bin/docker"));
+    }
     candidates
         .into_iter()
         .find(|path| path.is_file())
@@ -628,6 +632,13 @@ async fn get_link(pool: &SqlitePool, uuid: &str) -> Result<Option<DockerLink>, S
 }
 
 async fn resolve_container(link: &DockerLink) -> Result<String, String> {
+    let context = current_context().await?;
+    if !link.docker_context.is_empty() && context != link.docker_context {
+        return Err(format!(
+            "This connection belongs to Docker context '{}'. Switch contexts or relink it.",
+            link.docker_context
+        ));
+    }
     if inspect_container(&link.container_id).await.is_ok() {
         return Ok(link.container_id.clone());
     }
@@ -763,12 +774,11 @@ pub async fn remove_docker_resources(
 }
 
 pub async fn stop_created_databases(pool: &SqlitePool) {
-    let links: Vec<DockerLink> = sqlx::query_as(
-        "SELECT * FROM docker_connections WHERE ownership = 'created'",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
+    let links: Vec<DockerLink> =
+        sqlx::query_as("SELECT * FROM docker_connections WHERE ownership = 'created'")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
     for link in links {
         if let Ok(container) = resolve_container(&link).await {
             let _ = docker(&["stop", "--time", "5", &container]).await;
