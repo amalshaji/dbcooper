@@ -161,7 +161,6 @@ import {
 	getPrimaryKeyRowKey,
 	isWrappableQuery,
 	stripTrailingSemicolon,
-	updateTabById,
 } from "@/lib/connection-details/queryTableState";
 
 const SchemaVisualizer = lazy(() =>
@@ -733,7 +732,9 @@ export function ConnectionDetails() {
 
 	const updateTab = useCallback(
 		<T extends Tab>(tabId: string, updates: Partial<T>) => {
-			setTabs((prev) => updateTabById(prev, tabId, updates));
+			setTabs((prev) =>
+				prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
+			);
 		},
 		[],
 	);

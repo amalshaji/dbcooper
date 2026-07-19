@@ -1,4 +1,4 @@
-import type { SortConfig, Tab, TableColumn } from "@/types/tabTypes";
+import type { SortConfig, TableColumn } from "@/types/tabTypes";
 
 export function stripTrailingSemicolon(query: string): string {
 	return query.trim().replace(/;\s*$/, "");
@@ -78,12 +78,4 @@ export function getPrimaryKeyRowKey(
 
 export function areCellValuesEqual(left: unknown, right: unknown): boolean {
 	return JSON.stringify(left) === JSON.stringify(right);
-}
-
-export function updateTabById<T extends Tab>(
-	tabs: Tab[],
-	id: string,
-	updates: Partial<T>,
-): Tab[] {
-	return tabs.map((tab) => (tab.id === id ? { ...tab, ...updates } : tab));
 }

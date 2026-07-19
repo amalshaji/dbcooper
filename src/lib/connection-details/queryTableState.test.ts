@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { QueryTab, TableColumn } from "../../types/tabTypes";
+import type { TableColumn } from "../../types/tabTypes";
 import {
 	areCellValuesEqual,
 	buildWrappedQuery,
@@ -8,7 +8,6 @@ import {
 	quoteResultColumn,
 	stripLeadingSqlComments,
 	stripTrailingSemicolon,
-	updateTabById,
 } from "./queryTableState";
 
 const column = (name: string, primaryKey = false): TableColumn => ({
@@ -19,9 +18,6 @@ const column = (name: string, primaryKey = false): TableColumn => ({
 	default: null,
 	primary_key: primaryKey,
 });
-
-const queryTab = (id: string, query: string): QueryTab =>
-	({ id, type: "query", title: id, query }) as QueryTab;
 
 describe("connection details query and table state", () => {
 	test("strips leading comments and the trailing semicolon before wrapping a query", () => {
@@ -55,7 +51,17 @@ describe("connection details query and table state", () => {
 		).toContain("ORDER BY `total``value` DESC");
 	});
 
-	test("classifies mutations as non-wrappable", () => {
+	test("classifies SELECT, WITH, and VALUES queries as wrappable", () => {
+		for (const query of [
+			"SELECT * FROM users",
+			"WITH active_users AS (SELECT * FROM users) SELECT * FROM active_users",
+			"VALUES (1), (2)",
+		]) {
+			expect(isWrappableQuery(query)).toBe(true);
+		}
+	});
+
+	test("classifies mutation statement keywords as non-wrappable", () => {
 		for (const query of [
 			"INSERT INTO users VALUES (1)",
 			"UPDATE users SET active = true",
@@ -78,35 +84,19 @@ describe("connection details query and table state", () => {
 		expect(getPrimaryKeyRowKey({ id: 1 }, [column("id")])).toBeNull();
 	});
 
-	test("compares cell values using the current JSON deep-value semantics", () => {
+	test("compares supported JSON-safe cell values", () => {
 		expect(
 			areCellValuesEqual(
-				{ nested: [1, null, "x"] },
-				{ nested: [1, null, "x"] },
+				{ nested: [1, null, { value: "x" }] },
+				{ nested: [1, null, { value: "x" }] },
 			),
 		).toBe(true);
-		expect(areCellValuesEqual({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(false);
-		expect(areCellValuesEqual(Number.NaN, null)).toBe(true);
-	});
-
-	test("updates only the initiating tab and preserves unaffected tab identity", () => {
-		const first = queryTab("first", "SELECT 1");
-		const second = queryTab("second", "SELECT 2");
-
-		const updated = updateTabById([first, second], "first", { executing: true });
-
-		expect(updated[0]).toEqual({ ...first, executing: true });
-		expect(updated[0]).not.toBe(first);
-		expect(updated[1]).toBe(second);
-	});
-
-	test("does not recreate a tab that was removed before its update arrives", () => {
-		const remaining = queryTab("remaining", "SELECT 2");
-		const tabs = [remaining];
-
-		const updated = updateTabById(tabs, "removed", { executing: false });
-
-		expect(updated).toEqual([remaining]);
-		expect(updated[0]).toBe(remaining);
+		expect(
+			areCellValuesEqual(
+				{ nested: [1, { value: "x" }] },
+				{ nested: [1, { value: "changed" }] },
+			),
+		).toBe(false);
+		expect(areCellValuesEqual("before", "after")).toBe(false);
 	});
 });
