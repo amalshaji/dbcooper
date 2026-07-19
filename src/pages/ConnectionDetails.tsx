@@ -371,6 +371,13 @@ export function ConnectionDetails() {
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
 	const requestRegistryRef = useRef(new LatestRequestRegistry());
+	const tabsRef = useRef(tabs);
+	tabsRef.current = tabs;
+
+	useEffect(() => {
+		const registry = requestRegistryRef.current;
+		return () => registry.invalidateAll();
+	}, [uuid]);
 
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
@@ -782,6 +789,17 @@ export function ConnectionDetails() {
 			}
 		},
 		[uuid, updateTab],
+	);
+	const refreshTableAfterMutation = useCallback(
+		(tabId: string, checkpoint: ReturnType<LatestRequestRegistry["checkpoint"]>) => {
+			const registry = requestRegistryRef.current;
+			if (!registry.isCurrent(checkpoint)) return;
+			const residentTab = tabsRef.current.find(
+				(tab): tab is TableDataTab => tab.id === tabId && tab.type === "table-data",
+			);
+			if (residentTab) void fetchTableData(residentTab);
+		},
+		[fetchTableData],
 	);
 	const activeTableDataTab =
 		activeTab?.type === "table-data" ? activeTab : null;
@@ -1462,11 +1480,13 @@ export function ConnectionDetails() {
 		let lastError: string | null = null;
 		let lastBaseQuery: string | null = null;
 		let lastAffectedRows: number | null = null;
+		let currentQuery: string | null = null;
 
 		try {
 			for (const statement of statements) {
 				const queryToRun = statement.text.trim();
 				if (!queryToRun) continue;
+				currentQuery = queryToRun;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
 				if (result.truncated && registry.isLatest(request)) {
@@ -1483,6 +1503,7 @@ export function ConnectionDetails() {
 						timeTakenMs: result.time_taken_ms ?? null,
 						error: result.error,
 					});
+					if (!registry.isLatest(request)) return;
 					break;
 				}
 
@@ -1497,6 +1518,8 @@ export function ConnectionDetails() {
 					rowCount: result.row_count ?? null,
 					rowsAffected: result.rows_affected ?? null,
 				});
+				if (!registry.isLatest(request)) return;
+				currentQuery = null;
 			}
 
 			if (lastError) {
@@ -1524,12 +1547,14 @@ export function ConnectionDetails() {
 				);
 			}
 		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Failed to execute queries";
+			if (currentQuery) {
+				recordHistory(currentQuery, { status: "error", error: message });
+			}
 			commitIfLatest(registry, request, () =>
 				updateTab<QueryTab>(tab.id, {
-					error:
-						error instanceof Error
-							? error.message
-							: "Failed to execute queries",
+					error: message,
 					executionTime: null,
 					affectedRows: null,
 					executing: false,
@@ -1663,6 +1688,9 @@ export function ConnectionDetails() {
 				return;
 
 			const tab = activeTab as TableDataTab;
+			const registry = requestRegistryRef.current;
+			const tableCheckpoint = registry.checkpoint(`table:${tab.id}`);
+			const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 			const [schema, tableName] = tab.tableName.split(".");
 
 			// Get primary key columns and values
@@ -1688,6 +1716,7 @@ export function ConnectionDetails() {
 					updates,
 				);
 
+				if (!registry.isCurrent(lifecycleCheckpoint)) return;
 				if (result.error) {
 					toast.error("Failed to update row", { description: result.error });
 				} else {
@@ -1698,9 +1727,10 @@ export function ConnectionDetails() {
 					toast.success("Row updated successfully");
 					setRowEditSheetOpen(false);
 					setEditingRow(null);
-					fetchTableData(tab);
+					refreshTableAfterMutation(tab.id, tableCheckpoint);
 				}
 			} catch (error) {
+				if (!registry.isCurrent(lifecycleCheckpoint)) return;
 				console.error("Failed to update row:", error);
 				toast.error("Failed to update row", {
 					description: error instanceof Error ? error.message : String(error),
@@ -1709,7 +1739,7 @@ export function ConnectionDetails() {
 				setSavingRow(false);
 			}
 		},
-		[connection, activeTab, editingRow, fetchTableData],
+		[connection, activeTab, editingRow, refreshTableAfterMutation],
 	);
 
 	const handleInlineCellSave = useCallback(
@@ -1758,6 +1788,9 @@ export function ConnectionDetails() {
 		if (!connection || !activeTab || activeTab.type !== "table-data") return;
 
 		const tab = activeTab as TableDataTab;
+		const registry = requestRegistryRef.current;
+		const tableCheckpoint = registry.checkpoint(`table:${tab.id}`);
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
 		if (pendingEdits.length === 0) return;
 
@@ -1819,6 +1852,7 @@ export function ConnectionDetails() {
 				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
 			}
 
+			if (!registry.isCurrent(lifecycleCheckpoint)) return;
 			setPendingInlineEditsByTab((prev) => {
 				const next = { ...prev };
 				delete next[tab.id];
@@ -1827,8 +1861,9 @@ export function ConnectionDetails() {
 			toast.success(
 				`Committed ${pendingEdits.length} inline change${pendingEdits.length === 1 ? "" : "s"}`,
 			);
-			await fetchTableData(tab);
+			refreshTableAfterMutation(tab.id, tableCheckpoint);
 		} catch (error) {
+			if (!registry.isCurrent(lifecycleCheckpoint)) return;
 			console.error("Failed to save inline changes:", error);
 			toast.error("Failed to save inline changes", {
 				description: error instanceof Error ? error.message : String(error),
@@ -1836,7 +1871,7 @@ export function ConnectionDetails() {
 		} finally {
 			setSavingInlineEdits(false);
 		}
-	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
+	}, [connection, activeTab, pendingInlineEditsByTab, refreshTableAfterMutation]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
 		if (!activeTab || activeTab.type !== "table-data") return;
@@ -1863,6 +1898,9 @@ export function ConnectionDetails() {
 			return;
 
 		const tab = activeTab as TableDataTab;
+		const registry = requestRegistryRef.current;
+		const tableCheckpoint = registry.checkpoint(`table:${tab.id}`);
+		const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 		const [schema, tableName] = tab.tableName.split(".");
 
 		// Get primary key columns and values
@@ -1887,6 +1925,7 @@ export function ConnectionDetails() {
 				primaryKeyValues,
 			);
 
+			if (!registry.isCurrent(lifecycleCheckpoint)) return;
 			if (result.error) {
 				toast.error("Failed to delete row", { description: result.error });
 			} else {
@@ -1894,9 +1933,10 @@ export function ConnectionDetails() {
 				setRowEditSheetOpen(false);
 				setEditingRow(null);
 				// Refresh table data
-				fetchTableData(tab);
+				refreshTableAfterMutation(tab.id, tableCheckpoint);
 			}
 		} catch (error) {
+			if (!registry.isCurrent(lifecycleCheckpoint)) return;
 			console.error("Failed to delete row:", error);
 			toast.error("Failed to delete row", {
 				description: error instanceof Error ? error.message : String(error),
@@ -1904,7 +1944,7 @@ export function ConnectionDetails() {
 		} finally {
 			setDeletingRow(false);
 		}
-	}, [connection, activeTab, editingRow, fetchTableData]);
+	}, [connection, activeTab, editingRow, refreshTableAfterMutation]);
 
 	const handleInsertRow = useCallback(
 		async (
@@ -1917,6 +1957,9 @@ export function ConnectionDetails() {
 			if (!connection || !activeTab || activeTab.type !== "table-data") return;
 
 			const tab = activeTab as TableDataTab;
+			const registry = requestRegistryRef.current;
+			const tableCheckpoint = registry.checkpoint(`table:${tab.id}`);
+			const lifecycleCheckpoint = registry.checkpoint("lifecycle");
 			const [schema, tableName] = tab.tableName.split(".");
 
 			setInsertingRow(true);
@@ -1929,15 +1972,17 @@ export function ConnectionDetails() {
 					values,
 				);
 
+				if (!registry.isCurrent(lifecycleCheckpoint)) return;
 				if (result.error) {
 					toast.error("Failed to insert row", { description: result.error });
 				} else {
 					toast.success("Row inserted successfully");
 					setRowInsertSheetOpen(false);
 					// Refresh table data
-					fetchTableData(tab);
+					refreshTableAfterMutation(tab.id, tableCheckpoint);
 				}
 			} catch (error) {
+				if (!registry.isCurrent(lifecycleCheckpoint)) return;
 				console.error("Failed to insert row:", error);
 				toast.error("Failed to insert row", {
 					description: error instanceof Error ? error.message : String(error),
@@ -1946,7 +1991,7 @@ export function ConnectionDetails() {
 				setInsertingRow(false);
 			}
 		},
-		[connection, activeTab, fetchTableData],
+		[connection, activeTab, refreshTableAfterMutation],
 	);
 
 	// Command palette handlers

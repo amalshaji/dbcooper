@@ -44,4 +44,51 @@ describe("LatestRequestRegistry", () => {
 		expect(registry.isLatest(inFlight)).toBe(false);
 		expect(registry.isLatest(latest)).toBe(true);
 	});
+
+	test("invalidateAll stales handles and non-owning checkpoints", () => {
+		const registry = new LatestRequestRegistry();
+		const handle = registry.issue("table:users");
+		const checkpoint = registry.checkpoint("table:users");
+
+		registry.invalidateAll();
+
+		expect(registry.isLatest(handle)).toBe(false);
+		expect(registry.isCurrent(checkpoint)).toBe(false);
+	});
+
+	test("a table checkpoint is stale after paging or close but otherwise current", () => {
+		const registry = new LatestRequestRegistry();
+		const unchanged = registry.checkpoint("table:users");
+		expect(registry.isCurrent(unchanged)).toBe(true);
+
+		registry.issue("table:users");
+		expect(registry.isCurrent(unchanged)).toBe(false);
+
+		const beforeClose = registry.checkpoint("table:users");
+		registry.invalidate("table:users");
+		expect(registry.isCurrent(beforeClose)).toBe(false);
+	});
+
+	test("only the newest reversed async table completion commits", async () => {
+		const registry = new LatestRequestRegistry();
+		let resolveOlder!: () => void;
+		let resolveNewer!: () => void;
+		const olderDone = new Promise<void>((resolve) => (resolveOlder = resolve));
+		const newerDone = new Promise<void>((resolve) => (resolveNewer = resolve));
+		const commits: string[] = [];
+		const run = async (name: string, done: Promise<void>) => {
+			const handle = registry.issue("table:users");
+			await done;
+			commitIfLatest(registry, handle, () => commits.push(name));
+		};
+
+		const older = run("older", olderDone);
+		const newer = run("newer", newerDone);
+		resolveNewer();
+		await newer;
+		resolveOlder();
+		await older;
+
+		expect(commits).toEqual(["newer"]);
+	});
 });

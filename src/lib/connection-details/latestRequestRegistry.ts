@@ -2,24 +2,54 @@ declare const requestHandleBrand: unique symbol;
 
 export interface RequestHandle {
 	readonly channel: string;
+	readonly revision: number;
+	readonly epoch: number;
 	readonly [requestHandleBrand]: true;
 }
 
+export type RequestCheckpoint = RequestHandle;
+
 export class LatestRequestRegistry {
-	private readonly latestByChannel = new Map<string, RequestHandle>();
+	private readonly revisions = new Map<string, number>();
+	private epoch = 0;
 
 	issue(channel: string): RequestHandle {
-		const handle = { channel } as RequestHandle;
-		this.latestByChannel.set(channel, handle);
-		return handle;
+		const revision = this.nextRevision(channel);
+		return { channel, revision, epoch: this.epoch } as RequestHandle;
 	}
 
 	isLatest(handle: RequestHandle): boolean {
-		return this.latestByChannel.get(handle.channel) === handle;
+		return this.isCurrent(handle);
 	}
 
 	invalidate(channel: string): void {
-		this.latestByChannel.delete(channel);
+		this.nextRevision(channel);
+	}
+
+	invalidateAll(): void {
+		this.epoch += 1;
+		this.revisions.clear();
+	}
+
+	checkpoint(channel: string): RequestCheckpoint {
+		return {
+			channel,
+			revision: this.revisions.get(channel) ?? 0,
+			epoch: this.epoch,
+		} as RequestCheckpoint;
+	}
+
+	isCurrent(checkpoint: RequestCheckpoint): boolean {
+		return (
+			checkpoint.epoch === this.epoch &&
+			checkpoint.revision === (this.revisions.get(checkpoint.channel) ?? 0)
+		);
+	}
+
+	private nextRevision(channel: string): number {
+		const revision = (this.revisions.get(channel) ?? 0) + 1;
+		this.revisions.set(channel, revision);
+		return revision;
 	}
 }
 
