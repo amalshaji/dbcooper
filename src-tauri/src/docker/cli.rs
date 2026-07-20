@@ -56,6 +56,12 @@ pub(crate) struct NetworkSettings {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+struct ContainerHostConfig {
+    #[serde(rename = "PortBindings", default)]
+    port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct ContainerInspect {
     #[serde(rename = "Id", default)]
     pub(crate) id: String,
@@ -65,6 +71,8 @@ pub(crate) struct ContainerInspect {
     pub(crate) config: ContainerConfig,
     #[serde(rename = "State", default)]
     pub(crate) state: ContainerState,
+    #[serde(rename = "HostConfig", default)]
+    host_config: ContainerHostConfig,
     #[serde(rename = "NetworkSettings", default)]
     network_settings: NetworkSettings,
 }
@@ -75,22 +83,22 @@ impl ContainerInspect {
     }
 
     pub(crate) fn exposed_ports(&self) -> Vec<i64> {
-        self.network_settings
+        let mut ports = self
+            .network_settings
             .ports
             .keys()
+            .chain(self.host_config.port_bindings.keys())
             .filter_map(|port| port.split('/').next()?.parse().ok())
-            .collect()
+            .collect::<Vec<_>>();
+        ports.sort_unstable();
+        ports.dedup();
+        ports
     }
 
     pub(crate) fn host_port(&self, internal_port: i64) -> Option<i64> {
-        self.network_settings
-            .ports
-            .get(&format!("{internal_port}/tcp"))?
-            .as_ref()?
-            .first()?
-            .host_port
-            .parse()
-            .ok()
+        let key = format!("{internal_port}/tcp");
+        host_port_from(&self.network_settings.ports, &key)
+            .or_else(|| host_port_from(&self.host_config.port_bindings, &key))
     }
 
     pub(crate) fn env(&self) -> HashMap<String, String> {
@@ -110,6 +118,14 @@ impl ContainerInspect {
             .map(|pair| pair[1].clone())
             .unwrap_or_default()
     }
+}
+
+fn host_port_from(bindings: &HashMap<String, Option<Vec<PortBinding>>>, key: &str) -> Option<i64> {
+    bindings
+        .get(key)?
+        .as_ref()?
+        .iter()
+        .find_map(|binding| binding.host_port.parse().ok())
 }
 
 fn docker_path() -> Result<PathBuf, String> {
@@ -168,6 +184,10 @@ pub(crate) async fn short(args: &[&str]) -> Result<String, String> {
 
 pub(crate) async fn create(args: &[String]) -> Result<String, String> {
     command(args, CREATE_COMMAND_TIMEOUT).await
+}
+
+pub(crate) async fn start(container_id: &str) -> Result<(), String> {
+    short(&["start", container_id]).await.map(|_| ())
 }
 
 pub(crate) async fn current_context() -> Result<String, String> {
@@ -353,6 +373,48 @@ pub(crate) fn managed_connection_labels(uuid: &str) -> [(&str, &str); 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_fixed_host_port_from_a_stopped_container() {
+        let inspect: ContainerInspect = serde_json::from_str(
+            r#"{
+                "State": { "Running": false },
+                "HostConfig": {
+                    "PortBindings": {
+                        "5432/tcp": [
+                            { "HostIp": "127.0.0.1", "HostPort": "55432" }
+                        ]
+                    }
+                },
+                "NetworkSettings": { "Ports": {} }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(inspect.host_port(5432), Some(55432));
+        assert_eq!(inspect.exposed_ports(), vec![5432]);
+    }
+
+    #[test]
+    fn leaves_dynamic_host_port_unresolved_until_container_start() {
+        let inspect: ContainerInspect = serde_json::from_str(
+            r#"{
+                "State": { "Running": false },
+                "HostConfig": {
+                    "PortBindings": {
+                        "5432/tcp": [
+                            { "HostIp": "127.0.0.1", "HostPort": "" }
+                        ]
+                    }
+                },
+                "NetworkSettings": { "Ports": {} }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(inspect.host_port(5432), None);
+        assert_eq!(inspect.exposed_ports(), vec![5432]);
+    }
 
     #[test]
     fn parses_container_ports_without_matching_host_port_substrings() {

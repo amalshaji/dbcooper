@@ -45,9 +45,13 @@ pub async fn docker_list_containers() -> Result<Vec<DockerContainerSummary>, Str
 pub async fn docker_prepare_connection(
     container_id: String,
 ) -> Result<DockerConnectionDraft, String> {
-    let inspect = cli::inspect(&container_id).await?;
+    let mut inspect = cli::inspect(&container_id).await?;
     let engine = detect_engine(&inspect.config.image, &inspect.exposed_ports())
         .ok_or_else(|| "This container is not a supported database".to_string())?;
+    if !inspect.state.running {
+        cli::start(&container_id).await?;
+        inspect = cli::inspect(&container_id).await?;
+    }
     let port = inspect.host_port(engine.internal_port()).ok_or_else(|| {
         format!(
             "{} is not published to the host. Publish container port {} before linking it.",
@@ -218,6 +222,14 @@ pub async fn docker_link_connection(
     if draft.engine != request.engine {
         return Err("The selected database type does not match the container".to_string());
     }
+    cli::wait_until_ready(
+        &draft.container_id,
+        request.engine,
+        &request.username,
+        &request.password,
+        &request.database,
+    )
+    .await?;
 
     let uuid = Uuid::new_v4().to_string();
     let data = ConnectionFormData {
