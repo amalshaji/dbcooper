@@ -8,10 +8,10 @@ export function Settings() {
 	const navigate = useNavigate();
 
 	return (
-		<div className="workspace-canvas flex min-h-screen flex-col">
+		<div className="workspace-canvas flex h-screen flex-col overflow-hidden">
 			<header
 				data-tauri-drag-region
-				className="app-titlebar flex h-12 shrink-0 select-none items-center border-b px-4 pl-24"
+				className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b px-4 pl-24"
 			>
 				<Button variant="ghost" onClick={() => navigate("/")}>
 					<ArrowLeft className="h-4 w-4" />
@@ -19,7 +19,7 @@ export function Settings() {
 				</Button>
 			</header>
 
-			<main className="flex-1 overflow-auto p-5 md:p-8">
+			<main className="min-h-0 flex-1 overflow-auto p-5 md:p-8">
 				<div className="mx-auto max-w-2xl">
 					<div className="mb-5">
 						<p className="section-label">DBcooper</p>
