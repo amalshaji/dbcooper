@@ -1,23 +1,28 @@
 @import "@fontsource/google-sans-flex/latin.css";
-@import "@fontsource-variable/sora";
 
 :root {
-	--bg: #04131d;
-	--bg-deep: #020b11;
-	--ink: #f6f1e8;
-	--ink-soft: #a2b5bd;
-	--ink-faint: #617e8a;
-	--cyan: #45c9e8;
-	--cyan-bright: #8be9f8;
-	--cyan-wash: rgba(69, 201, 232, 0.08);
-	--line: rgba(69, 201, 232, 0.26);
-	--line-strong: rgba(69, 201, 232, 0.52);
-	--coral: #ff5b4d;
-	--coral-bright: #ff7569;
-	--lime: #d8df3f;
-	--font-sans: "Google Sans Flex", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	--font-heading: "Sora Variable", "Sora", var(--font-sans);
+	--bg: #02070d;
+	--bg-deep: #01050a;
+	--surface: #07111b;
+	--surface-strong: #0b1621;
+	--ink: #f4f7fb;
+	--ink-soft: #94a3b5;
+	--ink-faint: #607083;
+	--cyan: #31d6cf;
+	--cyan-bright: #72eee7;
+	--blue: #168beb;
+	--cyan-wash: rgba(49, 214, 207, 0.07);
+	--line: rgba(137, 170, 190, 0.16);
+	--line-strong: rgba(137, 170, 190, 0.3);
+	--coral: #ff765f;
+	--coral-bright: #ff9584;
+	--lime: #cbd95a;
+	--font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Google Sans Flex", "Segoe UI", sans-serif;
+	--font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Google Sans Flex", "Segoe UI", sans-serif;
 	--font-mono: ui-monospace, "SFMono-Regular", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+	--page-gutter: clamp(1rem, 4vw, 2.75rem);
+	--content-max: 80rem;
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {
@@ -25,11 +30,12 @@
 }
 
 html {
+	min-width: 320px;
 	background: var(--bg-deep);
 	color: var(--ink);
 	color-scheme: dark;
 	scroll-behavior: smooth;
-	scroll-padding-top: 96px;
+	scroll-padding-top: 6.5rem;
 	-webkit-font-smoothing: antialiased;
 	text-rendering: optimizeLegibility;
 }
@@ -37,7 +43,7 @@ html {
 body {
 	min-width: 320px;
 	margin: 0;
-	overflow-x: hidden;
+	overflow-x: clip;
 	background: var(--bg-deep);
 	color: var(--ink);
 	font-family: var(--font-sans);
@@ -46,12 +52,19 @@ body {
 h1,
 h2,
 h3 {
+	margin: 0;
+	color: var(--ink);
 	font-family: var(--font-heading);
+	text-wrap: balance;
 }
 
 button,
 a {
 	-webkit-tap-highlight-color: transparent;
+}
+
+button {
+	font: inherit;
 }
 
 a {
@@ -74,77 +87,54 @@ img {
 	outline-offset: 4px;
 }
 
-.eyebrow,
-.step,
+.site-shell {
+	width: min(calc(100% - (var(--page-gutter) * 2)), var(--content-max));
+	margin-inline: auto;
+}
+
 .rail-label {
 	color: var(--cyan);
 	font-family: var(--font-mono);
 	font-size: 0.7rem;
-	font-weight: 500;
-	letter-spacing: 0.14em;
+	font-weight: 600;
+	letter-spacing: 0.12em;
 	text-transform: uppercase;
 }
 
-.eyebrow {
-	margin: 0 0 22px;
-}
-
 .section-heading {
-	margin-bottom: clamp(42px, 6vw, 74px);
+	margin-bottom: clamp(2.75rem, 6vw, 4.75rem);
 }
 
 .section-heading-split {
 	display: grid;
 	align-items: end;
-	grid-template-columns: 1fr minmax(280px, 430px);
-	gap: 48px;
+	grid-template-columns: minmax(0, 1fr) minmax(17.5rem, 26.875rem);
+	gap: 3rem;
 }
 
-.hero h1,
 .section-heading h2,
-.story-copy h2,
-.faq-heading h2,
-.final-cta h2 {
-	margin: 0;
-	color: var(--ink);
-	font-size: clamp(2.7rem, 4.8vw, 5rem);
-	font-weight: 730;
-	letter-spacing: -0.065em;
-	line-height: 0.94;
-}
-
-.hero h1 {
-	font-size: clamp(3.3rem, 5.3vw, 5.8rem);
+.faq-heading h2 {
+	font-size: clamp(2.5rem, 4.8vw, 4.5rem);
+	font-weight: 650;
+	letter-spacing: -0.055em;
+	line-height: 0.98;
 }
 
 .section-heading-split > p {
-	margin: 0 0 4px;
+	margin: 0 0 0.25rem;
 	color: var(--ink-soft);
-	font-family: var(--font-mono);
-	font-size: 0.86rem;
-	line-height: 1.75;
+	font-size: 0.95rem;
+	line-height: 1.7;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 56rem) {
 	.section-heading-split {
 		grid-template-columns: minmax(0, 1fr);
+		gap: 1.5rem;
 	}
 
 	.section-heading-split > p {
-		max-width: 560px;
-	}
-}
-
-@media (max-width: 640px) {
-	.section-heading-split {
-		gap: 30px;
-	}
-
-	.section-heading h2,
-	.story-copy h2,
-	.faq-heading h2,
-	.final-cta h2 {
-		font-size: clamp(2.5rem, 12vw, 3.5rem);
+		max-width: 35rem;
 	}
 }
 
