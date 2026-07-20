@@ -24,6 +24,28 @@ mock.module("@/components/ui/input", () => ({
 mock.module("@/components/ui/label", () => ({
 	Label: (props: ComponentProps<"label">) => <label {...props} />,
 }));
+mock.module("@/components/ui/select", () => ({
+	Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	SelectContent: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectItem: ({
+		children,
+		value,
+	}: {
+		children: ReactNode;
+		value: string;
+	}) => <div data-value={value}>{children}</div>,
+	SelectTrigger: ({
+		children,
+		...props
+	}: ComponentProps<"button">) => (
+		<button data-slot="select-trigger" {...props}>
+			{children}
+		</button>
+	),
+	SelectValue: () => <span data-slot="select-value" />,
+}));
 mock.module("@/components/ui/spinner", () => ({
 	Spinner: () => <span>Loading</span>,
 }));
@@ -57,7 +79,20 @@ test("offers every Docker database engine supported by the backend", () => {
 		/>,
 	);
 
-	expect(markup).toContain('value="postgres"');
-	expect(markup).toContain('value="redis"');
-	expect(markup).toContain('value="clickhouse"');
+	expect(markup).toContain('data-value="postgres"');
+	expect(markup).toContain('data-value="redis"');
+	expect(markup).toContain('data-value="clickhouse"');
+});
+
+test("uses the shared select component for the database engine", () => {
+	const markup = renderToStaticMarkup(
+		<CreateDatabaseDialog
+			open
+			onOpenChange={() => undefined}
+			onCreated={async () => undefined}
+		/>,
+	);
+
+	expect(markup).toContain('data-slot="select-trigger"');
+	expect(markup).not.toContain("<select");
 });

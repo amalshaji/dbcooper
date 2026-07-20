@@ -11,6 +11,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
@@ -76,23 +83,26 @@ export function CreateDatabaseDialog({
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor="docker-engine">Database</Label>
-						<select
-							id="docker-engine"
+						<Select
 							value={engine.value}
-							onChange={(event) => {
+							onValueChange={(value) => {
 								const selected = DOCKER_DATABASE_ENGINES.find(
-									(option) => option.value === event.target.value,
+									(option) => option.value === value,
 								);
 								if (selected) setEngine(selected);
 							}}
-							className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
 						>
-							{DOCKER_DATABASE_ENGINES.map((option) => (
-								<option key={option.value} value={option.value}>
-									{option.label}
-								</option>
-							))}
-						</select>
+							<SelectTrigger id="docker-engine" className="w-full">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{DOCKER_DATABASE_ENGINES.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
 					<div className="space-y-2">
 						<Label htmlFor="docker-name">Connection name</Label>
