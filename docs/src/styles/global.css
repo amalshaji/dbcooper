@@ -1,277 +1,154 @@
-@import "tailwindcss";
-@import "@fontsource/google-sans-flex";
-
-@custom-variant dark (&:where(.dark, .dark *));
-
-/* ============================================================
-   DBcooper — "Engineering Broadsheet" design system
-   Copper-on-ink. Editorial serif + monospace technical chrome.
-   ============================================================ */
+@import "@fontsource/google-sans-flex/latin.css";
 
 :root {
-  /* Warm paper neutrals (light) */
-  --paper: #f6f2ea;
-  --surface: #fdfbf6;
-  --surface-2: #efe9dd;
-  --ink: #1b1714;
-  --ink-soft: #6c6258;
-  --ink-faint: #988d80;
-  --line: rgba(27, 23, 20, 0.14);
-  --line-strong: rgba(27, 23, 20, 0.28);
-
-  /* Copper accent — the "cooper" */
-  --copper: #b65a24;
-  --copper-bright: #cf6b2c;
-  --copper-deep: #8f4419;
-  --copper-wash: rgba(182, 90, 36, 0.08);
-
-  --grid-dot: rgba(27, 23, 20, 0.10);
-
-  --font-display: "Fraunces", "Times New Roman", serif;
-  --font-body: "Google Sans Flex", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+	--bg: #02070d;
+	--bg-deep: #01050a;
+	--surface: #07111b;
+	--surface-strong: #0b1621;
+	--ink: #f4f7fb;
+	--ink-soft: #94a3b5;
+	--ink-faint: #607083;
+	--cyan: #31d6cf;
+	--cyan-bright: #72eee7;
+	--blue: #168beb;
+	--cyan-wash: rgba(49, 214, 207, 0.07);
+	--line: rgba(137, 170, 190, 0.16);
+	--line-strong: rgba(137, 170, 190, 0.3);
+	--coral: #ff765f;
+	--coral-bright: #ff9584;
+	--lime: #cbd95a;
+	--font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Google Sans Flex", "Segoe UI", sans-serif;
+	--font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Google Sans Flex", "Segoe UI", sans-serif;
+	--font-mono: ui-monospace, "SFMono-Regular", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+	--page-gutter: clamp(1rem, 4vw, 2.75rem);
+	--content-max: 80rem;
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.dark {
-  --paper: #100d0b;
-  --surface: #18130f;
-  --surface-2: #211a14;
-  --ink: #f1ece3;
-  --ink-soft: #a89c8d;
-  --ink-faint: #756b5f;
-  --line: rgba(241, 236, 227, 0.13);
-  --line-strong: rgba(241, 236, 227, 0.26);
-
-  --copper: #e08a4f;
-  --copper-bright: #f0995a;
-  --copper-deep: #c46e35;
-  --copper-wash: rgba(224, 138, 79, 0.1);
-
-  --grid-dot: rgba(241, 236, 227, 0.07);
+* {
+	box-sizing: border-box;
 }
 
 html {
-  background: var(--paper);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+	min-width: 320px;
+	background: var(--bg-deep);
+	color: var(--ink);
+	color-scheme: dark;
+	scroll-behavior: smooth;
+	scroll-padding-top: 6.5rem;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
 }
 
 body {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body);
+	min-width: 320px;
+	margin: 0;
+	overflow-x: clip;
+	background: var(--bg-deep);
+	color: var(--ink);
+	font-family: var(--font-sans);
+}
+
+h1,
+h2,
+h3 {
+	margin: 0;
+	color: var(--ink);
+	font-family: var(--font-heading);
+	text-wrap: balance;
+}
+
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+
+button {
+	font: inherit;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+img {
+	display: block;
+	max-width: 100%;
 }
 
 ::selection {
-  background: var(--copper);
-  color: var(--paper);
+	background: var(--cyan);
+	color: var(--bg-deep);
 }
 
-/* ---- Typography helpers ---- */
-.font-display {
-  font-family: var(--font-display);
-  font-optical-sizing: auto;
-  font-variation-settings: "SOFT" 0, "WONK" 0;
-}
-.font-mono {
-  font-family: var(--font-mono);
-}
-.mono-kicker {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--copper);
-  font-weight: 500;
+:focus-visible {
+	outline: 2px solid var(--cyan-bright);
+	outline-offset: 4px;
 }
 
-/* ---- Color utilities bound to tokens ---- */
-.bg-paper { background: var(--paper); }
-.bg-surface { background: var(--surface); }
-.bg-surface-2 { background: var(--surface-2); }
-.text-ink { color: var(--ink); }
-.text-soft { color: var(--ink-soft); }
-.text-faint { color: var(--ink-faint); }
-.text-copper { color: var(--copper); }
-.bg-copper { background: var(--copper); }
-.border-line { border-color: var(--line); }
-.border-line-strong { border-color: var(--line-strong); }
-
-/* ---- Graph-paper backdrop ---- */
-.grid-paper {
-  background-image:
-    radial-gradient(var(--grid-dot) 1px, transparent 1px);
-  background-size: 26px 26px;
-  background-position: -1px -1px;
-}
-.grid-paper-fade {
-  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 35%, transparent 80%);
-          mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 35%, transparent 80%);
+.site-shell {
+	width: min(calc(100% - (var(--page-gutter) * 2)), var(--content-max));
+	margin-inline: auto;
 }
 
-/* Vertical ruled margins (broadsheet) */
-.ruled {
-  position: relative;
-}
-.ruled::before,
-.ruled::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--line);
-  pointer-events: none;
-}
-.ruled::before { left: 0; }
-.ruled::after { right: 0; }
-
-/* Print-style crop / registration marks */
-.crop-mark {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  border: 0 solid var(--line-strong);
-  pointer-events: none;
-}
-.crop-tl { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
-.crop-tr { top: -1px; right: -1px; border-top-width: 1px; border-right-width: 1px; }
-.crop-bl { bottom: -1px; left: -1px; border-bottom-width: 1px; border-left-width: 1px; }
-.crop-br { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
-
-/* ---- macOS window chrome ---- */
-.win-chrome {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.04) inset,
-    0 30px 60px -20px rgba(27,23,20,0.35),
-    0 8px 20px -12px rgba(27,23,20,0.3);
-  overflow: hidden;
-}
-.win-bar {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface-2);
-}
-.win-dot { width: 11px; height: 11px; border-radius: 50%; }
-
-/* ---- Copper button ---- */
-.btn-copper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  background: var(--copper);
-  color: #fff;
-  font-weight: 600;
-  font-size: 0.9rem;
-  padding: 0.7rem 1.3rem;
-  border-radius: 9px;
-  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 8px 20px -8px var(--copper);
-  transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.18s, background 0.18s;
-}
-.btn-copper:hover {
-  background: var(--copper-bright);
-  transform: translateY(-2px);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset, 0 14px 28px -8px var(--copper);
-}
-.btn-copper:active { transform: translateY(0); }
-
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--ink-soft);
-  padding: 0.65rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  transition: color 0.18s, border-color 0.18s, background 0.18s;
-}
-.btn-ghost:hover {
-  color: var(--ink);
-  border-color: var(--line-strong);
-  background: var(--surface);
+.rail-label {
+	color: var(--cyan);
+	font-family: var(--font-mono);
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
 }
 
-/* Blinking caret */
-.caret {
-  display: inline-block;
-  width: 0.6ch;
-  height: 1em;
-  background: var(--copper);
-  margin-left: 0.12em;
-  transform: translateY(0.12em);
-  animation: blink 1.1s steps(1) infinite;
+.section-heading {
+	margin-bottom: clamp(2.75rem, 6vw, 4.75rem);
 }
-@keyframes blink { 50% { opacity: 0; } }
 
-/* ---- Load-in stagger ---- */
-@keyframes rise {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
+.section-heading-split {
+	display: grid;
+	align-items: end;
+	grid-template-columns: minmax(0, 1fr) minmax(17.5rem, 26.875rem);
+	gap: 3rem;
 }
-.rise { opacity: 0; animation: rise 0.7s cubic-bezier(0.22,1,0.36,1) forwards; }
-.d1 { animation-delay: 0.05s; }
-.d2 { animation-delay: 0.15s; }
-.d3 { animation-delay: 0.25s; }
-.d4 { animation-delay: 0.35s; }
-.d5 { animation-delay: 0.45s; }
-.d6 { animation-delay: 0.55s; }
+
+.section-heading h2,
+.faq-heading h2 {
+	font-size: clamp(2.5rem, 4.8vw, 4.5rem);
+	font-weight: 650;
+	letter-spacing: -0.055em;
+	line-height: 0.98;
+}
+
+.section-heading-split > p {
+	margin: 0 0 0.25rem;
+	color: var(--ink-soft);
+	font-size: 0.95rem;
+	line-height: 1.7;
+}
+
+@media (max-width: 56rem) {
+	.section-heading-split {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 1.5rem;
+	}
+
+	.section-heading-split > p {
+		max-width: 35rem;
+	}
+}
 
 @media (prefers-reduced-motion: reduce) {
-  .rise { animation: none; opacity: 1; }
-  .caret { animation: none; }
-}
+	html {
+		scroll-behavior: auto;
+	}
 
-/* ---- Spec-sheet feature row hover ---- */
-.spec-row {
-  transition: background 0.2s, padding-left 0.2s;
-}
-.spec-row:hover {
-  background: var(--copper-wash);
-}
-
-/* ============================================================
-   react-slick — copper dots, flush layout
-   ============================================================ */
-.slick-slider { margin-bottom: 0 !important; }
-.slick-list { margin: 0 !important; padding: 0 !important; }
-.slick-slide > div { line-height: 0; }
-
-.slick-dots {
-  bottom: 12px !important;
-  position: absolute !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  display: flex !important;
-  justify-content: center;
-  gap: 2px;
-}
-.slick-dots li {
-  width: auto !important;
-  height: auto !important;
-  margin: 0 !important;
-}
-.slick-dots li button { padding: 6px !important; }
-.slick-dots li button:before {
-  content: "" !important;
-  width: 22px !important;
-  height: 3px !important;
-  border-radius: 2px !important;
-  background: rgba(255, 255, 255, 0.45) !important;
-  opacity: 1 !important;
-  transition: background 0.2s, width 0.2s !important;
-  position: static !important;
-}
-.slick-dots li.slick-active button:before {
-  background: var(--copper) !important;
-  width: 30px !important;
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+	}
 }

@@ -1,9 +1,11 @@
-use crate::database::query_returns_rows;
+use crate::database::filter::{classify_column_type, FilterDialect};
+use crate::database::{query_returns_rows, MAX_QUERY_RESULT_ROWS};
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
 };
 use crate::ssh_tunnel::{SshAuth, SshTunnel};
+use futures_util::{StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Column, Row, TypeInfo};
@@ -421,6 +423,7 @@ pub async fn get_table_structure(
             .map(
                 |(name, data_type, nullable, default, primary_key)| ColumnInfo {
                     name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Postgres),
                     data_type,
                     nullable,
                     default,
@@ -478,6 +481,7 @@ pub async fn execute_query(
                 Ok(QueryResult {
                     data: vec![],
                     row_count: rows_affected as i64,
+                    truncated: false,
                     rows_affected: Some(rows_affected),
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -488,6 +492,7 @@ pub async fn execute_query(
                 Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e.to_string()),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -496,11 +501,17 @@ pub async fn execute_query(
         };
     }
 
-    match sqlx::query(&query).fetch_all(&pool).await {
+    match sqlx::query(&query)
+        .fetch(&pool)
+        .take(MAX_QUERY_RESULT_ROWS + 1)
+        .try_collect::<Vec<_>>()
+        .await
+    {
         Ok(rows) => {
             pool.close().await;
             let data: Vec<Value> = rows
                 .iter()
+                .take(MAX_QUERY_RESULT_ROWS)
                 .map(|row| {
                     let mut obj = serde_json::Map::new();
                     for (i, col) in row.columns().iter().enumerate() {
@@ -576,6 +587,7 @@ pub async fn execute_query(
             Ok(QueryResult {
                 data,
                 row_count,
+                truncated: rows.len() > MAX_QUERY_RESULT_ROWS,
                 rows_affected: None,
                 error: None,
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -586,6 +598,7 @@ pub async fn execute_query(
             Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                truncated: false,
                 rows_affected: None,
                 error: Some(e.to_string()),
                 time_taken_ms: Some(start_time.elapsed().as_millis()),

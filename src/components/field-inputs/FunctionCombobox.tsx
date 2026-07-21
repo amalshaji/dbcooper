@@ -6,7 +6,6 @@ import {
 	ComboboxItem,
 } from "@/components/ui/combobox";
 import { Code } from "@phosphor-icons/react";
-import { isSqlFunction } from "@/lib/sqlFunctions";
 
 interface FunctionComboboxProps {
 	value: string;
@@ -35,14 +34,9 @@ export function FunctionCombobox({
 		onValueChange(newValue, isFunction);
 	};
 
-	const handleSelectFromDropdown = (newValue: string) => {
+	const handleSelectFromDropdown = (newValue: string | null) => {
 		// When selecting from dropdown, it's definitely a function
 		if (!newValue) return;
-		// Ensure we're passing the selected value, not something else
-		if (typeof newValue !== "string") {
-			console.warn("FunctionCombobox: Received non-string value from dropdown", newValue);
-			return;
-		}
 		onValueChange(newValue, true);
 	};
 

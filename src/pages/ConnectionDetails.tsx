@@ -1,4 +1,12 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import {
+	lazy,
+	Suspense,
+	useEffect,
+	useState,
+	useMemo,
+	useCallback,
+	useRef,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
@@ -30,8 +38,10 @@ import {
 	type QueryHistory,
 	type RedisKeyDetails,
 	type RedisKeyInfo,
+	type TableInfo,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
@@ -122,7 +132,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
-import { useAIGeneration } from "@/hooks/useAIGeneration";
+import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
+import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
@@ -131,10 +142,9 @@ import { ExpandableText } from "@/components/ExpandableText";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
+import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
-import { handleDragStart } from "@/lib/windowDrag";
-import { SchemaVisualizer } from "@/components/SchemaVisualizer";
 import { CommandPalette } from "@/components/CommandPalette";
 import {
 	getStatementAtCursor,
@@ -142,6 +152,17 @@ import {
 } from "@/lib/sqlParser";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { getCreateTableDbType } from "@/lib/databaseCatalog";
+import {
+	createCellFilter,
+	getFilterRequest,
+} from "@/lib/resultFilters";
+
+const SchemaVisualizer = lazy(() =>
+	import("@/components/SchemaVisualizer").then((module) => ({
+		default: module.SchemaVisualizer,
+	})),
+);
 
 type LoadingPhase =
 	| "fetching-config"
@@ -180,7 +201,11 @@ function stripLeadingSqlComments(query: string): string {
 
 function isWrappableQuery(query: string): boolean {
 	const sql = stripLeadingSqlComments(query).toUpperCase();
-	return sql.startsWith("SELECT") || sql.startsWith("WITH") || sql.startsWith("VALUES");
+	return (
+		sql.startsWith("SELECT") ||
+		sql.startsWith("WITH") ||
+		sql.startsWith("VALUES")
+	);
 }
 
 function quoteResultColumn(column: string, dbType?: string): string {
@@ -259,38 +284,42 @@ function ContentHeader({
 
 	return (
 		<header
-			onMouseDown={handleDragStart}
-			className={`flex h-12 shrink-0 items-center gap-2 border-b px-4 bg-background sticky top-0 z-20 select-none ${
+			data-tauri-drag-region
+			className={`app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center gap-2 border-b px-4 ${
 				isCollapsed ? "pl-20" : ""
 			}`}
 		>
 			<SidebarTrigger className="-ml-1" />
-			<div className="flex items-center gap-2 flex-1">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={() => navigate("/")}
-					className="gap-2"
-				>
-					<X className="w-4 h-4" />
-					Close Connection
+			<div className="flex flex-1 items-center gap-2">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+					<X className="size-4" />
+					Close connection
 				</Button>
 			</div>
-			<div className="flex items-center gap-3">
+			<div className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="capitalize">
+				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
 					{connection.type}
 				</Badge>
-				<Badge variant={connection.ssl ? "default" : "secondary"}>
+				<Badge
+					variant={connection.ssl ? "default" : "secondary"}
+					className="h-5 px-2 text-[10px]"
+				>
 					SSL: {connection.ssl ? "Yes" : "No"}
 				</Badge>
-				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
-					<Gear className="w-4 h-4" />
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onClick={onOpenSettings}
+					aria-label="Open connection settings"
+					title="Connection settings"
+				>
+					<Gear className="size-4" />
 				</Button>
 			</div>
 		</header>
@@ -315,36 +344,37 @@ function RedisContentHeader({
 }) {
 	return (
 		<header
-			onMouseDown={handleDragStart}
-			className="flex h-12 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
+			data-tauri-drag-region
+			className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b pl-20 pr-4"
 		>
-			<div className="flex items-center gap-2 flex-1 ml-4">
-				<Button
-					variant="ghost"
-					size="sm"
-					onClick={() => navigate("/")}
-					className="gap-2"
-				>
-					<X className="w-4 h-4" />
-					Close Connection
+			<div className="ml-4 flex flex-1 items-center gap-2">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
+					<X className="size-4" />
+					Close connection
 				</Button>
-				<span className="font-semibold">{connection.name}</span>
-				<span className="text-muted-foreground text-sm">
+				<span className="text-sm font-semibold">{connection.name}</span>
+				<span className="text-xs text-muted-foreground">
 					{connection.host}:{connection.port}
 				</span>
 			</div>
-			<div className="flex items-center gap-3">
+			<div className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="capitalize">
+				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
 					{connection.type}
 				</Badge>
-				<Button variant="ghost" size="icon-sm" onClick={onOpenSettings}>
-					<Gear className="w-4 h-4" />
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					onClick={onOpenSettings}
+					aria-label="Open connection settings"
+					title="Connection settings"
+				>
+					<Gear className="size-4" />
 				</Button>
 			</div>
 		</header>
@@ -416,9 +446,8 @@ export function ConnectionDetails() {
 	const [redisPattern, setRedisPattern] = useState("*");
 	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
 	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-	const [redisKeyDetails, setRedisKeyDetails] = useState<RedisKeyDetails | null>(
-		null,
-	);
+	const [redisKeyDetails, setRedisKeyDetails] =
+		useState<RedisKeyDetails | null>(null);
 	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
 	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
 	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
@@ -474,11 +503,10 @@ export function ConnectionDetails() {
 					// Append new keys as they stream in
 					if (event.payload.keys.length > 0) {
 						setRedisKeys((prev) => {
-							const newKeys = event.payload.keys.map((key) => ({
+							const newKeys: RedisKeyInfo[] = event.payload.keys.map((key) => ({
 								key,
 								key_type: "",
 								ttl: -2,
-								size: null,
 							}));
 							return [...(prev || []), ...newKeys];
 						});
@@ -514,8 +542,13 @@ export function ConnectionDetails() {
 	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
 
 	// AI generation
-	const [isAiGenerating, setIsAiGenerating] = useState(false);
-	const { generateSQL, isConfigured: aiConfigured } = useAIGeneration();
+	const { generateDraft, isConfigured: aiConfigured } =
+		useContextualSqlGeneration({
+			dbType: connection?.db_type,
+			tables,
+			tableColumns,
+			schemaOverview,
+		});
 
 	// Row edit state
 	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
@@ -561,12 +594,19 @@ export function ConnectionDetails() {
 
 	const objectSchemaCount = useMemo(() => {
 		const schemaNames = new Set<string>();
-		tables.forEach((table) => schemaNames.add(table.schema));
+		tables.forEach((table) => {
+			schemaNames.add(table.schema);
+		});
 		schemaOverview?.functions.forEach((functionSummary) => {
 			schemaNames.add(functionSummary.schema);
 		});
 		return schemaNames.size;
 	}, [tables, schemaOverview]);
+
+	const createTableDbType =
+		connection?.type === "postgres" || connection?.type === "sqlite"
+			? getCreateTableDbType(connection.db_type)
+			: null;
 
 	useEffect(() => {
 		const fetchConnection = async () => {
@@ -665,12 +705,14 @@ export function ConnectionDetails() {
 			!hasStartedLoading.current;
 
 		if (!shouldStartLoading) return;
+		if (!uuid) return;
 
 		hasStartedLoading.current = true;
+		const connectionUuid = uuid;
 
 		const loadData = async () => {
 			try {
-				const connectResult = await api.pool.connect(uuid!);
+				const connectResult = await api.pool.connect(connectionUuid);
 
 				if (connectResult.status === "connected") {
 					markConnected();
@@ -703,7 +745,7 @@ export function ConnectionDetails() {
 		});
 		// Only depend on connection and loadingPhase, not the callbacks
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [connection, loadingPhase]);
+	}, [connection, loadingPhase, uuid]);
 
 	useEffect(() => {
 		const fetchSavedQueries = async () => {
@@ -785,13 +827,15 @@ export function ConnectionDetails() {
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
+				const filterRequest = getFilterRequest(tab.filterState.applied);
 				const data = await api.pool.getTableData(
 					uuid,
 					schema,
 					tableName,
 					tab.currentPage,
 					100,
-					tab.filter || undefined,
+					filterRequest.filter,
+					filterRequest.structuredFilter,
 					tab.sort?.column,
 					tab.sort?.direction,
 				);
@@ -809,6 +853,23 @@ export function ConnectionDetails() {
 		},
 		[uuid, updateTab],
 	);
+	const activeTableDataTab =
+		activeTab?.type === "table-data" ? activeTab : null;
+	const updateTableDataTab = useCallback(
+		(id: string, updates: Partial<TableDataTab>) =>
+			updateTab<TableDataTab>(id, updates),
+		[updateTab],
+	);
+	const {
+		setFilterState: handleTableFilterStateChange,
+		applyFilter: handleApplyFilter,
+		clearFilter: clearTableFilter,
+		filterCell: handleCellFilter,
+	} = useTableDataFilters({
+		tab: activeTableDataTab,
+		updateTab: updateTableDataTab,
+		fetchTableData,
+	});
 
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
@@ -950,16 +1011,25 @@ export function ConnectionDetails() {
 		[tabs, fetchTableData, fetchForeignKeys],
 	);
 
+	const handleTableCreated = useCallback(
+		(table: TableInfo) => {
+			const fullTableName = `${table.schema}.${table.name}`;
+			toast.success(`Created ${fullTableName}`);
+			handleOpenTableData(fullTableName);
+			void fetchSchemaOverviewData();
+		},
+		[fetchSchemaOverviewData, handleOpenTableData],
+	);
+
 	const handleOpenTableDataWithFilter = useCallback(
 		(tableName: string, filterColumn: string, filterValue: unknown) => {
-			const filterStr =
-				typeof filterValue === "string"
-					? `${filterColumn} = '${filterValue}'`
-					: `${filterColumn} = ${filterValue}`;
-
 			const newTab = createTableDataTab(tableName);
-			newTab.filter = filterStr;
-			newTab.filterInput = filterStr;
+			const condition = createCellFilter(filterColumn, filterValue, false);
+			const filter = {
+				kind: "structured" as const,
+				value: { conjunction: "and" as const, conditions: [condition] },
+			};
+			newTab.filterState = { draft: filter, applied: filter };
 
 			setTabs((prev) => [...prev, newTab]);
 			setActiveTabId(newTab.id);
@@ -1080,7 +1150,13 @@ export function ConnectionDetails() {
 			});
 			throw new Error(message);
 		}
-	}, [uuid, connection?.type, fetchSchemaOverviewData, markConnected, markDisconnected]);
+	}, [
+		uuid,
+		connection?.type,
+		fetchSchemaOverviewData,
+		markConnected,
+		markDisconnected,
+	]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -1104,6 +1180,39 @@ export function ConnectionDetails() {
 
 	const handleTabSelect = useCallback((tabId: string) => {
 		setActiveTabId(tabId);
+	}, []);
+
+	// Cmd/Ctrl+W is wired to a native "Close Tab" menu item that emits
+	// "menu:close-tab". Closing the active tab here (instead of letting the
+	// native menu close the window) fixes the whole app closing on tab close
+	// (issue #66). When no tab is open, fall back to closing the window.
+	const closeActiveTabRef = useRef<() => void>(() => {});
+	closeActiveTabRef.current = () => {
+		if (activeTabId) {
+			handleCloseTab(activeTabId);
+		} else {
+			getCurrentWindow().close();
+		}
+	};
+
+	useEffect(() => {
+		let isMounted = true;
+		let unlisten: (() => void) | undefined;
+
+		listen("menu:close-tab", () => {
+			closeActiveTabRef.current();
+		}).then((fn) => {
+			if (isMounted) {
+				unlisten = fn;
+			} else {
+				fn();
+			}
+		});
+
+		return () => {
+			isMounted = false;
+			unlisten?.();
+		};
 	}, []);
 
 	const handleRefreshTables = async () => {
@@ -1138,24 +1247,6 @@ export function ConnectionDetails() {
 		},
 		[activeTab, updateTab, fetchTableData],
 	);
-
-	const handleFilterInputChange = useCallback(
-		(value: string) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			updateTab<TableDataTab>(activeTab.id, { filterInput: value });
-		},
-		[activeTab, updateTab],
-	);
-
-	const handleApplyFilter = useCallback(() => {
-		if (!activeTab || activeTab.type !== "table-data") return;
-		const tab = activeTab as TableDataTab;
-		updateTab<TableDataTab>(tab.id, {
-			filter: tab.filterInput,
-			currentPage: 1,
-		});
-		fetchTableData({ ...tab, filter: tab.filterInput, currentPage: 1 });
-	}, [activeTab, updateTab, fetchTableData]);
 
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
@@ -1238,13 +1329,7 @@ export function ConnectionDetails() {
 		if (!activeTab) return;
 
 		if (activeTab.type === "table-data") {
-			const tab = activeTab as TableDataTab;
-			updateTab<TableDataTab>(tab.id, {
-				filter: "",
-				filterInput: "",
-				currentPage: 1,
-			});
-			fetchTableData({ ...tab, filter: "", currentPage: 1 });
+			clearTableFilter();
 			return;
 		}
 
@@ -1258,7 +1343,7 @@ export function ConnectionDetails() {
 			});
 			void runQueryResultViewQuery(tab, "", tab.sort);
 		}
-	}, [activeTab, updateTab, fetchTableData, runQueryResultViewQuery]);
+	}, [activeTab, updateTab, clearTableFilter, runQueryResultViewQuery]);
 
 	const handleSortChange = useCallback(
 		(sort: { column: string; direction: "asc" | "desc" } | null) => {
@@ -1352,6 +1437,11 @@ export function ConnectionDetails() {
 
 		try {
 			const result = await api.pool.executeQuery(uuid, queryToRun);
+			if (result.truncated) {
+				toast.warning("Result limited to 10,000 rows", {
+					description: "Refine the query to load a smaller result window.",
+				});
+			}
 
 			// Use backend timing if available, otherwise use 0
 			const executionTime = result.time_taken_ms ?? 0;
@@ -1437,6 +1527,11 @@ export function ConnectionDetails() {
 				if (!queryToRun) continue;
 
 				const result = await api.pool.executeQuery(uuid, queryToRun);
+				if (result.truncated) {
+					toast.warning("Result limited to 10,000 rows", {
+						description: "Refine the query to load a smaller result window.",
+					});
+				}
 				totalTime += result.time_taken_ms ?? 0;
 
 				if (result.error) {
@@ -1791,12 +1886,7 @@ export function ConnectionDetails() {
 		} finally {
 			setSavingInlineEdits(false);
 		}
-	}, [
-		connection,
-		activeTab,
-		pendingInlineEditsByTab,
-		fetchTableData,
-	]);
+	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
 		if (!activeTab || activeTab.type !== "table-data") return;
@@ -2039,12 +2129,10 @@ export function ConnectionDetails() {
 				return;
 			}
 
-			// Cmd+W - Close Tab
-			if (e.key === "w" && (e.metaKey || e.ctrlKey) && activeTabId) {
-				e.preventDefault();
-				handleCloseTab(activeTabId);
-				return;
-			}
+			// Cmd+W (Close Tab) is owned by the native menu accelerator, which
+			// emits "menu:close-tab" to the frontend (see the listener below).
+			// Handling it here too would double-close tabs on platforms where
+			// the webview also receives the key event.
 
 			// Cmd+] - Next Tab
 			if (e.key === "]" && (e.metaKey || e.ctrlKey) && tabs.length > 1) {
@@ -2111,7 +2199,7 @@ export function ConnectionDetails() {
 				e.key === "x" &&
 				(e.metaKey || e.ctrlKey) &&
 				e.shiftKey &&
-				((activeTab?.type === "table-data" && activeTab.filter) ||
+				((activeTab?.type === "table-data" && activeTab.filterState.applied) ||
 					(activeTab?.type === "query" && activeTab.filter))
 			) {
 				e.preventDefault();
@@ -2166,11 +2254,9 @@ export function ConnectionDetails() {
 		return () => document.removeEventListener("keydown", handleKeyDown);
 	}, [
 		activeTab,
-		activeTabId,
 		tabs,
 		connection,
 		handleNewQuery,
-		handleCloseTab,
 		handleNextTab,
 		handlePreviousTab,
 		handleToggleSidebar,
@@ -2242,10 +2328,7 @@ export function ConnectionDetails() {
 					const content =
 						cellContent ??
 						(fkInfo && value !== null ? (
-							<span
-								className="group/fk flex items-center"
-								title={rawValue}
-							>
+							<span className="group/fk flex items-center" title={rawValue}>
 								<span className="truncate">{displayValue}</span>
 								<button
 									type="button"
@@ -2330,15 +2413,15 @@ export function ConnectionDetails() {
 		if (!connection) return null;
 		switch (connection.type) {
 			case "postgres":
-				return <PostgresqlIcon className="h-16 w-16" />;
+				return <PostgresqlIcon className="size-8" />;
 			case "sqlite":
-				return <SqliteIcon className="h-16 w-16" />;
+				return <SqliteIcon className="size-8" />;
 			case "redis":
-				return <RedisIcon className="h-16 w-16" />;
+				return <RedisIcon className="size-8" />;
 			case "clickhouse":
-				return <ClickhouseIcon className="h-16 w-16" />;
+				return <ClickhouseIcon className="size-8" />;
 			default:
-				return <Database className="h-16 w-16" />;
+				return <Database className="size-8" />;
 		}
 	};
 
@@ -2381,10 +2464,20 @@ export function ConnectionDetails() {
 
 	if (loadingPhase !== "complete" || connection === null) {
 		return (
-			<div className="flex h-screen items-center justify-center bg-background">
-				<div className="flex items-center gap-8">
-					<div className="animate-pulse shrink-0">{getDatabaseIcon()}</div>
-					<div className="flex flex-col gap-3 min-w-[280px]">
+			<div className="workspace-canvas flex h-screen items-center justify-center p-6">
+				<div className="workspace-panel w-full max-w-sm rounded-xl border p-5 shadow-sm">
+					<div className="mb-4 flex items-center border-b pb-4">
+						<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+							{getDatabaseIcon() ?? <Database className="size-5" />}
+						</div>
+						<div className="ml-3 min-w-0">
+							<p className="section-label">Opening workspace</p>
+							<p className="mt-0.5 truncate text-sm font-semibold">
+								{connection?.name ?? "Database connection"}
+							</p>
+						</div>
+					</div>
+					<div className="flex min-w-0 flex-col gap-2.5">
 						{loadingPhases.map((phaseInfo) => {
 							const status = getPhaseStatus(phaseInfo.phase);
 							// Show connection status for the connecting phase
@@ -2396,28 +2489,28 @@ export function ConnectionDetails() {
 
 							return (
 								<div key={phaseInfo.phase} className="flex items-center gap-3">
-									<div className="w-5 h-5 flex items-center justify-center shrink-0">
+									<div className="flex size-5 shrink-0 items-center justify-center">
 										{status === "complete" ? (
-											<Check className="w-5 h-5 text-green-600" />
+											<Check className="size-4 text-emerald-600" />
 										) : status === "active" ? (
 											showConnectionStatus &&
 											connectionStatus === "disconnected" ? (
-												<X className="w-4 h-4 text-red-600" />
+												<X className="size-4 text-destructive" />
 											) : (
-												<Spinner className="w-4 h-4" />
+												<Spinner className="size-4" />
 											)
 										) : (
-											<div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
+											<div className="size-1.5 rounded-full bg-muted-foreground/30" />
 										)}
 									</div>
 									<span
-										className={`text-sm flex-1 ${
+										className={`flex-1 text-xs ${
 											status === "complete"
 												? "text-muted-foreground"
 												: status === "active"
 													? showConnectionStatus &&
 														connectionStatus === "disconnected"
-														? "text-red-600 font-medium"
+														? "font-medium text-destructive"
 														: "text-foreground font-medium"
 													: "text-muted-foreground/50"
 										}`}
@@ -2442,157 +2535,135 @@ export function ConnectionDetails() {
 		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
 
 		return (
-			<Card>
-			<CardHeader>
-				<div className="flex items-center justify-between">
-					<div>
-						<CardTitle>{tab.tableName}</CardTitle>
-						<CardDescription>
-							{tab.data &&
-								(() => {
-									const start = (tab.currentPage - 1) * 100 + 1;
-									const end = Math.min(tab.currentPage * 100, tab.data.total);
-									return `Showing ${start}-${end} of ${tab.data.total} records`;
-								})()}
-						</CardDescription>
+			<Card className="workspace-panel">
+				<CardHeader>
+					<div className="flex items-center justify-between">
+						<div>
+							<CardTitle>{tab.tableName}</CardTitle>
+							<CardDescription>
+								{tab.data &&
+									(() => {
+										const start = (tab.currentPage - 1) * 100 + 1;
+										const end = Math.min(tab.currentPage * 100, tab.data.total);
+										return `Showing ${start}-${end} of ${tab.data.total} records`;
+									})()}
+							</CardDescription>
+						</div>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="default"
+								size="sm"
+								onClick={() => setRowInsertSheetOpen(true)}
+								disabled={tab.loading}
+							>
+								<Plus className="w-4 h-4" />
+								Add Row
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleRefreshTableData}
+								disabled={tab.loading}
+							>
+								{tab.loading ? (
+									<Spinner />
+								) : (
+									<ArrowsClockwise className="w-4 h-4" />
+								)}
+								Refresh Data
+							</Button>
+						</div>
 					</div>
-					<div className="flex items-center gap-2">
-						<Button
-							variant="default"
-							size="sm"
-							onClick={() => setRowInsertSheetOpen(true)}
-							disabled={tab.loading}
-						>
-							<Plus className="w-4 h-4" />
-							Add Row
-						</Button>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleRefreshTableData}
-							disabled={tab.loading}
-						>
-							{tab.loading ? (
-								<Spinner />
-							) : (
-								<ArrowsClockwise className="w-4 h-4" />
-							)}
-							Refresh Data
-						</Button>
-					</div>
-				</div>
-			</CardHeader>
-			{hasPendingInlineChanges && (
-				<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-					<span className="text-xs font-medium text-foreground">
-						Unsaved changes
-					</span>
-					<div className="flex items-center gap-2">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleDiscardInlineChanges}
-							disabled={savingInlineEdits || tab.loading}
-						>
-							<X className="w-4 h-4" />
-							Discard
-						</Button>
-						<Button
-							size="sm"
-							onClick={() => void handleSaveInlineChanges()}
-							disabled={savingInlineEdits || tab.loading}
-						>
-							{savingInlineEdits ? (
-								<Spinner />
-							) : (
-								<FloppyDisk className="w-4 h-4" />
-							)}
-							Commit
-						</Button>
-					</div>
-				</div>
-			)}
-			<div className="px-6 pb-4">
-				<div className="flex items-center gap-2">
-					<Input
-						placeholder="Filter: e.g. id = 1 AND status = 'active'"
-						value={tab.filterInput}
-						onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-							handleFilterInputChange(e.target.value)
-						}
-						onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-							if (e.key === "Enter") {
-								handleApplyFilter();
-							}
-						}}
-						className="flex-1 font-mono text-xs"
-					/>
-					{tab.filter && (
-						<Button
-							size="sm"
-							variant="outline"
-							onClick={handleClearFilter}
-							disabled={tab.loading}
-						>
-							Clear
-						</Button>
-					)}
-				</div>
-				{tab.filter && (
-					<div className="mt-2 text-xs text-muted-foreground">
-						Active filter:{" "}
-						<code className="bg-muted px-1 py-0.5 rounded">{tab.filter}</code>
+				</CardHeader>
+				{hasPendingInlineChanges && (
+					<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+						<span className="text-xs font-medium text-foreground">
+							Unsaved changes
+						</span>
+						<div className="flex items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={handleDiscardInlineChanges}
+								disabled={savingInlineEdits || tab.loading}
+							>
+								<X className="w-4 h-4" />
+								Discard
+							</Button>
+							<Button
+								size="sm"
+								onClick={() => void handleSaveInlineChanges()}
+								disabled={savingInlineEdits || tab.loading}
+							>
+								{savingInlineEdits ? (
+									<Spinner />
+								) : (
+									<FloppyDisk className="w-4 h-4" />
+								)}
+								Commit
+							</Button>
+						</div>
 					</div>
 				)}
-			</div>
-			<CardContent className="max-h-[65vh] flex flex-col">
-				{tab.loading ? (
-					<div className="space-y-3 h-full overflow-auto">
-						<div className="flex items-center gap-2">
-							{[...Array(5)].map((_, i) => (
-								<Skeleton key={i} className="h-8 flex-1 rounded" />
-							))}
-						</div>
-						{[...Array(20)].map((_, rowIndex) => (
-							<div key={rowIndex} className="flex items-center gap-2">
-								{[...Array(5)].map((_, colIndex) => (
-									<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+				<TableFilterBar
+					state={tab.filterState}
+					columns={tab.columns}
+					loading={tab.loading}
+					onStateChange={handleTableFilterStateChange}
+					onApply={handleApplyFilter}
+					onClear={handleClearFilter}
+				/>
+				<CardContent className="max-h-[65vh] flex flex-col">
+					{tab.loading ? (
+						<div className="space-y-3 h-full overflow-auto">
+							<div className="flex items-center gap-2">
+								{[...Array(5)].map((_, i) => (
+									<Skeleton key={i} className="h-8 flex-1 rounded" />
 								))}
 							</div>
-						))}
-					</div>
-				) : tab.data && tab.data.data.length > 0 ? (
-					<div className="h-[65vh] overflow-hidden">
-						<DataTable
-							data={tab.data.data}
-							columns={tableDataColumns}
-							pageCount={tableDataPageCount}
-							currentPage={tab.currentPage}
-							onPageChange={handlePageChange}
-							onRowClick={handleRowClick}
-							virtualize={tab.data.data.length > 100}
-							sortable
-							sort={tab.sort}
-							onSortChange={handleSortChange}
-							isRowHighlighted={(row) =>
-								highlightedTableRow?.tableName === tab.tableName &&
-								getPrimaryKeyRowKey(row, tab.columns) ===
-									highlightedTableRow.rowKey
-							}
-						/>
-					</div>
-				) : (
-					<p className="text-muted-foreground text-center py-8">
-						No data found in this table.
-					</p>
-				)}
-			</CardContent>
-		</Card>
+							{[...Array(20)].map((_, rowIndex) => (
+								<div key={rowIndex} className="flex items-center gap-2">
+									{[...Array(5)].map((_, colIndex) => (
+										<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
+									))}
+								</div>
+							))}
+						</div>
+					) : tab.data && tab.data.data.length > 0 ? (
+						<div className="h-[65vh] overflow-hidden">
+							<DataTable
+								data={tab.data.data}
+								columns={tableDataColumns}
+								pageCount={tableDataPageCount}
+								currentPage={tab.currentPage}
+								onPageChange={handlePageChange}
+								onRowClick={handleRowClick}
+								virtualize
+								onCellFilter={handleCellFilter}
+								sortable
+								sort={tab.sort}
+								onSortChange={handleSortChange}
+								isRowHighlighted={(row) =>
+									highlightedTableRow?.tableName === tab.tableName &&
+									getPrimaryKeyRowKey(row, tab.columns) ===
+										highlightedTableRow.rowKey
+								}
+							/>
+						</div>
+					) : (
+						<div className="flex min-h-40 items-center justify-center px-4 text-center">
+							<p className="text-sm text-muted-foreground">
+								No rows found in this table.
+							</p>
+						</div>
+					)}
+				</CardContent>
+			</Card>
 		);
 	};
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
-		<Card>
+		<Card className="workspace-panel">
 			<CardHeader>
 				<div className="flex items-center justify-between">
 					<div>
@@ -2804,9 +2875,9 @@ export function ConnectionDetails() {
 		const trimmedError = errorMessage.trimEnd();
 
 		return (
-			<div className="rounded-md bg-destructive/10 border border-destructive/20 p-4">
+			<div className="rounded-md border border-destructive/20 bg-destructive/10 p-4">
 				<div className="flex items-start justify-between">
-					<p className="text-sm text-destructive font-medium">Query Error</p>
+					<p className="text-sm font-medium text-destructive">Query error</p>
 					<Button
 						variant="ghost"
 						size="sm"
@@ -2827,12 +2898,12 @@ export function ConnectionDetails() {
 	};
 
 	const renderQueryContent = (tab: QueryTab) => (
-		<div className="space-y-4">
-			<Card>
-				<CardHeader>
+		<div className="space-y-3">
+			<Card className="workspace-panel gap-2">
+				<CardHeader className="pb-0 pt-4">
 					<div className="flex items-center justify-between">
 						<div>
-							<CardTitle>SQL Editor</CardTitle>
+							<CardTitle>SQL editor</CardTitle>
 							<CardDescription>Write and execute SQL queries</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
@@ -2919,7 +2990,7 @@ export function ConnectionDetails() {
 										disabled={!tab.query.trim()}
 									>
 										<FloppyDisk className="w-4 h-4" />
-										Save Query
+										Save query
 									</Button>
 									<div className="flex">
 										<Button
@@ -2929,7 +3000,7 @@ export function ConnectionDetails() {
 											className="rounded-r-none border-r-0 -mr-1"
 										>
 											{tab.executing ? <Spinner /> : null}
-											Run Query{" "}
+											Run query{" "}
 											<span className="text-xs opacity-60">
 												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
 												+↵)
@@ -2950,7 +3021,7 @@ export function ConnectionDetails() {
 											<DropdownMenuContent align="end">
 												<DropdownMenuItem onClick={handleRunAllQueries}>
 													<PlayCircle className="w-4 h-4" />
-													Run All Queries
+													Run all queries
 												</DropdownMenuItem>
 											</DropdownMenuContent>
 										</DropdownMenu>
@@ -2972,66 +3043,7 @@ export function ConnectionDetails() {
 							name: t.name,
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
-						onGenerateSQL={async (instruction, existingSQL) => {
-							setIsAiGenerating(true);
-							try {
-								// Use AI to select relevant tables
-								console.log(
-									`[AI] Selecting relevant tables from ${tables.length} available...`,
-								);
-								const selectedTableNames = await api.ai.selectTablesForQuery(
-									instruction,
-									tables.map((t) => ({ schema: t.schema, name: t.name })),
-								);
-								console.log(
-									`[AI] Selected ${selectedTableNames.length} tables:`,
-									selectedTableNames,
-								);
-
-								// Parse selected table names (format: "schema.table")
-								const selectedTables = tables.filter((t) =>
-									selectedTableNames.includes(`${t.schema}.${t.name}`),
-								);
-
-								// Use schema overview if available, otherwise use tableColumns cache
-								const columnsToUse = { ...tableColumns };
-
-								if (schemaOverview) {
-									schemaOverview.tables.forEach((table) => {
-										const fullName = `${table.schema}.${table.name}`;
-										if (selectedTableNames.includes(fullName)) {
-											columnsToUse[fullName] = table.columns;
-										}
-									});
-								}
-
-								// Use the columns for generation
-								let accumulatedSQL = "";
-								await generateSQL(
-									connection.db_type || "postgres",
-									instruction,
-									existingSQL,
-									selectedTables.map((t) => ({
-										schema: t.schema,
-										name: t.name,
-										columns: columnsToUse[`${t.schema}.${t.name}`] || [],
-									})),
-									(chunk) => {
-										accumulatedSQL += chunk;
-										handleQueryChange(accumulatedSQL);
-									},
-								);
-							} catch (error) {
-								console.error("AI generation error:", error);
-								toast.error("AI generation failed", {
-									description:
-										error instanceof Error ? error.message : String(error),
-								});
-							} finally {
-								setIsAiGenerating(false);
-							}
-						}}
-						generating={isAiGenerating}
+						onGenerateSQL={generateDraft}
 						aiConfigured={aiConfigured}
 						onCursorActivity={(line, char) => {
 							setCursorLine(line);
@@ -3041,12 +3053,12 @@ export function ConnectionDetails() {
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader>
+			<Card className="workspace-panel">
+				<CardHeader className="py-4">
 					<div className="flex items-center justify-between">
 						<div>
 							<div className="flex items-center gap-2">
-								<CardTitle>Query Results</CardTitle>
+								<CardTitle>Query results</CardTitle>
 								{tab.executionTime !== null && (
 									<span className="text-xs text-muted-foreground">
 										({tab.executionTime}ms)
@@ -3216,8 +3228,7 @@ export function ConnectionDetails() {
 											tab.resultBaseQuery ? handleQuerySortChange : undefined
 										}
 										onRowClick={(row) => {
-											const index =
-												tab.results?.findIndex((r) => r === row) ?? -1;
+											const index = tab.results?.indexOf(row) ?? -1;
 											setSelectedQueryRow({ row, index });
 											setQueryResultSheetOpen(true);
 										}}
@@ -3240,10 +3251,10 @@ export function ConnectionDetails() {
 							) : null}
 						</div>
 					) : (
-						<div className="text-center py-8 text-muted-foreground">
-							<p>
-								No results yet. Write a SQL query and click &quot;Run
-								Query&quot; to execute it.
+						<div className="flex min-h-40 items-center justify-center px-4 text-center">
+							<p className="max-w-md text-sm text-muted-foreground">
+								No results yet. Write a SQL query, then run it to see the output
+								here.
 							</p>
 						</div>
 					)}
@@ -3826,20 +3837,28 @@ export function ConnectionDetails() {
 
 	const renderSchemaVisualizerContent = (tab: SchemaVisualizerTab) => (
 		<div className="h-full">
-			<SchemaVisualizer
-				schemaOverview={schemaOverview}
-				loading={loadingSchemaOverview}
-				onRefresh={fetchSchemaOverviewData}
-				onTableClick={handleOpenTableData}
-				tableFilter={tab.tableFilter}
-				onTableFilterChange={(filter) => {
-					updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
-				}}
-				selectedTables={tab.selectedTables}
-				onSelectedTablesChange={(tables) => {
-					updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
-				}}
-			/>
+			<Suspense
+				fallback={
+					<div className="flex h-full items-center justify-center">
+						<Spinner />
+					</div>
+				}
+			>
+				<SchemaVisualizer
+					schemaOverview={schemaOverview}
+					loading={loadingSchemaOverview}
+					onRefresh={fetchSchemaOverviewData}
+					onTableClick={handleOpenTableData}
+					tableFilter={tab.tableFilter}
+					onTableFilterChange={(filter) => {
+						updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
+					}}
+					selectedTables={tab.selectedTables}
+					onSelectedTablesChange={(tables) => {
+						updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
+					}}
+				/>
+			</Suspense>
 		</div>
 	);
 
@@ -3889,7 +3908,7 @@ export function ConnectionDetails() {
 	// Redis-specific layout without sidebar or tabs
 	if (connection.type === "redis") {
 		return (
-			<div className="flex flex-col h-screen">
+			<div className="workspace-canvas flex h-screen flex-col">
 				<RedisContentHeader
 					connection={connection}
 					navigate={navigate}
@@ -3899,7 +3918,7 @@ export function ConnectionDetails() {
 					onOpenSettings={openSettings}
 				/>
 
-				<div className="flex-1 p-4 min-w-0 overflow-auto">
+				<div className="min-w-0 flex-1 overflow-auto p-3">
 					{renderRedisView()}
 				</div>
 			</div>
@@ -3910,8 +3929,8 @@ export function ConnectionDetails() {
 		<SidebarProvider>
 			<Sidebar>
 				<SidebarHeader
-					className="border-b p-4 pt-10 select-none"
-					onMouseDown={handleDragStart}
+					className="app-titlebar select-none border-b p-3 pt-10"
+					data-tauri-drag-region
 				>
 					<div className="flex items-center justify-between gap-2">
 						<div className="flex items-center gap-2 min-w-0 flex-1">
@@ -3957,17 +3976,17 @@ export function ConnectionDetails() {
 						}
 						className="h-full min-h-0"
 					>
-						<TabsList className="w-full grid grid-cols-3">
-							<TabsTrigger value="objects" className="flex items-center gap-2">
-								<Table className="w-4 h-4" />
+						<TabsList className="grid w-full grid-cols-3">
+							<TabsTrigger value="objects">
+								<Table className="size-4" />
 								Objects
 							</TabsTrigger>
-							<TabsTrigger value="queries" className="flex items-center gap-2">
-								<Code className="w-4 h-4" />
+							<TabsTrigger value="queries">
+								<Code className="size-4" />
 								Queries
 							</TabsTrigger>
-							<TabsTrigger value="history" className="flex items-center gap-2">
-								<ClockCounterClockwise className="w-4 h-4" />
+							<TabsTrigger value="history">
+								<ClockCounterClockwise className="size-4" />
 								History
 							</TabsTrigger>
 						</TabsList>
@@ -3983,14 +4002,27 @@ export function ConnectionDetails() {
 								onOpenTableStructure={handleOpenTableStructure}
 								onOpenFunctionDefinition={handleOpenFunctionDefinition}
 								activeQueryTab={
-									activeTab?.type === "query"
-										? (activeTab as QueryTab)
-										: null
+									activeTab?.type === "query" ? (activeTab as QueryTab) : null
 								}
 								onInsertQueryText={handleInsertQueryText}
+								createTable={
+									uuid && createTableDbType
+										? {
+												dbType: createTableDbType,
+												onPreview: (request) =>
+													api.pool.previewCreateTable(uuid, request),
+												onCreate: (request) =>
+													api.pool.createTable(uuid, request),
+												onCreated: handleTableCreated,
+											}
+										: undefined
+								}
 							/>
 						</TabsContent>
-						<TabsContent value="queries" className="mt-2 min-h-0 flex-1 overflow-auto">
+						<TabsContent
+							value="queries"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
 							<SidebarGroup>
 								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
 								<SidebarGroupContent>
@@ -4055,7 +4087,10 @@ export function ConnectionDetails() {
 								</SidebarGroupContent>
 							</SidebarGroup>
 						</TabsContent>
-						<TabsContent value="history" className="mt-2 min-h-0 flex-1 overflow-auto">
+						<TabsContent
+							value="history"
+							className="mt-2 min-h-0 flex-1 overflow-auto"
+						>
 							<SidebarGroup>
 								<div className="flex items-center justify-between pr-2">
 									<SidebarGroupLabel>Recent Queries</SidebarGroupLabel>
@@ -4125,7 +4160,7 @@ export function ConnectionDetails() {
 				</SidebarContent>
 			</Sidebar>
 
-			<SidebarInset className="min-w-0 flex flex-col h-screen">
+			<SidebarInset className="workspace-canvas flex h-screen min-w-0 flex-col">
 				<ContentHeader
 					connection={connection}
 					navigate={navigate}
@@ -4143,7 +4178,7 @@ export function ConnectionDetails() {
 					onNewQuery={handleNewQuery}
 				/>
 
-				<div className="flex-1 p-4 min-w-0 overflow-auto">
+				<div className="min-w-0 flex-1 overflow-auto p-3">
 					{renderActiveTabContent()}
 				</div>
 			</SidebarInset>
@@ -4230,40 +4265,38 @@ export function ConnectionDetails() {
 			/>
 
 			{/* Command Palette */}
-			{connection.type !== "redis" && (
-				<CommandPalette
-					open={commandPaletteOpen}
-					onOpenChange={setCommandPaletteOpen}
-					activeTab={activeTab}
-					tabs={tabs}
-					onNavigateBack={() => navigate("/")}
-					onToggleSidebar={handleToggleSidebar}
-					onNewQuery={handleNewQuery}
-					onCloseTab={handleCloseTab}
-					onNextTab={handleNextTab}
-					onPreviousTab={handlePreviousTab}
-					onRunQuery={handleRunQuery}
-					onSaveQuery={handleSaveQueryFromPalette}
-					onRefresh={() => {
-						if (activeTab?.type === "query") {
-							handleRunQuery();
-						} else if (activeTab?.type === "table-data") {
-							handleRefreshTableData();
-						}
-					}}
-					onExportCSV={handleExportCSV}
-					onClearFilter={handleClearFilter}
-					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
-					onOpenTableData={handleOpenTableData}
-					onOpenFunctionDefinition={handleOpenFunctionDefinition}
-					onSwitchSidebarTab={setSidebarTab}
-					onOpenSettings={openSettings}
-					onToggleTheme={toggleTheme}
-					tables={tables}
-					functions={schemaOverview?.functions || []}
-					connectionType={connection.type}
-				/>
-			)}
+			<CommandPalette
+				open={commandPaletteOpen}
+				onOpenChange={setCommandPaletteOpen}
+				activeTab={activeTab}
+				tabs={tabs}
+				onNavigateBack={() => navigate("/")}
+				onToggleSidebar={handleToggleSidebar}
+				onNewQuery={handleNewQuery}
+				onCloseTab={handleCloseTab}
+				onNextTab={handleNextTab}
+				onPreviousTab={handlePreviousTab}
+				onRunQuery={handleRunQuery}
+				onSaveQuery={handleSaveQueryFromPalette}
+				onRefresh={() => {
+					if (activeTab?.type === "query") {
+						handleRunQuery();
+					} else if (activeTab?.type === "table-data") {
+						handleRefreshTableData();
+					}
+				}}
+				onExportCSV={handleExportCSV}
+				onClearFilter={handleClearFilter}
+				onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+				onOpenTableData={handleOpenTableData}
+				onOpenFunctionDefinition={handleOpenFunctionDefinition}
+				onSwitchSidebarTab={setSidebarTab}
+				onOpenSettings={openSettings}
+				onToggleTheme={toggleTheme}
+				tables={tables}
+				functions={schemaOverview?.functions || []}
+				connectionType={connection.type}
+			/>
 		</SidebarProvider>
 	);
 }

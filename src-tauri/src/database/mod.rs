@@ -1,16 +1,23 @@
 use async_trait::async_trait;
 
 pub mod clickhouse;
+pub mod create_table;
+pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
 pub mod redis;
+pub mod redis_read_only;
+pub mod sql_policy;
 pub mod sqlite;
+pub mod utils;
 
 use crate::db::models::{
-    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    CreateTableRequest, FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse,
+    TableFilter, TableInfo, TableStructure, TestConnectionResult,
 };
+
+pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
 
 fn is_identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
@@ -141,6 +148,11 @@ fn contains_keyword_outside_literals(sql: &str, keyword: &str) -> bool {
     false
 }
 
+pub(crate) fn sqlite_read_only_query_is_safe(sql: &str) -> bool {
+    !contains_keyword_outside_literals(sql, "ATTACH")
+        && !contains_keyword_outside_literals(sql, "DETACH")
+}
+
 pub fn query_returns_rows(query: &str) -> bool {
     let sql = strip_leading_sql_comments(query);
 
@@ -168,6 +180,16 @@ pub trait DatabaseDriver: Send + Sync {
     /// List all tables in the database
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String>;
 
+    /// Build the exact CREATE TABLE statement without executing it.
+    fn preview_create_table(&self, _request: &CreateTableRequest) -> Result<String, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
+
+    /// Create a table exactly once.
+    async fn create_table(&self, _request: &CreateTableRequest) -> Result<TableInfo, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
+
     /// Get paginated data from a table
     async fn get_table_data(
         &self,
@@ -175,7 +197,7 @@ pub trait DatabaseDriver: Send + Sync {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String>;
@@ -189,6 +211,16 @@ pub trait DatabaseDriver: Send + Sync {
 
     /// Execute a raw SQL query
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String>;
+
+    /// Execute a query under read-only enforcement.
+    ///
+    /// Enforcement is done by the database engine wherever possible (read-only
+    /// transactions, connection flags, server settings) rather than by parsing
+    /// the query string, so writes disguised inside CTEs, `EXPLAIN ANALYZE`,
+    /// mutating pragmas, etc. are rejected by the engine itself. Drivers that
+    /// cannot get an engine-level guarantee (e.g. Redis) fall back to a
+    /// best-effort, subcommand-aware allowlist.
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String>;
 
     /// Get schema overview with all tables and their structures (columns, foreign keys, indexes)
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String>;

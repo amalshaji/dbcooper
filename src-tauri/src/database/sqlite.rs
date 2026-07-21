@@ -1,15 +1,22 @@
 use async_trait::async_trait;
+use futures_util::{StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 
+use super::create_table::build_sqlite_create_table_sql;
+use super::filter::{
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
+};
 use super::{query_returns_rows, DatabaseDriver, SqliteConfig};
 use crate::database::queries::sqlite::{
     COLUMNS_QUERY, FOREIGN_KEYS_QUERY, INDEXES_QUERY, TABLES_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
-    TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
+    ColumnInfo, CreateTableRequest, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
+    TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
+    TestConnectionResult,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,6 +41,30 @@ impl SqliteDriver {
         format!("sqlite:{}?mode=rwc", self.config.file_path)
     }
 
+    fn bind_filter<'q>(
+        mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+        filter: &'q CompiledFilter,
+    ) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+        for value in &filter.values {
+            query = match value {
+                FilterValue::Text(value) => query.bind(value),
+                FilterValue::Integer(value) => query.bind(value),
+                FilterValue::Float(value) => query.bind(value),
+                FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
+            };
+        }
+        query
+    }
+
+    async fn create_pool(&self) -> Result<sqlx::SqlitePool, String> {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&self.connection_string())
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
         {
             let pool_guard = self.pool.read().await;
@@ -47,12 +78,7 @@ impl SqliteDriver {
             return Ok(pool.clone());
         }
 
-        let conn_str = self.connection_string();
-        let new_pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&conn_str)
-            .await
-            .map_err(|e| e.to_string())?;
+        let new_pool = self.create_pool().await?;
         *pool_guard = Some(new_pool.clone());
         Ok(new_pool)
     }
@@ -195,33 +221,45 @@ impl DatabaseDriver for SqliteDriver {
             .collect())
     }
 
+    fn preview_create_table(&self, request: &CreateTableRequest) -> Result<String, String> {
+        build_sqlite_create_table_sql(request)
+    }
+
+    async fn create_table(&self, request: &CreateTableRequest) -> Result<TableInfo, String> {
+        let sql = self.preview_create_table(request)?;
+        let pool = self.get_pool().await?;
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(TableInfo {
+            schema: request.schema.clone(),
+            name: request.name.clone(),
+            table_type: "table".to_string(),
+        })
+    }
+
     async fn get_table_data(
         &self,
         _schema: &str, // SQLite doesn't use schemas
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let pool = self.get_pool().await?;
 
         let offset = (page - 1) * limit;
-        let where_clause = filter
-            .as_ref()
-            .map(|f| {
-                // Normalize curly/smart quotes to regular ASCII quotes
-                // macOS often auto-replaces straight quotes with smart quotes
-                let normalized = f
-                    .replace('\u{2018}', "'") // Left single quotation mark '
-                    .replace('\u{2019}', "'") // Right single quotation mark '
-                    .replace('\u{201C}', "\"") // Left double quotation mark "
-                    .replace('\u{201D}', "\"") // Right double quotation mark "
-                    .replace("\\'", "'"); // Backslash-escaped single quote
-                format!(" WHERE {}", normalized)
-            })
-            .unwrap_or_default();
+        let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
+            let columns = self.get_table_structure("main", table).await?.columns;
+            Some(compile_filter(expression, &columns, FilterDialect::Sqlite)?)
+        } else {
+            None
+        };
+        let where_clause = build_where_clause(filter.as_ref(), compiled_filter.as_ref());
 
         let order_clause = if let Some(col) = sort_column.as_ref() {
             // Validate sort_direction to prevent SQL injection
@@ -255,10 +293,15 @@ impl DatabaseDriver for SqliteDriver {
             "SELECT COUNT(*) as count FROM \"{}\"{}",
             table, where_clause
         );
-        let count_row: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let count_row = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&count_query), filter)
+                .fetch_one(&pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0),))
+        } else {
+            sqlx::query_as(&count_query).fetch_one(&pool).await
+        }
+        .map_err(|e| e.to_string())?;
         let total = count_row.0;
 
         let data_query = format!(
@@ -266,10 +309,14 @@ impl DatabaseDriver for SqliteDriver {
             table, where_clause, order_clause, limit, offset
         );
 
-        let rows = sqlx::query(&data_query)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+        let rows = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&data_query), filter)
+                .fetch_all(&pool)
+                .await
+        } else {
+            sqlx::query(&data_query).fetch_all(&pool).await
+        }
+        .map_err(|e| e.to_string())?;
 
         let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
 
@@ -309,6 +356,7 @@ impl DatabaseDriver for SqliteDriver {
 
                 ColumnInfo {
                     name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: notnull == 0,
                     default,
@@ -386,13 +434,24 @@ impl DatabaseDriver for SqliteDriver {
         let pool = self.get_pool().await?;
 
         if query_returns_rows(query) {
-            match sqlx::query(query).fetch_all(&pool).await {
+            match sqlx::query(query)
+                .fetch(&pool)
+                .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+                .try_collect::<Vec<_>>()
+                .await
+            {
                 Ok(rows) => {
-                    let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                    let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                    let data: Vec<Value> = rows
+                        .iter()
+                        .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                        .map(Self::row_to_json)
+                        .collect();
                     let row_count = data.len() as i64;
                     Ok(QueryResult {
                         data,
                         row_count,
+                        truncated,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -401,6 +460,7 @@ impl DatabaseDriver for SqliteDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e.to_string()),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -413,6 +473,7 @@ impl DatabaseDriver for SqliteDriver {
                     Ok(QueryResult {
                         data: vec![],
                         row_count: rows_affected as i64,
+                        truncated: false,
                         rows_affected: Some(rows_affected),
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -421,11 +482,54 @@ impl DatabaseDriver for SqliteDriver {
                 Err(e) => Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(e.to_string()),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 }),
             }
+        }
+    }
+
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        if !crate::database::sqlite_read_only_query_is_safe(query) {
+            return Ok(QueryResult::from_error(
+                "Read-only mode does not allow ATTACH or DETACH".to_string(),
+                start_time,
+            ));
+        }
+
+        // Keep read-only enforcement isolated from the cached application pool:
+        // query_only is connection-scoped and this pool is closed after use.
+        let pool = self.create_pool().await?;
+
+        // `query_only` makes the engine reject every write on this connection
+        // (the pool holds a single connection), covering writes hidden behind
+        // mutating pragmas or otherwise.
+        if let Err(e) = sqlx::query("PRAGMA query_only = ON").execute(&pool).await {
+            pool.close().await;
+            return Ok(QueryResult::from_error(e.to_string(), start_time));
+        }
+
+        let result = sqlx::query(query)
+            .fetch(&pool)
+            .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+            .try_collect::<Vec<_>>()
+            .await;
+        pool.close().await;
+
+        match result {
+            Ok(rows) => {
+                let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                let data: Vec<Value> = rows
+                    .iter()
+                    .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                    .map(Self::row_to_json)
+                    .collect();
+                Ok(QueryResult::from_rows(data, truncated, start_time))
+            }
+            Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
         }
     }
 
@@ -475,6 +579,7 @@ impl DatabaseDriver for SqliteDriver {
             if let Some(table) = tables_map.get_mut(&table_name) {
                 table.columns.push(ColumnInfo {
                     name: column_name,
+                    filter_kind: classify_column_type(&data_type, FilterDialect::Sqlite),
                     data_type,
                     nullable: not_null == 0,
                     default: default_value,

@@ -1,0 +1,331 @@
+import { describe, expect, test } from "bun:test";
+import {
+	changeFilterConditionColumn,
+	changeFilterConditionOperator,
+	coerceFilterExpression,
+	createCellFilter,
+	createTableFilterState,
+	describeFilterExpression,
+	type FilterExpression,
+	getFilterOperatorsForColumn,
+	getFilterRequest,
+	isConditionComplete,
+} from "./resultFilters";
+
+describe("result filters", () => {
+	test("creates equality and exclusion filters from a cell", () => {
+		expect(createCellFilter("status", "active", false)).toEqual({
+			column: "status",
+			operator: "equals",
+			value: "active",
+		});
+		expect(createCellFilter("status", "active", true)).toEqual({
+			column: "status",
+			operator: "not_equals",
+			value: "active",
+		});
+	});
+
+	test("uses null-aware operators for null cells", () => {
+		expect(createCellFilter("deleted_at", null, false)).toEqual({
+			column: "deleted_at",
+			operator: "is_null",
+		});
+		expect(createCellFilter("deleted_at", null, true)).toEqual({
+			column: "deleted_at",
+			operator: "is_not_null",
+		});
+	});
+
+	test("requires values only for operators that need them", () => {
+		expect(
+			isConditionComplete({
+				column: "name",
+				operator: "contains",
+				value: "cooper",
+			}),
+		).toBe(true);
+		expect(isConditionComplete({ column: "name", operator: "contains" })).toBe(
+			false,
+		);
+		expect(
+			isConditionComplete({ column: "name", operator: "is_not_null" }),
+		).toBe(true);
+	});
+
+	test("describes multi-condition filters without exposing SQL", () => {
+		const expression: FilterExpression = {
+			conjunction: "and",
+			conditions: [
+				{ column: "status", operator: "equals", value: "active" },
+				{ column: "deleted_at", operator: "is_null" },
+			],
+		};
+
+		expect(describeFilterExpression(expression)).toBe(
+			"status is active and deleted_at is null",
+		);
+	});
+
+	test("coerces numeric, boolean, and list values from the editor", () => {
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{ column: "age", operator: "greater_than", value: "18" },
+					{ column: "active", operator: "equals", value: "true" },
+					{ column: "role", operator: "in", value: "admin, editor" },
+				],
+			},
+			{ age: "integer", active: "boolean", role: "text" },
+		);
+
+		expect(expression.conditions.map((condition) => condition.value)).toEqual([
+			{ kind: "integer", value: "18" },
+			true,
+			["admin", "editor"],
+		]);
+	});
+
+	test("offers operators compatible with the selected column type", () => {
+		expect(getFilterOperatorsForColumn("text")).toEqual([
+			"equals",
+			"not_equals",
+			"contains",
+			"starts_with",
+			"ends_with",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("integer")).toEqual([
+			"equals",
+			"not_equals",
+			"greater_than",
+			"greater_than_or_equal",
+			"less_than",
+			"less_than_or_equal",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("temporal")).toEqual([
+			"equals",
+			"not_equals",
+			"greater_than",
+			"greater_than_or_equal",
+			"less_than",
+			"less_than_or_equal",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("boolean")).toEqual([
+			"equals",
+			"not_equals",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("uuid")).toEqual([
+			"equals",
+			"not_equals",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+		expect(getFilterOperatorsForColumn("other")).toEqual([
+			"equals",
+			"not_equals",
+			"in",
+			"is_null",
+			"is_not_null",
+		]);
+	});
+
+	test("clears values and replaces incompatible operators when columns change", () => {
+		expect(
+			changeFilterConditionColumn(
+				{
+					column: "name",
+					operator: "contains",
+					value: "cooper",
+				},
+				"age",
+				"integer",
+			),
+		).toEqual({
+			column: "age",
+			operator: "equals",
+			value: undefined,
+		});
+		expect(
+			changeFilterConditionColumn(
+				{
+					column: "age",
+					operator: "greater_than",
+					value: "18",
+				},
+				"score",
+				"decimal",
+			),
+		).toEqual({
+			column: "score",
+			operator: "greater_than",
+			value: undefined,
+		});
+	});
+
+	test("preserves compatible scalar values and clears list or null transitions", () => {
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"contains",
+			),
+		).toEqual({
+			column: "name",
+			operator: "contains",
+			value: "cooper",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"in",
+			),
+		).toEqual({
+			column: "name",
+			operator: "in",
+			value: "",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "in", value: "a, b" },
+				"in",
+			),
+		).toEqual({
+			column: "name",
+			operator: "in",
+			value: "a, b",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "in", value: "a, b" },
+				"not_equals",
+			),
+		).toEqual({
+			column: "name",
+			operator: "not_equals",
+			value: "",
+		});
+		expect(
+			changeFilterConditionOperator(
+				{ column: "name", operator: "equals", value: "cooper" },
+				"is_null",
+			),
+		).toEqual({
+			column: "name",
+			operator: "is_null",
+			value: undefined,
+		});
+	});
+
+	test("coerces typed scalar and list values", () => {
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{ column: "visits", operator: "in", value: "1, 2" },
+					{ column: "score", operator: "greater_than", value: "1.5" },
+					{ column: "enabled", operator: "equals", value: "false" },
+				],
+			},
+			{
+				visits: "integer",
+				score: "decimal",
+				enabled: "boolean",
+			},
+		);
+
+		expect(expression.conditions.map((condition) => condition.value)).toEqual([
+			[
+				{ kind: "integer", value: "1" },
+				{ kind: "integer", value: "2" },
+			],
+			{ kind: "decimal", value: "1.5" },
+			false,
+		]);
+	});
+
+	test("preserves 64-bit integers without JavaScript precision loss", () => {
+		const expression: FilterExpression = {
+			conjunction: "and",
+			conditions: [
+				{
+					column: "external_id",
+					operator: "equals",
+					value: "9007199254740993",
+				},
+			],
+		};
+
+		const coerced = coerceFilterExpression(expression, {
+			external_id: "integer",
+		});
+
+		expect(coerced.conditions[0]?.value).toEqual({
+			kind: "integer",
+			value: "9007199254740993",
+		});
+	});
+
+	test("preserves high precision decimals without JavaScript precision loss", () => {
+		const value = "12345678901234567890.123456789012345678";
+		const expression = coerceFilterExpression(
+			{
+				conjunction: "and",
+				conditions: [
+					{
+						column: "amount",
+						operator: "equals",
+						value,
+					},
+				],
+			},
+			{ amount: "decimal" },
+		);
+
+		expect(expression.conditions[0]?.value).toEqual({
+			kind: "decimal",
+			value,
+		});
+	});
+
+	test("represents exactly one table filter mode at a time", () => {
+		const state = createTableFilterState();
+		expect(state).toEqual({
+			draft: {
+				kind: "structured",
+				value: { conjunction: "and", conditions: [] },
+			},
+			applied: null,
+		});
+		expect(
+			getFilterRequest({ kind: "advanced", value: "status = 'active'" }),
+		).toEqual({ filter: "status = 'active'" });
+		expect(
+			getFilterRequest({
+				kind: "structured",
+				value: {
+					conjunction: "and",
+					conditions: [
+						{ column: "status", operator: "equals", value: "active" },
+					],
+				},
+			}),
+		).toEqual({
+			structuredFilter: {
+				conjunction: "and",
+				conditions: [{ column: "status", operator: "equals", value: "active" }],
+			},
+		});
+	});
+});

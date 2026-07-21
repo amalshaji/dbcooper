@@ -69,6 +69,8 @@ export function QueryResultSheet({
 
 	useEffect(() => {
 		if (!open) {
+			// Closing the sheet starts the next session with an unfiltered column list.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setColumnSearch("");
 		}
 	}, [open]);

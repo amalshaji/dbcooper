@@ -109,10 +109,7 @@ async fn test_unified_test_connection_invalid_db_type() {
 
     assert!(result.is_ok());
     let test_result = result.unwrap();
-    assert!(
-        !test_result.success,
-        "Should fail on unknown database type"
-    );
+    assert!(!test_result.success, "Should fail on unknown database type");
     assert!(
         test_result.message.contains("Unsupported database type"),
         "Error message should mention unsupported type, got: {}",
@@ -258,6 +255,7 @@ async fn test_unified_get_table_data_sqlite() {
         None,
         None,
         None,
+        None,
     )
     .await;
 
@@ -321,6 +319,7 @@ async fn test_unified_get_table_data_with_filter() {
         1,
         10,
         Some("age > 25".to_string()),
+        None,
         None,
         None,
     )

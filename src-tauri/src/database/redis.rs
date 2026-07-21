@@ -354,7 +354,7 @@ impl DatabaseDriver for RedisDriver {
         _table: &str,
         _page: i64,
         _limit: i64,
-        _filter: Option<String>,
+        _filter: Option<crate::db::models::TableFilter>,
         _sort_column: Option<String>,
         _sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
@@ -398,6 +398,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![json!({"info": info})],
                         row_count: 1,
+                        truncated: false,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -408,6 +409,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![],
                         row_count: 0,
+                        truncated: false,
                         rows_affected: None,
                         error: Some(error_msg),
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -422,6 +424,7 @@ impl DatabaseDriver for RedisDriver {
             return Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                truncated: false,
                 rows_affected: None,
                 error: Some("Empty query".to_string()),
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -439,6 +442,7 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![json_value],
                     row_count: 1,
+                    truncated: false,
                     rows_affected: None,
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -449,12 +453,33 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(error_msg),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
                 })
             }
         }
+    }
+
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        // Redis has no per-connection read-only mode, so this is a best-effort,
+        // subcommand-aware allowlist rather than an engine-enforced guarantee.
+        if !crate::database::redis_read_only::is_read_only_redis_command(query) {
+            let command = query.split_whitespace().next().unwrap_or("").to_uppercase();
+            return Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                truncated: false,
+                rows_affected: None,
+                error: Some(format!(
+                    "Read-only mode: '{}' is not an allowed read command.",
+                    command
+                )),
+                time_taken_ms: Some(0),
+            });
+        }
+        self.execute_query(query).await
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {

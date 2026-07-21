@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./icon.png" width="128" alt="DBcooper logo" />
+</p>
+
 # DBcooper
 
 A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
@@ -29,6 +33,25 @@ Then you can open the app normally.
 
 Check out the full list of features on our [documentation site](https://dbcooper.amal.sh/#features).
 
+### Docker databases
+
+From the Connections screen, DBcooper can:
+
+- Create PostgreSQL 17, Redis 7, or ClickHouse 25.8 in a Docker container and save a ready-to-use connection.
+- Link a compatible PostgreSQL, Redis, or ClickHouse container that already exists in the current Docker context, including Docker Compose services.
+- Copy the complete connection string for a Docker-managed connection.
+- Stop and restart the linked container from the connection menu.
+
+Databases created by DBcooper use a persistent named volume. Quitting DBcooper
+stops the container without removing the container or its data, and opening the
+connection starts it again. Deleting a connection also preserves Docker data
+unless you explicitly choose to remove it.
+
+Linking an existing container requires its database port to be published to the
+host. DBcooper reads standard image environment variables, including Docker
+secret-style `*_FILE` values, and lets you review the detected connection fields
+before saving.
+
 ## FAQ
 
 Find answers to common questions on our [documentation site](https://dbcooper.amal.sh/#faq).
@@ -37,7 +60,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: Rust + Tauri v2
-- **Database**: SQLite (local storage) + PostgreSQL (connections)
+- **Database**: SQLite (local storage) + PostgreSQL, Redis, and ClickHouse connections
 - **UI**: shadcn/ui components
 - **Package Manager**: Bun
 
@@ -58,24 +81,32 @@ bun install
 # Run in development mode
 bun run tauri dev
 
+# After changing icon.png or src-tauri/macos/AppIcon.png
+# regenerate every platform icon and the macOS asset catalog
+bun run icons
+
 # Build for production
 bun run tauri build
 ```
+
+### MCP server for external agents
+
+DBcooper includes an opt-in, token-authenticated MCP server for external coding agents. See [docs/mcp.md](./docs/mcp.md) for setup and curl examples.
 
 ### AI SQL Generation
 
 To use AI-powered SQL generation:
 
-1. Go to **Settings** (gear icon) and configure your OpenAI API settings:
-   - **API Key**: Your OpenAI API key (required)
-   - **Endpoint**: Custom endpoint URL (optional, defaults to `https://api.openai.com/v1`)
+1. Go to **Settings** (gear icon) and choose an AI provider:
+   - **OpenAI-compatible API**: configure an API key, endpoint, and model.
+   - **Claude Code**, **Codex CLI**, or **opencode**: DBcooper uses your local CLI install and existing login.
 
 2. In the **Query Editor**, you'll see an instruction input above the SQL editor:
    - Type a natural language description (e.g., "show all users with posts from last week")
    - Click **Generate** or press Enter
-   - Watch as SQL streams into the editor in real-time
+   - Review the generated SQL before running it
 
-The AI uses GPT-4.1 and has access to your database schema (tables and columns) for accurate query generation.
+The AI receives your instruction, existing editor SQL, and selected table/column schema metadata for accurate query generation.
 
 ## Building
 
@@ -94,6 +125,17 @@ Releases are automated via GitHub Actions. To publish a new version:
 3. Merge the PR into `main`
 4. GitHub Actions will create and push the tag (e.g., `v0.0.42`), then build a draft release
 5. Review and publish the release
+
+### Canary releases
+
+Every commit merged into `main` publishes a signed canary after the test suite
+passes. Canary versions use the next patch version with a build suffix, such as
+`v0.0.64-canary.142`.
+
+Canary updates are disabled by default. To receive them, open Settings and enable
+**Canary updates**. Disable the setting to return to the stable channel; if the
+installed canary is newer than the latest stable release, DBcooper will wait for
+the next newer stable release instead of downgrading.
 
 ### Required Secrets
 
