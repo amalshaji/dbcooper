@@ -124,7 +124,26 @@ async fn rejects_external_http_clients_without_bearer_token() {
         .expect("send unauthenticated request");
 
     assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
-    handle.cancellation_token.cancel();
+    handle.stop().await;
+}
+
+#[tokio::test]
+async fn stopping_server_waits_until_the_bound_port_is_released() {
+    let handle = start_mcp_server(
+        sqlite_pool().await,
+        Arc::new(PoolManager::new()),
+        TOKEN.into(),
+    )
+    .await
+    .expect("start MCP server");
+    let port = handle.port;
+
+    handle.stop().await;
+
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+        .await
+        .expect("stopped MCP server should release its port");
+    drop(listener);
 }
 
 #[tokio::test]
@@ -216,5 +235,5 @@ async fn external_http_client_can_initialize_discover_and_call_tools() {
     assert_eq!(list_connections["id"], 3);
     assert_eq!(list_connections["result"]["isError"], false);
 
-    handle.cancellation_token.cancel();
+    handle.stop().await;
 }

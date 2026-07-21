@@ -66,7 +66,7 @@ impl McpControl {
     /// Stop the server if it is running.
     pub async fn stop(&self) {
         if let Some(handle) = self.handle.lock().await.take() {
-            handle.cancellation_token.cancel();
+            handle.stop().await;
         }
     }
 

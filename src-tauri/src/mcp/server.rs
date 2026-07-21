@@ -18,7 +18,15 @@ const MAX_PORT_ATTEMPTS: u16 = 10;
 
 pub struct McpServerHandle {
     pub port: u16,
-    pub cancellation_token: CancellationToken,
+    cancellation_token: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl McpServerHandle {
+    pub async fn stop(self) {
+        self.cancellation_token.cancel();
+        let _ = self.task.await;
+    }
 }
 
 /// Reject any request that doesn't present `Authorization: Bearer <token>`.
@@ -65,7 +73,7 @@ pub async fn start_mcp_server(
             ));
 
     let shutdown_ct = ct.clone();
-    tokio::spawn(async move {
+    let task = tokio::spawn(async move {
         let _ = axum::serve(listener, router)
             .with_graceful_shutdown(async move { shutdown_ct.cancelled().await })
             .await;
@@ -74,6 +82,7 @@ pub async fn start_mcp_server(
     Ok(McpServerHandle {
         port,
         cancellation_token: ct,
+        task,
     })
 }
 
