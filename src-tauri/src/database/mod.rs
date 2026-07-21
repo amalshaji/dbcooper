@@ -148,6 +148,11 @@ fn contains_keyword_outside_literals(sql: &str, keyword: &str) -> bool {
     false
 }
 
+pub(crate) fn sqlite_read_only_query_is_safe(sql: &str) -> bool {
+    !contains_keyword_outside_literals(sql, "ATTACH")
+        && !contains_keyword_outside_literals(sql, "DETACH")
+}
+
 pub fn query_returns_rows(query: &str) -> bool {
     let sql = strip_leading_sql_comments(query);
 

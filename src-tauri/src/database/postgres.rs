@@ -655,14 +655,31 @@ impl DatabaseDriver for PostgresDriver {
             return Ok(QueryResult::from_error(e.to_string(), start_time));
         }
 
-        let result = sqlx::query(query).fetch_all(&mut *tx).await;
+        let result = sqlx::query(query)
+            .fetch(&mut *tx)
+            .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+            .try_collect::<Vec<_>>()
+            .await;
         // Nothing to persist in a read-only transaction; always roll back.
         let _ = tx.rollback().await;
 
         match result {
             Ok(rows) => {
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
-                Ok(QueryResult::from_rows(data, start_time))
+                let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                let data: Vec<Value> = rows
+                    .iter()
+                    .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                    .map(Self::row_to_json)
+                    .collect();
+                let row_count = data.len() as i64;
+                Ok(QueryResult {
+                    data,
+                    row_count,
+                    truncated,
+                    rows_affected: None,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
             }
             Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
         }

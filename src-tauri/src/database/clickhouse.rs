@@ -86,7 +86,8 @@ impl ClickhouseDriver {
     }
 
     async fn execute_bounded_query_json(&self, query: &str) -> Result<(Vec<Value>, bool), String> {
-        self.execute_bounded_query_json_with_params(query, &[]).await
+        self.execute_bounded_query_json_with_params(query, &[])
+            .await
     }
 
     async fn execute_query_json_with_params(
@@ -422,8 +423,21 @@ impl DatabaseDriver for ClickhouseDriver {
         let start_time = std::time::Instant::now();
         // `readonly=1` is enforced server-side: writes, DDL, and SET are rejected.
         let params = vec![("readonly".to_string(), "1".to_string())];
-        match self.execute_query_json_with_params(query, &params).await {
-            Ok(rows) => Ok(QueryResult::from_rows(rows, start_time)),
+        match self
+            .execute_bounded_query_json_with_params(query, &params)
+            .await
+        {
+            Ok((rows, truncated)) => {
+                let row_count = rows.len() as i64;
+                Ok(QueryResult {
+                    data: rows,
+                    row_count,
+                    truncated,
+                    rows_affected: None,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
+            }
             Err(e) => Ok(QueryResult::from_error(e, start_time)),
         }
     }

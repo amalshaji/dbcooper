@@ -41,9 +41,9 @@ use docker::{
     docker_get_connection_string, docker_link_connection, docker_list_containers,
     docker_prepare_connection,
 };
+use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
-use std::sync::Arc;
 
 const NEW_WINDOW_MENU_ID: &str = "new_window";
 const CLOSE_TAB_MENU_ID: &str = "close_tab";

@@ -4,6 +4,7 @@ use rmcp::ErrorData as McpError;
 use serde_json::{json, Value};
 
 const MAX_ROWS: usize = 1000;
+const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Build an object JSON schema from its properties and required keys.
 fn object_schema(properties: Value, required: Value) -> Value {
@@ -281,23 +282,26 @@ async fn execute_query(
 
     // The MCP server is always read-only; enforcement lives in the driver/engine,
     // not in a string matcher.
-    let result = server
-        .pool_manager
-        .execute_query_read_only(uuid, query)
-        .await;
+    let result = tokio::time::timeout(
+        QUERY_TIMEOUT,
+        server.pool_manager.execute_query_read_only(uuid, query),
+    )
+    .await;
 
     match result {
-        Ok(mut result) => {
+        Ok(Ok(mut result)) => {
             // Engine-level rejections (e.g. a write in read-only mode) come back
             // as an error on the result; surface them as a tool error.
             if let Some(err) = result.error.take() {
                 return Ok(CallToolResult::error(vec![Content::text(err)]));
             }
 
-            let truncated = result.data.len() > MAX_ROWS;
-            if truncated {
+            let truncated = result.truncated || result.data.len() > MAX_ROWS;
+            if result.data.len() > MAX_ROWS {
                 result.data.truncate(MAX_ROWS);
             }
+            result.row_count = result.data.len() as i64;
+            result.truncated = truncated;
 
             let mut output =
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string());
@@ -308,9 +312,12 @@ async fn execute_query(
 
             Ok(CallToolResult::success(vec![Content::text(output)]))
         }
-        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Ok(Err(e)) => Ok(CallToolResult::error(vec![Content::text(format!(
             "Query failed: {}",
             e
         ))])),
+        Err(_) => Ok(CallToolResult::error(vec![Content::text(
+            "Query timed out after 30 seconds",
+        )])),
     }
 }

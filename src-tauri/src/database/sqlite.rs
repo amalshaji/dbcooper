@@ -481,6 +481,13 @@ impl DatabaseDriver for SqliteDriver {
 
     async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
         let start_time = std::time::Instant::now();
+        if !crate::database::sqlite_read_only_query_is_safe(query) {
+            return Ok(QueryResult::from_error(
+                "Read-only mode does not allow ATTACH or DETACH".to_string(),
+                start_time,
+            ));
+        }
+
         let pool = self.get_pool().await?;
 
         // `query_only` makes the engine reject every write on this connection
@@ -491,13 +498,30 @@ impl DatabaseDriver for SqliteDriver {
             return Ok(QueryResult::from_error(e.to_string(), start_time));
         }
 
-        let result = sqlx::query(query).fetch_all(&pool).await;
+        let result = sqlx::query(query)
+            .fetch(&pool)
+            .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+            .try_collect::<Vec<_>>()
+            .await;
         pool.close().await;
 
         match result {
             Ok(rows) => {
-                let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
-                Ok(QueryResult::from_rows(data, start_time))
+                let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                let data: Vec<Value> = rows
+                    .iter()
+                    .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                    .map(Self::row_to_json)
+                    .collect();
+                let row_count = data.len() as i64;
+                Ok(QueryResult {
+                    data,
+                    row_count,
+                    truncated,
+                    rows_affected: None,
+                    error: None,
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                })
             }
             Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
         }

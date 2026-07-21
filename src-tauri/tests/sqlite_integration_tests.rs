@@ -634,6 +634,54 @@ async fn test_execute_query_bounds_large_result_sets() {
 }
 
 #[tokio::test]
+async fn test_read_only_query_bounds_large_result_sets() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    driver
+        .execute_query("CREATE TABLE large_results (id INTEGER PRIMARY KEY)")
+        .await
+        .unwrap();
+    driver
+        .execute_query(
+            "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 10001) INSERT INTO large_results SELECT id FROM rows",
+        )
+        .await
+        .unwrap();
+
+    let result = driver
+        .execute_query_read_only("SELECT id FROM large_results ORDER BY id")
+        .await
+        .unwrap();
+
+    assert_eq!(result.data.len(), 10_000);
+    assert!(result.truncated);
+}
+
+#[tokio::test]
+async fn test_read_only_query_rejects_attach_database() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    let attached_path = temp_dir.path().join("attached.db");
+    let attached_driver = SqliteDriver::new(SqliteConfig {
+        file_path: attached_path.to_string_lossy().to_string(),
+    });
+    attached_driver
+        .execute_query("CREATE TABLE secrets (value TEXT)")
+        .await
+        .unwrap();
+
+    let result = driver
+        .execute_query_read_only(&format!(
+            "ATTACH DATABASE '{}' AS attached",
+            attached_path.to_string_lossy()
+        ))
+        .await
+        .unwrap();
+
+    assert!(result.error.is_some(), "read-only mode must reject ATTACH");
+}
+
+#[tokio::test]
 #[ignore = "million-row performance benchmark"]
 async fn benchmark_million_row_table_window() {
     let temp_dir = tempdir().expect("Failed to create temp directory");

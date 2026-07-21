@@ -47,6 +47,27 @@ async fn sqlite_pool() -> sqlx::SqlitePool {
     .await
     .expect("create connections table");
 
+    sqlx::query(
+        r#"
+        CREATE TABLE docker_connections (
+            connection_uuid TEXT PRIMARY KEY,
+            ownership TEXT NOT NULL,
+            docker_context TEXT NOT NULL,
+            container_id TEXT NOT NULL,
+            container_name TEXT NOT NULL,
+            engine TEXT NOT NULL,
+            image TEXT NOT NULL,
+            internal_port INTEGER NOT NULL,
+            compose_project TEXT,
+            compose_service TEXT,
+            volume_name TEXT
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("create docker connections table");
+
     pool
 }
 
@@ -234,6 +255,166 @@ async fn external_http_client_can_initialize_discover_and_call_tools() {
 
     assert_eq!(list_connections["id"], 3);
     assert_eq!(list_connections["result"]["isError"], false);
+
+    handle.stop().await;
+}
+
+#[tokio::test]
+async fn external_http_client_gets_consistent_bounded_read_only_results() {
+    let temp_dir = tempfile::tempdir().expect("create temporary database directory");
+    let database_path = temp_dir.path().join("mcp.db");
+    let database_url = format!("sqlite://{}?mode=rwc", database_path.to_string_lossy());
+    let database_pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect(&database_url)
+        .await
+        .expect("create MCP target database");
+    sqlx::query("CREATE TABLE items (id INTEGER PRIMARY KEY)")
+        .execute(&database_pool)
+        .await
+        .expect("create target table");
+    sqlx::query(
+        "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 1001) INSERT INTO items SELECT id FROM rows",
+    )
+    .execute(&database_pool)
+    .await
+    .expect("insert target rows");
+    database_pool.close().await;
+
+    let metadata_pool = sqlite_pool().await;
+    sqlx::query(
+        "INSERT INTO connections (uuid, name, db_type, file_path) VALUES (?, ?, 'sqlite', ?)",
+    )
+    .bind("mcp-sqlite")
+    .bind("MCP SQLite")
+    .bind(database_path.to_string_lossy().as_ref())
+    .execute(&metadata_pool)
+    .await
+    .expect("save target connection");
+
+    let handle = start_mcp_server(metadata_pool, Arc::new(PoolManager::new()), TOKEN.into())
+        .await
+        .expect("start MCP server");
+    let url = format!("http://127.0.0.1:{}/mcp", handle.port);
+    let client = reqwest::Client::new();
+
+    let (headers, _) = json_rpc_response(
+        post_mcp(
+            &client,
+            &url,
+            None,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "dbcooper-http-test", "version": "0.0.0"}
+                }
+            }),
+        )
+        .await,
+    )
+    .await;
+    let session_id = headers
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("initialize response should include MCP session id");
+    let initialized = post_mcp(
+        &client,
+        &url,
+        Some(session_id),
+        json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+    )
+    .await;
+    assert_eq!(initialized.status(), reqwest::StatusCode::ACCEPTED);
+
+    let (_, execute_query) = json_rpc_response(
+        post_mcp(
+            &client,
+            &url,
+            Some(session_id),
+            json!({
+                "jsonrpc":"2.0",
+                "id":2,
+                "method":"tools/call",
+                "params":{
+                    "name":"execute_query",
+                    "arguments":{
+                        "connection_uuid":"mcp-sqlite",
+                        "query":"SELECT id FROM items ORDER BY id"
+                    }
+                }
+            }),
+        )
+        .await,
+    )
+    .await;
+
+    assert_eq!(
+        execute_query["result"]["isError"], false,
+        "unexpected execute_query response: {execute_query}"
+    );
+    let text = execute_query["result"]["content"][0]["text"]
+        .as_str()
+        .expect("execute_query should return text");
+    let json_text = text
+        .split_once("\n\n(Results truncated")
+        .map_or(text, |(json, _)| json);
+    let result: Value = serde_json::from_str(json_text).expect("parse query result");
+    assert_eq!(result["data"].as_array().unwrap().len(), 1000);
+    assert_eq!(result["row_count"], 1000);
+    assert_eq!(result["truncated"], true);
+
+    let (_, write_query) = json_rpc_response(
+        post_mcp(
+            &client,
+            &url,
+            Some(session_id),
+            json!({
+                "jsonrpc":"2.0",
+                "id":3,
+                "method":"tools/call",
+                "params":{
+                    "name":"execute_query",
+                    "arguments":{
+                        "connection_uuid":"mcp-sqlite",
+                        "query":"CREATE TABLE should_not_exist (id INTEGER)"
+                    }
+                }
+            }),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(write_query["result"]["isError"], true);
+
+    let (_, attach_query) = json_rpc_response(
+        post_mcp(
+            &client,
+            &url,
+            Some(session_id),
+            json!({
+                "jsonrpc":"2.0",
+                "id":4,
+                "method":"tools/call",
+                "params":{
+                    "name":"execute_query",
+                    "arguments":{
+                        "connection_uuid":"mcp-sqlite",
+                        "query":format!(
+                            "ATTACH DATABASE '{}' AS attached",
+                            database_path.to_string_lossy()
+                        )
+                    }
+                }
+            }),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(attach_query["result"]["isError"], true);
 
     handle.stop().await;
 }
