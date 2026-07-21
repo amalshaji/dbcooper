@@ -427,17 +427,7 @@ impl DatabaseDriver for ClickhouseDriver {
             .execute_bounded_query_json_with_params(query, &params)
             .await
         {
-            Ok((rows, truncated)) => {
-                let row_count = rows.len() as i64;
-                Ok(QueryResult {
-                    data: rows,
-                    row_count,
-                    truncated,
-                    rows_affected: None,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
-            }
+            Ok((rows, truncated)) => Ok(QueryResult::from_rows(rows, truncated, start_time)),
             Err(e) => Ok(QueryResult::from_error(e, start_time)),
         }
     }

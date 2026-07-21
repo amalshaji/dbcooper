@@ -513,15 +513,7 @@ impl DatabaseDriver for SqliteDriver {
                     .take(crate::database::MAX_QUERY_RESULT_ROWS)
                     .map(Self::row_to_json)
                     .collect();
-                let row_count = data.len() as i64;
-                Ok(QueryResult {
-                    data,
-                    row_count,
-                    truncated,
-                    rows_affected: None,
-                    error: None,
-                    time_taken_ms: Some(start_time.elapsed().as_millis()),
-                })
+                Ok(QueryResult::from_rows(data, truncated, start_time))
             }
             Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
         }
