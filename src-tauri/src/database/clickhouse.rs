@@ -9,6 +9,7 @@ use super::filter::{
 use super::{DatabaseDriver, MAX_QUERY_RESULT_ROWS};
 use crate::database::queries::clickhouse::{
     COLUMNS_QUERY, FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, INDEXES_QUERY,
+    TABLES_QUERY, TABLE_COLUMNS_QUERY, TABLE_INDEXES_QUERY,
 };
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
@@ -47,6 +48,14 @@ pub struct ClickhouseDriver {
     config: ClickhouseConfig,
 }
 
+#[derive(Debug, PartialEq)]
+enum ClickhouseParamValue {
+    EscapedText(String),
+    Raw(String),
+}
+
+type ClickhouseParam = (String, ClickhouseParamValue);
+
 impl ClickhouseDriver {
     pub fn new(config: ClickhouseConfig) -> Self {
         Self { config }
@@ -82,32 +91,12 @@ impl ClickhouseDriver {
     async fn execute_query_json_with_params(
         &self,
         query: &str,
-        params: &[(String, String)],
+        params: &[ClickhouseParam],
     ) -> Result<Vec<Value>, String> {
-        let url = self.build_url();
         let client = reqwest::Client::new();
+        let request = self.build_query_request(&client, query, params)?;
 
-        // Clean up the query: trim whitespace, remove trailing semicolons
-        let cleaned_query = query.trim().trim_end_matches(';').trim();
-
-        // Only add FORMAT if not already present
-        let full_query = if cleaned_query.to_uppercase().contains("FORMAT ") {
-            cleaned_query.to_string()
-        } else {
-            format!("{} FORMAT JSONEachRow", cleaned_query)
-        };
-
-        let mut query_params = vec![("database".to_string(), self.config.database.clone())];
-        query_params.extend_from_slice(params);
-
-        let response = client
-            .post(&url)
-            .basic_auth(&self.config.username, Some(&self.config.password))
-            .query(&query_params)
-            .body(full_query)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let response = client.execute(request).await.map_err(|e| e.to_string())?;
 
         if !response.status().is_success() {
             let error_text = response.text().await.unwrap_or_default();
@@ -126,21 +115,97 @@ impl ClickhouseDriver {
         Ok(rows)
     }
 
-    fn filter_params(values: &[FilterValue]) -> Vec<(String, String)> {
+    fn build_query_request(
+        &self,
+        client: &reqwest::Client,
+        query: &str,
+        params: &[ClickhouseParam],
+    ) -> Result<reqwest::Request, String> {
+        let url = self.build_url();
+
+        // Clean up the query: trim whitespace, remove trailing semicolons
+        let cleaned_query = query.trim().trim_end_matches(';').trim();
+
+        // Only add FORMAT if not already present
+        let full_query = if cleaned_query.to_uppercase().contains("FORMAT ") {
+            cleaned_query.to_string()
+        } else {
+            format!("{} FORMAT JSONEachRow", cleaned_query)
+        };
+
+        let mut query_params = vec![("database".to_string(), self.config.database.clone())];
+        query_params.extend(params.iter().map(|(key, value)| {
+            let value = match value {
+                ClickhouseParamValue::EscapedText(value) => Self::escape_param_text(value),
+                ClickhouseParamValue::Raw(value) => value.clone(),
+            };
+            (key.clone(), value)
+        }));
+
+        client
+            .post(&url)
+            .basic_auth(&self.config.username, Some(&self.config.password))
+            .query(&query_params)
+            .body(full_query)
+            .build()
+            .map_err(|error| error.to_string())
+    }
+
+    fn escape_param_text(value: &str) -> String {
+        let mut escaped = String::with_capacity(value.len());
+        for character in value.chars() {
+            match character {
+                '\0' => escaped.push_str("\\0"),
+                '\u{7}' => escaped.push_str("\\a"),
+                '\u{8}' => escaped.push_str("\\b"),
+                '\t' => escaped.push_str("\\t"),
+                '\n' => escaped.push_str("\\n"),
+                '\u{b}' => escaped.push_str("\\v"),
+                '\u{c}' => escaped.push_str("\\f"),
+                '\r' => escaped.push_str("\\r"),
+                '\\' => escaped.push_str("\\\\"),
+                character if character.is_ascii_control() => {
+                    escaped.push_str(&format!("\\x{:02x}", character as u32));
+                }
+                character => escaped.push(character),
+            }
+        }
+        escaped
+    }
+
+    fn filter_params(values: &[FilterValue]) -> Vec<ClickhouseParam> {
         values
             .iter()
             .enumerate()
             .map(|(index, value)| {
                 let value = match value {
-                    FilterValue::Text(value) => value.clone(),
-                    FilterValue::Integer(value) => value.to_string(),
-                    FilterValue::Float(value) => value.to_string(),
-                    FilterValue::Boolean(value) => u8::from(*value).to_string(),
-                    FilterValue::ExactNumber { value, .. } => value.clone(),
+                    FilterValue::Text(value) => ClickhouseParamValue::EscapedText(value.clone()),
+                    FilterValue::Integer(value) => ClickhouseParamValue::Raw(value.to_string()),
+                    FilterValue::Float(value) => ClickhouseParamValue::Raw(value.to_string()),
+                    FilterValue::Boolean(value) => {
+                        ClickhouseParamValue::Raw(u8::from(*value).to_string())
+                    }
+                    FilterValue::ExactNumber { value, .. } => {
+                        ClickhouseParamValue::Raw(value.clone())
+                    }
                 };
                 (format!("param_f{index}"), value)
             })
             .collect()
+    }
+
+    fn catalog_params(database: &str, table: Option<&str>) -> Vec<ClickhouseParam> {
+        let mut params = vec![(
+            "param_database".to_string(),
+            ClickhouseParamValue::EscapedText(database.to_string()),
+        )];
+        if let Some(table) = table {
+            params.push((
+                "param_table".to_string(),
+                ClickhouseParamValue::EscapedText(table.to_string()),
+            ));
+        }
+        params
     }
 
     /// Execute a non-SELECT query
@@ -163,10 +228,6 @@ impl ClickhouseDriver {
         }
 
         Ok(())
-    }
-
-    fn escape_string_literal(value: &str) -> String {
-        value.replace('\\', "\\\\").replace('\'', "\\'")
     }
 
     fn parse_function_arguments(arguments: &str, create_query: &str) -> String {
@@ -241,12 +302,10 @@ impl DatabaseDriver for ClickhouseDriver {
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
-        let query = format!(
-            "SELECT database, name, engine FROM system.tables WHERE database = '{}'  ORDER BY name",
-            self.config.database
-        );
-
-        let rows = self.execute_query_json(&query).await?;
+        let params = Self::catalog_params(&self.config.database, None);
+        let rows = self
+            .execute_query_json_with_params(TABLES_QUERY, &params)
+            .await?;
 
         Ok(rows
             .into_iter()
@@ -342,15 +401,10 @@ impl DatabaseDriver for ClickhouseDriver {
         table: &str,
     ) -> Result<TableStructure, String> {
         // Get columns
-        let columns_query = format!(
-            "SELECT name, type, default_kind, default_expression, is_in_primary_key 
-             FROM system.columns 
-             WHERE database = '{}' AND table = '{}'
-             ORDER BY position",
-            self.config.database, table
-        );
-
-        let columns = self.execute_query_json(&columns_query).await?;
+        let params = Self::catalog_params(&self.config.database, Some(table));
+        let columns = self
+            .execute_query_json_with_params(TABLE_COLUMNS_QUERY, &params)
+            .await?;
 
         let column_infos: Vec<ColumnInfo> = columns
             .into_iter()
@@ -377,14 +431,8 @@ impl DatabaseDriver for ClickhouseDriver {
             .collect();
 
         // Get indexes (data skipping indexes)
-        let indexes_query = format!(
-            "SELECT name, expr, type FROM system.data_skipping_indices 
-             WHERE database = '{}' AND table = '{}'",
-            self.config.database, table
-        );
-
         let indexes = self
-            .execute_query_json(&indexes_query)
+            .execute_query_json_with_params(TABLE_INDEXES_QUERY, &params)
             .await
             .unwrap_or_default();
 
@@ -409,18 +457,16 @@ impl DatabaseDriver for ClickhouseDriver {
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
-        let columns_query =
-            COLUMNS_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
-        let columns_rows = self.execute_query_json(&columns_query).await?;
-
-        let indexes_query =
-            INDEXES_QUERY.replace("currentDatabase()", &format!("'{}'", self.config.database));
+        let params = Self::catalog_params(&self.config.database, None);
+        let columns_rows = self
+            .execute_query_json_with_params(COLUMNS_QUERY, &params)
+            .await?;
         let indexes_rows = self
-            .execute_query_json(&indexes_query)
+            .execute_query_json_with_params(INDEXES_QUERY, &params)
             .await
             .unwrap_or_default();
         let functions_rows = self
-            .execute_query_json(FUNCTION_SUMMARIES_QUERY)
+            .execute_query_json_with_params(FUNCTION_SUMMARIES_QUERY, &params)
             .await
             .unwrap_or_default();
 
@@ -520,9 +566,13 @@ impl DatabaseDriver for ClickhouseDriver {
         name: &str,
         identity_args: &str,
     ) -> Result<FunctionDefinition, String> {
-        let query = FUNCTION_DEFINITION_QUERY.replace("{name}", &Self::escape_string_literal(name));
+        let mut params = Self::catalog_params(&self.config.database, None);
+        params.push((
+            "param_name".to_string(),
+            ClickhouseParamValue::EscapedText(name.to_string()),
+        ));
         let row = self
-            .execute_query_json(&query)
+            .execute_query_json_with_params(FUNCTION_DEFINITION_QUERY, &params)
             .await?
             .into_iter()
             .next()
@@ -606,5 +656,93 @@ impl DatabaseDriver for ClickhouseDriver {
                 }),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_clickhouse_escaped_text_without_sql_quoting() {
+        assert_eq!(
+            ClickhouseDriver::escape_param_text("quote'\\\0\u{7}\u{8}\t\n\u{b}\u{c}\r\u{1f}\u{7f}"),
+            "quote'\\\\\\0\\a\\b\\t\\n\\v\\f\\r\\x1f\\x7f"
+        );
+    }
+
+    #[test]
+    fn request_keeps_typed_placeholders_and_encodes_values_only_in_url() {
+        let database = "catalog'\\line\nnext\0";
+        let table = "table'\\\tend";
+        let driver = ClickhouseDriver::new(ClickhouseConfig {
+            host: "localhost".to_string(),
+            port: 8123,
+            database: database.to_string(),
+            username: "default".to_string(),
+            password: String::new(),
+            protocol: ClickhouseProtocol::Http,
+            ssl: false,
+        });
+        let params = ClickhouseDriver::catalog_params(database, Some(table));
+        let client = reqwest::Client::new();
+
+        let request = driver
+            .build_query_request(&client, TABLE_COLUMNS_QUERY, &params)
+            .unwrap();
+        let body = request.body().unwrap().as_bytes().unwrap();
+        let body = std::str::from_utf8(body).unwrap();
+        let query_params: HashMap<_, _> = request.url().query_pairs().into_owned().collect();
+
+        assert!(body.contains("database = {database:String}"));
+        assert!(body.contains("table = {table:String}"));
+        assert!(body.ends_with("FORMAT JSONEachRow"));
+        assert!(!body.contains(database));
+        assert!(!body.contains(table));
+        assert_eq!(query_params["database"], database);
+        assert_eq!(query_params["param_database"], "catalog'\\\\line\\nnext\\0");
+        assert_eq!(query_params["param_table"], "table'\\\\\\tend");
+    }
+
+    #[test]
+    fn filter_request_escapes_only_text_values() {
+        let driver = ClickhouseDriver::new(ClickhouseConfig {
+            host: "localhost".to_string(),
+            port: 8123,
+            database: "default".to_string(),
+            username: "default".to_string(),
+            password: String::new(),
+            protocol: ClickhouseProtocol::Http,
+            ssl: false,
+        });
+        let values = vec![
+            FilterValue::Text("a\\b\n".to_string()),
+            FilterValue::Integer(-12),
+            FilterValue::Float(1.5),
+            FilterValue::Boolean(true),
+            FilterValue::ExactNumber {
+                value: "340282366920938463463374607431768211455".to_string(),
+                data_type: "UInt128".to_string(),
+            },
+        ];
+        let params = ClickhouseDriver::filter_params(&values);
+        let client = reqwest::Client::new();
+        let request = driver
+            .build_query_request(
+                &client,
+                "SELECT {f0:String}, {f1:Int64}, {f2:Float64}, {f3:UInt8}, {f4:UInt128}",
+                &params,
+            )
+            .unwrap();
+        let query_params: HashMap<_, _> = request.url().query_pairs().into_owned().collect();
+
+        assert_eq!(query_params["param_f0"], "a\\\\b\\n");
+        assert_eq!(query_params["param_f1"], "-12");
+        assert_eq!(query_params["param_f2"], "1.5");
+        assert_eq!(query_params["param_f3"], "1");
+        assert_eq!(
+            query_params["param_f4"],
+            "340282366920938463463374607431768211455"
+        );
     }
 }
