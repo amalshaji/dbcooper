@@ -8,6 +8,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 
 const TOKEN: &str = "test-token-for-external-agent";
 const ACCEPT_MCP: &str = "application/json, text/event-stream";
+static MCP_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn sqlite_pool() -> sqlx::SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -125,6 +126,7 @@ async fn json_rpc_response(response: reqwest::Response) -> (HeaderMap, Value) {
 
 #[tokio::test]
 async fn rejects_external_http_clients_without_bearer_token() {
+    let _test_guard = MCP_TEST_LOCK.lock().await;
     let handle = start_mcp_server(
         sqlite_pool().await,
         Arc::new(PoolManager::new()),
@@ -150,6 +152,7 @@ async fn rejects_external_http_clients_without_bearer_token() {
 
 #[tokio::test]
 async fn stopping_server_waits_until_the_bound_port_is_released() {
+    let _test_guard = MCP_TEST_LOCK.lock().await;
     let handle = start_mcp_server(
         sqlite_pool().await,
         Arc::new(PoolManager::new()),
@@ -169,6 +172,7 @@ async fn stopping_server_waits_until_the_bound_port_is_released() {
 
 #[tokio::test]
 async fn external_http_client_can_initialize_discover_and_call_tools() {
+    let _test_guard = MCP_TEST_LOCK.lock().await;
     let handle = start_mcp_server(
         sqlite_pool().await,
         Arc::new(PoolManager::new()),
@@ -261,6 +265,7 @@ async fn external_http_client_can_initialize_discover_and_call_tools() {
 
 #[tokio::test]
 async fn external_http_client_gets_consistent_bounded_read_only_results() {
+    let _test_guard = MCP_TEST_LOCK.lock().await;
     let temp_dir = tempfile::tempdir().expect("create temporary database directory");
     let database_path = temp_dir.path().join("mcp.db");
     let database_url = format!("sqlite://{}?mode=rwc", database_path.to_string_lossy());
