@@ -476,6 +476,26 @@ impl DatabaseDriver for RedisDriver {
         }
     }
 
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        // Redis has no per-connection read-only mode, so this is a best-effort,
+        // subcommand-aware allowlist rather than an engine-enforced guarantee.
+        if !crate::database::redis_read_only::is_read_only_redis_command(query) {
+            let command = query.split_whitespace().next().unwrap_or("").to_uppercase();
+            return Ok(QueryResult {
+                data: vec![],
+                row_count: 0,
+                truncated: false,
+                rows_affected: None,
+                error: Some(format!(
+                    "Read-only mode: '{}' is not an allowed read command.",
+                    command
+                )),
+                time_taken_ms: Some(0),
+            });
+        }
+        self.execute_query(query).await
+    }
+
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
         Ok(SchemaOverview {
             tables: vec![],

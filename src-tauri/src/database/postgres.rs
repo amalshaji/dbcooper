@@ -641,6 +641,42 @@ impl DatabaseDriver for PostgresDriver {
         }
     }
 
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        let pool = self.get_pool_with_retry().await?;
+
+        // Run inside a READ ONLY transaction so the server rejects any write,
+        // including writes hidden in CTEs or executed by `EXPLAIN ANALYZE`.
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+        if let Err(e) = sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *tx)
+            .await
+        {
+            return Ok(QueryResult::from_error(e.to_string(), start_time));
+        }
+
+        let result = sqlx::query(query)
+            .fetch(&mut *tx)
+            .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+            .try_collect::<Vec<_>>()
+            .await;
+        // Nothing to persist in a read-only transaction; always roll back.
+        let _ = tx.rollback().await;
+
+        match result {
+            Ok(rows) => {
+                let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                let data: Vec<Value> = rows
+                    .iter()
+                    .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                    .map(Self::row_to_json)
+                    .collect();
+                Ok(QueryResult::from_rows(data, truncated, start_time))
+            }
+            Err(e) => Ok(QueryResult::from_error(e.to_string(), start_time)),
+        }
+    }
+
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
         let pool = self.get_pool_with_retry().await?;
 

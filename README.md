@@ -89,6 +89,10 @@ bun run icons
 bun run tauri build
 ```
 
+### MCP server for external agents
+
+DBcooper includes an opt-in, token-authenticated MCP server for external coding agents. See [docs/mcp.md](./docs/mcp.md) for setup and curl examples.
+
 ### AI SQL Generation
 
 To use AI-powered SQL generation:

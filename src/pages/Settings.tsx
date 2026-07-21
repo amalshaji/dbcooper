@@ -27,7 +27,7 @@ export function Settings() {
 							Settings
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
-							Appearance, updates, and contextual AI.
+							Appearance, updates, MCP, and contextual AI.
 						</p>
 					</div>
 					<Card className="workspace-panel">

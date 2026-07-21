@@ -202,6 +202,29 @@ impl PoolManager {
         }
     }
 
+    /// Ensure a connection exists in the pool, connecting if needed.
+    ///
+    /// Serialized per-UUID via the connect lock so concurrent callers (Tauri
+    /// commands and the MCP server) can't race on the same connection.
+    pub async fn ensure_connected(
+        &self,
+        sqlite_pool: &sqlx::SqlitePool,
+        uuid: &str,
+    ) -> Result<(), String> {
+        let lock = self.get_connect_lock(uuid).await;
+        let _guard = lock.lock().await;
+
+        // Re-check under the lock; another caller may have just connected.
+        if self.get_cached(uuid).await.is_some() {
+            return Ok(());
+        }
+
+        crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
+        let config = crate::database::utils::get_connection_config(sqlite_pool, uuid).await?;
+        self.connect(uuid, config).await?;
+        Ok(())
+    }
+
     /// Explicitly connect (or reconnect) a connection
     pub async fn connect(
         &self,
@@ -256,6 +279,12 @@ impl PoolManager {
 
     /// Disconnect and remove a connection from the pool
     pub async fn disconnect(&self, uuid: &str) {
+        let lock = self.get_connect_lock(uuid).await;
+        let _guard = lock.lock().await;
+        self.disconnect_locked(uuid).await;
+    }
+
+    pub(crate) async fn disconnect_locked(&self, uuid: &str) {
         let mut pools = self.pools.write().await;
         pools.remove(uuid);
     }
@@ -409,6 +438,19 @@ impl PoolManager {
         driver.execute_query(query).await
     }
 
+    /// Execute a query with read-only enforcement (engine-enforced where possible).
+    pub async fn execute_query_read_only(
+        &self,
+        uuid: &str,
+        query: &str,
+    ) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.execute_query_read_only(query).await
+    }
+
     /// Get schema overview using the pooled connection
     pub async fn get_schema_overview(
         &self,
@@ -438,5 +480,28 @@ impl PoolManager {
         driver
             .get_function_definition(schema, name, identity_args)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PoolManager;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn disconnect_waits_for_the_connection_lifecycle_lock() {
+        let manager = Arc::new(PoolManager::new());
+        let lock = manager.get_connect_lock("connection-1").await;
+        let guard = lock.lock().await;
+        let disconnect = {
+            let manager = manager.clone();
+            tokio::spawn(async move { manager.disconnect("connection-1").await })
+        };
+
+        tokio::task::yield_now().await;
+        assert!(!disconnect.is_finished());
+
+        drop(guard);
+        disconnect.await.unwrap();
     }
 }

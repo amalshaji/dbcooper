@@ -27,6 +27,7 @@ import {
 	type UpdateChannel,
 	UPDATE_CHANNEL_CHANGED_EVENT,
 } from "@/lib/updateChannel";
+import { McpSettings } from "./McpSettings";
 import { ThemeSelector } from "./ThemeSelector";
 import { UpdateChannelSetting } from "./UpdateChannelSetting";
 
@@ -152,6 +153,8 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 					onThemeChange={setTheme}
 				/>
 			</div>
+
+			<McpSettings compact={compact} client={api.mcp} />
 
 			<div className={sectionClass}>
 				<div>

@@ -3,6 +3,7 @@ pub mod commands;
 pub mod database;
 pub mod db;
 pub mod docker;
+pub mod mcp;
 mod ssh_tunnel;
 
 use commands::ai::{detect_ai_harnesses, generate_sql, get_ai_status};
@@ -17,6 +18,7 @@ use commands::database::{
     unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
     update_table_row_with_raw_sql,
 };
+use commands::mcp::{mcp_get_status, mcp_regenerate_token, mcp_set_enabled};
 use commands::pool::{
     pool_connect, pool_create_table, pool_delete_table_row, pool_disconnect, pool_execute_query,
     pool_get_function_definition, pool_get_schema_overview, pool_get_status, pool_get_table_data,
@@ -39,6 +41,7 @@ use docker::{
     docker_get_connection_string, docker_link_connection, docker_list_containers,
     docker_prepare_connection,
 };
+use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
 
@@ -205,10 +208,25 @@ pub fn run() {
             let pool = rt
                 .block_on(db::init_pool())
                 .expect("Failed to initialize database");
-            app.manage(pool);
+            app.manage(pool.clone());
 
-            // Initialize connection pool manager
-            app.manage(PoolManager::new());
+            // Initialize connection pool manager (shared between Tauri and MCP)
+            let pool_manager = Arc::new(PoolManager::new());
+            app.manage(pool_manager.clone());
+
+            // The embedded MCP server is opt-in and token-authenticated.
+            let mcp_control = Arc::new(mcp::control::McpControl::new(pool, pool_manager));
+            app.manage(mcp_control.clone());
+            tauri::async_runtime::spawn(async move {
+                if mcp::control::is_enabled(mcp_control.sqlite_pool()).await {
+                    match mcp_control.start().await {
+                        Ok(port) => {
+                            eprintln!("MCP server listening on http://127.0.0.1:{}/mcp", port)
+                        }
+                        Err(e) => eprintln!("Failed to start MCP server: {}", e),
+                    }
+                }
+            });
 
             Ok(())
         })
@@ -275,6 +293,9 @@ pub fn run() {
             pool_update_table_row,
             pool_delete_table_row,
             pool_insert_table_row,
+            mcp_get_status,
+            mcp_set_enabled,
+            mcp_regenerate_token,
             docker_list_containers,
             docker_prepare_connection,
             docker_create_database,

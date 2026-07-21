@@ -62,7 +62,11 @@ impl ClickhouseDriver {
         self.execute_query_json_with_params(query, &[]).await
     }
 
-    async fn execute_bounded_query_json(&self, query: &str) -> Result<(Vec<Value>, bool), String> {
+    async fn execute_bounded_query_json_with_params(
+        &self,
+        query: &str,
+        params: &[(String, String)],
+    ) -> Result<(Vec<Value>, bool), String> {
         let cleaned_query = query.trim().trim_end_matches(';').trim();
         let upper = cleaned_query.to_uppercase();
         let bounded_query = if upper.starts_with("SELECT") || upper.starts_with("WITH") {
@@ -73,10 +77,17 @@ impl ClickhouseDriver {
         } else {
             cleaned_query.to_string()
         };
-        let mut rows = self.execute_query_json(&bounded_query).await?;
+        let mut rows = self
+            .execute_query_json_with_params(&bounded_query, params)
+            .await?;
         let truncated = rows.len() > MAX_QUERY_RESULT_ROWS;
         rows.truncate(MAX_QUERY_RESULT_ROWS);
         Ok((rows, truncated))
+    }
+
+    async fn execute_bounded_query_json(&self, query: &str) -> Result<(Vec<Value>, bool), String> {
+        self.execute_bounded_query_json_with_params(query, &[])
+            .await
     }
 
     async fn execute_query_json_with_params(
@@ -406,6 +417,19 @@ impl DatabaseDriver for ClickhouseDriver {
             indexes: index_infos,
             foreign_keys,
         })
+    }
+
+    async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
+        let start_time = std::time::Instant::now();
+        // `readonly=1` is enforced server-side: writes, DDL, and SET are rejected.
+        let params = vec![("readonly".to_string(), "1".to_string())];
+        match self
+            .execute_bounded_query_json_with_params(query, &params)
+            .await
+        {
+            Ok((rows, truncated)) => Ok(QueryResult::from_rows(rows, truncated, start_time)),
+            Err(e) => Ok(QueryResult::from_error(e, start_time)),
+        }
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {

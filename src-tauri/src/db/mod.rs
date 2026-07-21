@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod models;
+pub mod settings;
 
 #[derive(Error, Debug)]
 pub enum DbError {
