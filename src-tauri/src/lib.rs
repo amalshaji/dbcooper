@@ -210,8 +210,9 @@ pub fn run() {
                 .expect("Failed to initialize database");
             app.manage(pool.clone());
 
-            // Initialize connection pool manager (shared between Tauri and MCP)
+            // Initialize the shared connection pool manager and start its idle reaper.
             let pool_manager = Arc::new(PoolManager::new());
+            pool_manager.spawn_idle_reaper();
             app.manage(pool_manager.clone());
 
             // The embedded MCP server is opt-in and token-authenticated.

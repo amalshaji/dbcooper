@@ -6,7 +6,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+
+/// Evict connections idle longer than this so their SSH tunnels and pooled
+/// connections don't linger for the whole session.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// How often the idle reaper checks for connections to evict.
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 use super::clickhouse::ClickhouseDriver;
 use super::postgres::PostgresDriver;
@@ -19,7 +26,7 @@ use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
 };
-use crate::ssh_tunnel::SshTunnel;
+use crate::ssh_tunnel::{SshAuth, SshTunnel};
 
 /// Connection status enum
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -48,6 +55,7 @@ pub struct ConnectionConfig {
     pub ssh_user: Option<String>,
     pub ssh_password: Option<String>,
     pub ssh_key_path: Option<String>,
+    pub ssh_use_key: bool,
 }
 
 /// Entry in the connection pool
@@ -55,14 +63,32 @@ struct PoolEntry {
     driver: Arc<Box<dyn DatabaseDriver>>,
     config: ConnectionConfig,
     status: ConnectionStatus,
+    /// Interior-mutable so it can be refreshed on each cache hit (read lock) and
+    /// read by the idle reaper without taking a write lock on the whole map.
+    last_used: std::sync::Mutex<Instant>,
     last_error: Option<String>,
     #[allow(dead_code)]
     ssh_tunnel: Option<SshTunnel>,
 }
 
+fn should_keep_entry(entry: &PoolEntry) -> bool {
+    if Arc::strong_count(&entry.driver) > 1 {
+        if let Ok(mut last_used) = entry.last_used.lock() {
+            *last_used = Instant::now();
+        }
+        return true;
+    }
+
+    entry
+        .last_used
+        .lock()
+        .map(|last_used| last_used.elapsed() < IDLE_TIMEOUT)
+        .unwrap_or(true)
+}
+
 /// Connection pool manager
 pub struct PoolManager {
-    pools: RwLock<HashMap<String, PoolEntry>>,
+    pools: Arc<RwLock<HashMap<String, PoolEntry>>>,
     /// Mutex per connection UUID to serialize connect/disconnect
     connect_locks: RwLock<HashMap<String, Arc<Mutex<()>>>>,
 }
@@ -76,9 +102,30 @@ impl Default for PoolManager {
 impl PoolManager {
     pub fn new() -> Self {
         Self {
-            pools: RwLock::new(HashMap::new()),
+            pools: Arc::new(RwLock::new(HashMap::new())),
             connect_locks: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Spawn the background idle reaper. Call once from a context with a running
+    /// async runtime (e.g. Tauri's `setup` hook). Evicts connections that have
+    /// been idle longer than `IDLE_TIMEOUT`, dropping their SSH tunnels.
+    pub fn spawn_idle_reaper(&self) {
+        let pools = Arc::clone(&self.pools);
+        tauri::async_runtime::spawn(async move {
+            let mut ticker = tokio::time::interval(IDLE_CHECK_INTERVAL);
+            loop {
+                ticker.tick().await;
+                let mut pools = pools.write().await;
+                pools.retain(|uuid, entry| {
+                    let keep = should_keep_entry(entry);
+                    if !keep {
+                        println!("[Pool] Evicting idle connection {}", uuid);
+                    }
+                    keep
+                });
+            }
+        });
     }
 
     /// Get or create a lock for a specific connection UUID
@@ -106,23 +153,18 @@ impl PoolManager {
             let ssh_host = config.ssh_host.as_ref().ok_or("SSH host is required")?;
             let ssh_port = config.ssh_port.unwrap_or(22) as u16;
             let ssh_user = config.ssh_user.as_ref().ok_or("SSH user is required")?;
-            let ssh_password = config.ssh_password.as_ref().map(|s| s.as_str());
-            let ssh_key_path = config.ssh_key_path.as_ref().map(|s| s.as_str());
+            let auth = SshAuth::from_connection(
+                config.ssh_use_key,
+                config.ssh_password.as_deref(),
+                config.ssh_key_path.as_deref(),
+            );
             let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
             let remote_port = config.port.unwrap_or(5432) as u16;
 
             // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
             let tunnel = match tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                SshTunnel::new(
-                    ssh_host,
-                    ssh_port,
-                    ssh_user,
-                    ssh_password,
-                    ssh_key_path,
-                    remote_host,
-                    remote_port,
-                ),
+                SshTunnel::new(ssh_host, ssh_port, ssh_user, auth, remote_host, remote_port),
             )
             .await
             {
@@ -256,6 +298,7 @@ impl PoolManager {
             driver: driver.clone(),
             config,
             status: status.clone(),
+            last_used: std::sync::Mutex::new(Instant::now()),
             last_error: if test_result.success {
                 None
             } else {
@@ -341,10 +384,17 @@ impl PoolManager {
         }
     }
 
-    /// Get a cached driver if it exists (without creating new connection)
+    /// Get a cached driver if it exists (without creating new connection).
+    /// Refreshes the entry's last-used time so the idle reaper keeps connections
+    /// that are actively in use.
     pub async fn get_cached(&self, uuid: &str) -> Option<Arc<Box<dyn DatabaseDriver>>> {
         let pools = self.pools.read().await;
-        pools.get(uuid).map(|e| e.driver.clone())
+        pools.get(uuid).map(|e| {
+            if let Ok(mut t) = e.last_used.lock() {
+                *t = Instant::now();
+            }
+            e.driver.clone()
+        })
     }
 
     /// Get config for a cached connection
@@ -485,8 +535,60 @@ impl PoolManager {
 
 #[cfg(test)]
 mod tests {
-    use super::PoolManager;
-    use std::sync::Arc;
+    use super::*;
+
+    fn expired_entry() -> PoolEntry {
+        let driver: Arc<Box<dyn DatabaseDriver>> =
+            Arc::new(Box::new(RedisDriver::new(RedisConfig {
+                host: "localhost".to_string(),
+                port: 6379,
+                username: None,
+                password: None,
+                db: None,
+                tls: false,
+            })));
+
+        PoolEntry {
+            driver,
+            config: ConnectionConfig {
+                db_type: "redis".to_string(),
+                host: Some("localhost".to_string()),
+                port: Some(6379),
+                database: None,
+                username: None,
+                password: None,
+                ssl: Some(false),
+                file_path: None,
+                ssh_enabled: false,
+                ssh_host: None,
+                ssh_port: None,
+                ssh_user: None,
+                ssh_password: None,
+                ssh_key_path: None,
+                ssh_use_key: false,
+            },
+            status: ConnectionStatus::Connected,
+            last_used: std::sync::Mutex::new(Instant::now() - IDLE_TIMEOUT),
+            last_error: None,
+            ssh_tunnel: None,
+        }
+    }
+
+    #[test]
+    fn evicts_an_expired_entry_without_an_active_operation() {
+        let entry = expired_entry();
+
+        assert!(!should_keep_entry(&entry));
+    }
+
+    #[test]
+    fn retains_an_expired_entry_while_an_operation_holds_the_driver() {
+        let entry = expired_entry();
+        let _active_driver = Arc::clone(&entry.driver);
+
+        assert!(should_keep_entry(&entry));
+        assert!(entry.last_used.lock().unwrap().elapsed() < Duration::from_secs(1));
+    }
 
     #[tokio::test]
     async fn disconnect_waits_for_the_connection_lifecycle_lock() {

@@ -547,6 +547,7 @@ export function ConnectionForm({
 														setFormData({
 															...formData,
 															ssh_use_key: checked,
+															ssh_password: "",
 														})
 													}
 												/>
@@ -556,46 +557,65 @@ export function ConnectionForm({
 											</Field>
 
 											{formData.ssh_use_key ? (
-												<Field>
-													<FieldLabel htmlFor="ssh-key-path">
-														SSH Key Path
-													</FieldLabel>
-													<div className="flex gap-2">
+												<>
+													<Field>
+														<FieldLabel htmlFor="ssh-key-path">
+															SSH Key Path
+														</FieldLabel>
+														<div className="flex gap-2">
+															<Input
+																id="ssh-key-path"
+																type="text"
+																value={formData.ssh_key_path}
+																onChange={(e) =>
+																	setFormData({
+																		...formData,
+																		ssh_key_path: e.target.value,
+																	})
+																}
+																placeholder="~/.ssh/id_rsa"
+																className="flex-1"
+															/>
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																onClick={async () => {
+																	const selected = await open({
+																		multiple: false,
+																		directory: false,
+																		title: "Select SSH Key",
+																	});
+																	if (selected) {
+																		setFormData({
+																			...formData,
+																			ssh_key_path: selected as string,
+																		});
+																	}
+																}}
+															>
+																Browse
+															</Button>
+														</div>
+													</Field>
+													<Field>
+														<FieldLabel htmlFor="ssh-key-passphrase">
+															SSH Key Passphrase
+														</FieldLabel>
 														<Input
-															id="ssh-key-path"
-															type="text"
-															value={formData.ssh_key_path}
+															id="ssh-key-passphrase"
+															type="password"
+															value={formData.ssh_password}
 															onChange={(e) =>
 																setFormData({
 																	...formData,
-																	ssh_key_path: e.target.value,
+																	ssh_password: e.target.value,
 																})
 															}
-															placeholder="~/.ssh/id_rsa"
-															className="flex-1"
+															placeholder="Optional for encrypted keys"
 														/>
-														<Button
-															type="button"
-															variant="outline"
-															size="sm"
-															onClick={async () => {
-																const selected = await open({
-																	multiple: false,
-																	directory: false,
-																	title: "Select SSH Key",
-																});
-																if (selected) {
-																	setFormData({
-																		...formData,
-																		ssh_key_path: selected as string,
-																	});
-																}
-															}}
-														>
-															Browse
-														</Button>
-													</div>
-												</Field>
+													</Field>
+												</>
 											) : (
 												<Field>
 													<FieldLabel htmlFor="ssh-password">
