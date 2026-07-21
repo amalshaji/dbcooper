@@ -20,6 +20,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '!v*-canary.*'
 
 permissions:
   contents: write
@@ -35,14 +36,21 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            exit 0
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag="${{ inputs.tag }}"
           fi
-          if [ -z "${{ inputs.tag }}" ]; then
+
+          if [ -z "$tag" ]; then
             echo "Error: tag input required"
             exit 1
           fi
-          echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if ! echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: stable releases require a vMAJOR.MINOR.PATCH tag"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -52,7 +60,7 @@ jobs:
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -65,7 +73,10 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: Install frontend dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
+
+      - name: Run frontend checks
+        run: bun run check
 
       - uses: tauri-apps/tauri-action@v0
         env:

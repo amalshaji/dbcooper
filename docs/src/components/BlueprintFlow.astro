@@ -1,0 +1,294 @@
+<div class="blueprint-flow" aria-label="Natural language and schema context converted into SQL and results">
+	<span class="blueprint-corner blueprint-corner-tl" aria-hidden="true"></span>
+	<span class="blueprint-corner blueprint-corner-tr" aria-hidden="true"></span>
+	<span class="blueprint-corner blueprint-corner-bl" aria-hidden="true"></span>
+	<span class="blueprint-corner blueprint-corner-br" aria-hidden="true"></span>
+
+	<div class="blueprint-stage blueprint-stage-prompt">
+		<span class="blueprint-label">Natural language</span>
+		<div class="blueprint-prompt">Show me customers who placed orders in the last 30 days</div>
+	</div>
+
+	<div class="blueprint-connector" aria-hidden="true">
+		<svg viewBox="0 0 20 52" preserveAspectRatio="none">
+			<path class="blueprint-arrow-line" d="M10 0V51" />
+			<path class="blueprint-arrow-head" d="m4 45 6 6 6-6" />
+		</svg>
+	</div>
+
+	<div class="blueprint-stage blueprint-stage-query">
+		<span class="blueprint-label">AI + schema → SQL</span>
+		<div class="blueprint-query">
+			<i></i><i></i><i></i>
+			<code><b>SELECT</b> c.first_name, c.last_name,<br />
+			&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; o.order_date, o.total_amount<br />
+			<b>FROM</b> customers c<br />
+			<b>JOIN</b> orders o <b>ON</b> o.customer_id = c.id<br />
+			<b>WHERE</b> o.order_date &gt;= CURRENT_DATE - <em>30 days</em></code>
+			<div class="blueprint-context">
+				<span>Schema context</span>
+				<code>customers · orders · order_items</code>
+			</div>
+		</div>
+	</div>
+
+	<div class="blueprint-connector" aria-hidden="true">
+		<svg viewBox="0 0 20 52" preserveAspectRatio="none">
+			<path class="blueprint-arrow-line" d="M10 0V51" />
+			<path class="blueprint-arrow-head" d="m4 45 6 6 6-6" />
+		</svg>
+	</div>
+
+	<div class="blueprint-stage blueprint-stage-result">
+		<span class="blueprint-label">Result</span>
+		<div class="blueprint-result" aria-hidden="true"></div>
+	</div>
+</div>
+
+<style>
+	.blueprint-flow {
+		position: relative;
+		width: 100%;
+		max-width: 690px;
+		margin-left: auto;
+		border: 1px solid var(--line-strong);
+		background: rgba(3, 15, 23, 0.5);
+		box-shadow: 0 0 70px rgba(36, 161, 192, 0.08) inset;
+		padding: clamp(24px, 3vw, 42px);
+	}
+
+	.blueprint-flow::before {
+		position: absolute;
+		inset: 9px;
+		border: 1px solid rgba(69, 201, 232, 0.08);
+		content: "";
+		pointer-events: none;
+	}
+
+	.blueprint-corner {
+		position: absolute;
+		z-index: 2;
+		width: 18px;
+		height: 18px;
+		border-color: var(--cyan);
+		opacity: 0.9;
+	}
+
+	.blueprint-corner-tl { top: -2px; left: -2px; border-top: 2px solid; border-left: 2px solid; }
+	.blueprint-corner-tr { top: -2px; right: -2px; border-top: 2px solid; border-right: 2px solid; }
+	.blueprint-corner-bl { bottom: -2px; left: -2px; border-bottom: 2px solid; border-left: 2px solid; }
+	.blueprint-corner-br { right: -2px; bottom: -2px; border-right: 2px solid; border-bottom: 2px solid; }
+
+	.blueprint-stage {
+		position: relative;
+		opacity: 0;
+		animation: blueprint-in 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+	}
+
+	.blueprint-stage-prompt { width: 66%; margin-inline: auto; animation-delay: 260ms; }
+	.blueprint-stage-query { animation-delay: 380ms; }
+	.blueprint-stage-result { width: 80%; margin-inline: auto; animation-delay: 520ms; }
+
+	.blueprint-label {
+		display: block;
+		margin-bottom: 7px;
+		color: var(--cyan);
+		font-family: var(--font-mono);
+		font-size: 0.7rem;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.blueprint-label::before {
+		display: inline-block;
+		width: 18px;
+		height: 1px;
+		margin-right: 8px;
+		background: var(--cyan);
+		content: "";
+		vertical-align: middle;
+	}
+
+	.blueprint-stage-query .blueprint-label,
+	.blueprint-stage-result .blueprint-label {
+		position: absolute;
+		bottom: calc(100% + 9px);
+		left: 0;
+		margin-bottom: 0;
+	}
+
+	.blueprint-prompt,
+	.blueprint-query,
+	.blueprint-result {
+		border: 1px solid var(--cyan);
+		background-color: rgba(4, 19, 29, 0.84);
+		box-shadow: 0 0 0 1px rgba(69, 201, 232, 0.04) inset;
+	}
+
+	.blueprint-prompt {
+		border-radius: 7px;
+		padding: 12px 16px;
+		color: var(--ink);
+		font-family: var(--font-mono);
+		font-size: 0.76rem;
+		line-height: 1.5;
+	}
+
+	.blueprint-connector {
+		display: grid;
+		height: 52px;
+		place-items: center;
+	}
+
+	.blueprint-connector svg {
+		width: 20px;
+		height: 100%;
+		overflow: visible;
+		fill: none;
+		stroke: var(--cyan);
+		stroke-linecap: square;
+		stroke-linejoin: miter;
+		stroke-width: 1.4;
+	}
+
+	.blueprint-arrow-line {
+		stroke-dasharray: 52;
+		stroke-dashoffset: 52;
+		animation: arrow-draw 480ms ease-out 420ms forwards;
+	}
+
+	.blueprint-arrow-head {
+		opacity: 0;
+		animation: arrow-head-in 180ms ease-out 780ms forwards;
+	}
+
+	.blueprint-query {
+		position: relative;
+		border-radius: 7px;
+		padding: 24px 18px 16px;
+	}
+
+	.blueprint-query > i {
+		position: absolute;
+		top: 10px;
+		width: 5px;
+		height: 5px;
+		border-radius: 50%;
+		background: var(--cyan);
+	}
+
+	.blueprint-query > i:nth-child(1) { left: 13px; }
+	.blueprint-query > i:nth-child(2) { left: 22px; }
+	.blueprint-query > i:nth-child(3) { left: 31px; }
+
+	.blueprint-query code {
+		color: #9ed8e6;
+		font-family: var(--font-mono);
+		font-size: clamp(0.58rem, 0.78vw, 0.72rem);
+		line-height: 1.52;
+	}
+
+	.blueprint-query b {
+		color: var(--cyan);
+		font-weight: 500;
+	}
+
+	.blueprint-query em {
+		color: var(--lime);
+		font-style: normal;
+	}
+
+	.blueprint-context {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		margin: 14px -18px -16px;
+		border-top: 1px solid var(--line);
+		background: rgba(69, 201, 232, 0.04);
+		padding: 9px 18px;
+		font-family: var(--font-mono);
+		font-size: clamp(0.52rem, 0.68vw, 0.62rem);
+	}
+
+	.blueprint-context span {
+		color: var(--cyan);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.blueprint-context code {
+		overflow: hidden;
+		color: #8fc7d5;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.blueprint-result {
+		position: relative;
+		min-height: 82px;
+		overflow: hidden;
+		border-radius: 7px;
+		background-image:
+			linear-gradient(var(--line) 1px, transparent 1px),
+			linear-gradient(90deg, var(--line) 1px, transparent 1px);
+		background-size: 20% 25%;
+	}
+
+	.blueprint-result::after {
+		position: absolute;
+		inset: 8px 12px;
+		background: repeating-linear-gradient(
+			to bottom,
+			transparent 0 11px,
+			rgba(123, 194, 210, 0.35) 11px 13px,
+			transparent 13px 20px
+		);
+		content: "";
+		opacity: 0.7;
+	}
+
+	@keyframes blueprint-in {
+		from { opacity: 0; transform: translateY(12px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	@keyframes arrow-draw {
+		to { stroke-dashoffset: 0; }
+	}
+
+	@keyframes arrow-head-in {
+		to { opacity: 1; }
+	}
+
+	@media (max-width: 1120px) {
+		.blueprint-flow {
+			padding: 25px;
+		}
+	}
+
+	@media (max-width: 900px) {
+		.blueprint-flow {
+			max-width: 740px;
+			margin-inline: auto;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.blueprint-flow {
+			padding: 22px 15px;
+		}
+
+		.blueprint-stage-prompt,
+		.blueprint-stage-result {
+			width: 92%;
+		}
+
+		.blueprint-context {
+			align-items: flex-start;
+			flex-direction: column;
+			gap: 4px;
+		}
+	}
+</style>

@@ -108,13 +108,13 @@ pub async fn update_connection(
 }
 
 #[tauri::command]
-pub async fn delete_connection(pool: State<'_, SqlitePool>, id: i64) -> Result<bool, String> {
-    sqlx::query("DELETE FROM connections WHERE id = ?")
-        .bind(id)
-        .execute(pool.inner())
+pub async fn delete_connection(
+    pool: State<'_, SqlitePool>,
+    id: i64,
+    delete_docker_data: Option<bool>,
+) -> Result<crate::docker::DeleteConnectionResult, String> {
+    crate::docker::delete_saved_connection(pool.inner(), id, delete_docker_data.unwrap_or(false))
         .await
-        .map(|_| true)
-        .map_err(|e| e.to_string())
 }
 
 /// Exported connection data (without id, uuid, timestamps)

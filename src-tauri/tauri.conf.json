@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DBcooper",
-  "version": "0.0.58",
+  "version": "0.0.65",
   "identifier": "com.amalshaji.dbcooper",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run build",
+    "beforeBuildCommand": "bun run build && bun run build:macos-icons",
     "frontendDist": "../dist"
   },
   "app": {
@@ -18,7 +18,7 @@
         "minWidth": 1024,
         "minHeight": 768,
         "titleBarStyle": "Overlay",
-        "dragDropEnabled": true,
+        "dragDropEnabled": false,
         "trafficLightPosition": {
           "x": 19,
           "y": 25
@@ -45,6 +45,10 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "files": {
+        "Resources/Assets.car": "./macos/Assets.car"
+      },
+      "infoPlist": "Info.plist",
       "minimumSystemVersion": "10.15"
     }
   },

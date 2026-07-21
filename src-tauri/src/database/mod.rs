@@ -1,18 +1,23 @@
 use async_trait::async_trait;
 
 pub mod clickhouse;
+pub mod create_table;
+pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
 pub mod redis;
 pub mod redis_read_only;
+pub mod sql_policy;
 pub mod sqlite;
 pub mod utils;
 
 use crate::db::models::{
-    FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
-    TestConnectionResult,
+    CreateTableRequest, FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse,
+    TableFilter, TableInfo, TableStructure, TestConnectionResult,
 };
+
+pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
 
 fn is_identifier_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
@@ -170,6 +175,16 @@ pub trait DatabaseDriver: Send + Sync {
     /// List all tables in the database
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String>;
 
+    /// Build the exact CREATE TABLE statement without executing it.
+    fn preview_create_table(&self, _request: &CreateTableRequest) -> Result<String, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
+
+    /// Create a table exactly once.
+    async fn create_table(&self, _request: &CreateTableRequest) -> Result<TableInfo, String> {
+        Err("Creating tables is not supported for this database".to_string())
+    }
+
     /// Get paginated data from a table
     async fn get_table_data(
         &self,
@@ -177,7 +192,7 @@ pub trait DatabaseDriver: Send + Sync {
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String>;

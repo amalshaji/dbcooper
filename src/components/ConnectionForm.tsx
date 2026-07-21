@@ -196,7 +196,7 @@ export function ConnectionForm({
 			} else {
 				toast.error(result.message || "Connection failed");
 			}
-		} catch (error) {
+		} catch {
 			toast.error("Failed to test connection");
 		} finally {
 			setIsTesting(false);
@@ -393,7 +393,7 @@ export function ConnectionForm({
 										<Input
 											id="connection-database"
 											type="text"
-											required={formData.type !== "redis"}
+											required
 											value={formData.database}
 											onChange={(e) =>
 												setFormData({ ...formData, database: e.target.value })

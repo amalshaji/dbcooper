@@ -12,12 +12,16 @@ import {
 	type Connection,
 	type Edge,
 	type Node,
+	type NodeTypes,
+	type OnEdgesChange,
+	type OnNodesChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { toSvg } from "html-to-image";
 import { toast } from "sonner";
 import { TableNode } from "./SchemaVisualizer/TableNode";
+import { SchemaFilterTrigger } from "./SchemaVisualizer/SchemaFilterTrigger";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,17 +35,15 @@ import {
 	SheetDescription,
 	SheetHeader,
 	SheetTitle,
-	SheetTrigger,
 } from "@/components/ui/sheet";
 import {
 	ArrowsClockwise,
-	Funnel,
 	MagnifyingGlass,
 	DownloadSimple,
 } from "@phosphor-icons/react";
 import type { SchemaOverview, TableWithStructure } from "@/types/tabTypes";
 
-const nodeTypes = { tableNode: TableNode };
+const nodeTypes: NodeTypes = { tableNode: TableNode };
 
 interface SchemaVisualizerProps {
 	schemaOverview: SchemaOverview | null;
@@ -70,7 +72,6 @@ function getLayoutedElements(
 	const referencedColumnsMap = new Map<string, Set<string>>();
 
 	tables.forEach((table) => {
-		const fullName = `${table.schema}.${table.name}`;
 		table.foreign_keys.forEach((fk) => {
 			const targetTable = `${table.schema}.${fk.references_table}`;
 			if (!referencedColumnsMap.has(targetTable)) {
@@ -274,6 +275,8 @@ export function SchemaVisualizer({
 			if (selectedTablesArray.length === 0) {
 				onSelectedTablesChange(allTableNames);
 			}
+			// Record that the initial table selection has been applied once.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setHasInitialized(true);
 		}
 	}, [
@@ -351,7 +354,7 @@ export function SchemaVisualizer({
 			return { nodes: [], edges: [] };
 		}
 		return getLayoutedElements(filteredTables, showColumns);
-	}, [filteredTables, showColumns]);
+	}, [schemaOverview, filteredTables, showColumns]);
 
 	const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
 	const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -487,12 +490,10 @@ export function SchemaVisualizer({
 						</div>
 						<div className="flex items-center gap-2">
 							<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-								<SheetTrigger asChild>
-									<Button variant="outline" size="sm">
-										<Funnel className="w-4 h-4" />
-										Filter ({selectedTables.size}/{allTableNames.length})
-									</Button>
-								</SheetTrigger>
+								<SchemaFilterTrigger
+									selectedCount={selectedTables.size}
+									totalCount={allTableNames.length}
+								/>
 								<SheetContent side="right" className="w-[400px]">
 									<SheetHeader>
 										<SheetTitle>Filter Tables</SheetTitle>
@@ -618,12 +619,10 @@ export function SchemaVisualizer({
 					</div>
 					<div className="flex items-center gap-2">
 						<Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-							<SheetTrigger asChild>
-								<Button variant="outline" size="sm">
-									<Funnel className="w-4 h-4" />
-									Filter ({selectedTables.size}/{allTableNames.length})
-								</Button>
-							</SheetTrigger>
+							<SchemaFilterTrigger
+								selectedCount={selectedTables.size}
+								totalCount={allTableNames.length}
+							/>
 							<SheetContent side="right" className="w-[400px]">
 								<SheetHeader>
 									<SheetTitle>Filter Tables</SheetTitle>
@@ -751,10 +750,10 @@ function SchemaVisualizerFlow({
 }: {
 	nodes: Node[];
 	edges: Edge[];
-	onNodesChange: (changes: any) => void;
-	onEdgesChange: (changes: any) => void;
+	onNodesChange: OnNodesChange;
+	onEdgesChange: OnEdgesChange;
 	onConnect: (connection: Connection) => void;
-	nodeTypes: any;
+	nodeTypes: NodeTypes;
 	downloadTrigger: number;
 	onDownloadStateChange: (isDownloading: boolean) => void;
 }) {

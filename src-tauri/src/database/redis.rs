@@ -368,7 +368,7 @@ impl DatabaseDriver for RedisDriver {
         _table: &str,
         _page: i64,
         _limit: i64,
-        _filter: Option<String>,
+        _filter: Option<crate::db::models::TableFilter>,
         _sort_column: Option<String>,
         _sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
@@ -412,6 +412,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![json!({"info": info})],
                         row_count: 1,
+                        truncated: false,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -422,6 +423,7 @@ impl DatabaseDriver for RedisDriver {
                     return Ok(QueryResult {
                         data: vec![],
                         row_count: 0,
+                        truncated: false,
                         rows_affected: None,
                         error: Some(error_msg),
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -436,6 +438,7 @@ impl DatabaseDriver for RedisDriver {
             return Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                truncated: false,
                 rows_affected: None,
                 error: Some("Empty query".to_string()),
                 time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -453,6 +456,7 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![json_value],
                     row_count: 1,
+                    truncated: false,
                     rows_affected: None,
                     error: None,
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -463,6 +467,7 @@ impl DatabaseDriver for RedisDriver {
                 Ok(QueryResult {
                     data: vec![],
                     row_count: 0,
+                    truncated: false,
                     rows_affected: None,
                     error: Some(error_msg),
                     time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -479,6 +484,7 @@ impl DatabaseDriver for RedisDriver {
             return Ok(QueryResult {
                 data: vec![],
                 row_count: 0,
+                truncated: false,
                 rows_affected: None,
                 error: Some(format!(
                     "Read-only mode: '{}' is not an allowed read command.",

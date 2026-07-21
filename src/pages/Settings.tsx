@@ -1,24 +1,17 @@
-import { useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { ArrowLeft } from "@phosphor-icons/react";
-import { handleDragStart } from "@/lib/windowDrag";
+import { useNavigate } from "react-router-dom";
 import { SettingsForm } from "@/components/SettingsForm";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function Settings() {
 	const navigate = useNavigate();
 
 	return (
-		<div className="min-h-screen bg-background flex flex-col">
+		<div className="workspace-canvas flex h-screen flex-col overflow-hidden">
 			<header
-				onMouseDown={handleDragStart}
-				className="h-12 shrink-0 flex items-center gap-2 px-4 pl-24 border-b bg-background select-none"
+				data-tauri-drag-region
+				className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b px-4 pl-24"
 			>
 				<Button variant="ghost" onClick={() => navigate("/")}>
 					<ArrowLeft className="h-4 w-4" />
@@ -26,19 +19,27 @@ export function Settings() {
 				</Button>
 			</header>
 
-			<div className="flex-1 p-8 overflow-auto text-lg">
-				<div className="max-w-2xl mx-auto">
-					<Card>
-						<CardHeader>
-							<CardTitle>Settings</CardTitle>
-							<CardDescription>Configure your preferences</CardDescription>
+			<main className="min-h-0 flex-1 overflow-auto p-5 md:p-8">
+				<div className="mx-auto max-w-2xl">
+					<div className="mb-5">
+						<p className="section-label">DBcooper</p>
+						<h1 className="mt-1 text-2xl font-semibold tracking-tight">
+							Settings
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Appearance, updates, and contextual AI.
+						</p>
+					</div>
+					<Card className="workspace-panel">
+						<CardHeader className="border-b py-4">
+							<CardTitle className="text-sm">Application preferences</CardTitle>
 						</CardHeader>
-						<CardContent>
+						<CardContent className="pt-5">
 							<SettingsForm />
 						</CardContent>
 					</Card>
 				</div>
-			</div>
+			</main>
 		</div>
 	);
 }

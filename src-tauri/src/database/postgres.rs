@@ -1,18 +1,24 @@
 use async_trait::async_trait;
+use futures_util::{StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use super::create_table::build_postgres_create_table_sql;
+use super::filter::{
+    build_where_clause, classify_column_type, compile_filter, structured_expression,
+    CompiledFilter, FilterDialect, FilterValue,
+};
 use super::{query_returns_rows, DatabaseDriver, PostgresConfig};
 use crate::database::queries::postgres::{
     FUNCTION_DEFINITION_QUERY, FUNCTION_SUMMARIES_QUERY, SCHEMA_OVERVIEW_QUERY,
 };
 use crate::db::models::{
-    ColumnInfo, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableStructure, TableWithStructure,
-    TestConnectionResult,
+    ColumnInfo, CreateTableRequest, ForeignKeyInfo, FunctionDefinition, FunctionSummary, IndexInfo,
+    QueryResult, SchemaOverview, TableDataResponse, TableFilter, TableInfo, TableStructure,
+    TableWithStructure, TestConnectionResult,
 };
 
 pub struct PostgresDriver {
@@ -43,6 +49,22 @@ impl PostgresDriver {
             self.config.database,
             ssl_mode
         )
+    }
+
+    fn bind_filter<'q>(
+        mut query: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
+        filter: &'q CompiledFilter,
+    ) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+        for value in &filter.values {
+            query = match value {
+                FilterValue::Text(value) => query.bind(value),
+                FilterValue::Integer(value) => query.bind(value),
+                FilterValue::Float(value) => query.bind(value),
+                FilterValue::Boolean(value) => query.bind(value),
+                FilterValue::ExactNumber { value, .. } => query.bind(value),
+            };
+        }
+        query
     }
 
     async fn create_pool(&self) -> Result<sqlx::PgPool, String> {
@@ -115,6 +137,7 @@ impl PostgresDriver {
         Ok(QueryResult {
             data: vec![],
             row_count: 0,
+            truncated: false,
             rows_affected: None,
             error: Some(error_str),
             time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -296,13 +319,32 @@ impl DatabaseDriver for PostgresDriver {
             .collect())
     }
 
+    fn preview_create_table(&self, request: &CreateTableRequest) -> Result<String, String> {
+        build_postgres_create_table_sql(request)
+    }
+
+    async fn create_table(&self, request: &CreateTableRequest) -> Result<TableInfo, String> {
+        let sql = self.preview_create_table(request)?;
+        let pool = self.get_pool_with_retry().await?;
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+
+        Ok(TableInfo {
+            schema: request.schema.clone(),
+            name: request.name.clone(),
+            table_type: "table".to_string(),
+        })
+    }
+
     async fn get_table_data(
         &self,
         schema: &str,
         table: &str,
         page: i64,
         limit: i64,
-        filter: Option<String>,
+        filter: Option<TableFilter>,
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
@@ -310,20 +352,17 @@ impl DatabaseDriver for PostgresDriver {
 
         let offset = (page - 1) * limit;
         let full_table_name = format!("\"{}\".\"{}\"", schema, table);
-        let where_clause = filter
-            .as_ref()
-            .map(|f| {
-                // Normalize curly/smart quotes to regular ASCII quotes
-                // macOS often auto-replaces straight quotes with smart quotes
-                let normalized = f
-                    .replace('\u{2018}', "'") // Left single quotation mark '
-                    .replace('\u{2019}', "'") // Right single quotation mark '
-                    .replace('\u{201C}', "\"") // Left double quotation mark "
-                    .replace('\u{201D}', "\"") // Right double quotation mark "
-                    .replace("\\'", "'"); // Backslash-escaped single quote
-                format!(" WHERE {}", normalized)
-            })
-            .unwrap_or_default();
+        let compiled_filter = if let Some(expression) = structured_expression(filter.as_ref()) {
+            let columns = self.get_table_structure(schema, table).await?.columns;
+            Some(compile_filter(
+                expression,
+                &columns,
+                FilterDialect::Postgres,
+            )?)
+        } else {
+            None
+        };
+        let where_clause = build_where_clause(filter.as_ref(), compiled_filter.as_ref());
 
         let order_clause = if let Some(col) = sort_column.as_ref() {
             // Validate sort_direction to prevent SQL injection
@@ -357,9 +396,14 @@ impl DatabaseDriver for PostgresDriver {
             "SELECT COUNT(*) as count FROM {}{}",
             full_table_name, where_clause
         );
-        let count_row: (i64,) = sqlx::query_as(&count_query)
-            .fetch_one(&pool)
-            .await
+        let count_row = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&count_query), filter)
+                .fetch_one(&pool)
+                .await
+                .map(|row| (row.get::<i64, _>(0),))
+        } else {
+            sqlx::query_as(&count_query).fetch_one(&pool).await
+        }
             .map_err(|e| {
                 let error_str = e.to_string();
                 if error_str.contains("Connection reset by peer") 
@@ -377,9 +421,13 @@ impl DatabaseDriver for PostgresDriver {
             full_table_name, where_clause, order_clause, limit, offset
         );
 
-        let rows = sqlx::query(&data_query)
-            .fetch_all(&pool)
-            .await
+        let rows = if let Some(filter) = compiled_filter.as_ref() {
+            Self::bind_filter(sqlx::query(&data_query), filter)
+                .fetch_all(&pool)
+                .await
+        } else {
+            sqlx::query(&data_query).fetch_all(&pool).await
+        }
             .map_err(|e| {
                 let error_str = e.to_string();
                 if error_str.contains("Connection reset by peer") 
@@ -514,6 +562,7 @@ impl DatabaseDriver for PostgresDriver {
                 .map(
                     |(name, data_type, nullable, default, primary_key)| ColumnInfo {
                         name,
+                        filter_kind: classify_column_type(&data_type, FilterDialect::Postgres),
                         data_type,
                         nullable,
                         default,
@@ -549,13 +598,24 @@ impl DatabaseDriver for PostgresDriver {
         let pool = self.get_pool_with_retry().await?;
 
         if query_returns_rows(query) {
-            match sqlx::query(query).fetch_all(&pool).await {
+            match sqlx::query(query)
+                .fetch(&pool)
+                .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
+                .try_collect::<Vec<_>>()
+                .await
+            {
                 Ok(rows) => {
-                    let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
+                    let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
+                    let data: Vec<Value> = rows
+                        .iter()
+                        .take(crate::database::MAX_QUERY_RESULT_ROWS)
+                        .map(Self::row_to_json)
+                        .collect();
                     let row_count = data.len() as i64;
                     Ok(QueryResult {
                         data,
                         row_count,
+                        truncated,
                         rows_affected: None,
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -570,6 +630,7 @@ impl DatabaseDriver for PostgresDriver {
                     Ok(QueryResult {
                         data: vec![],
                         row_count: rows_affected as i64,
+                        truncated: false,
                         rows_affected: Some(rows_affected),
                         error: None,
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
@@ -635,8 +696,12 @@ impl DatabaseDriver for PostgresDriver {
             let table_type: String = row.try_get("type").map_err(|e| e.to_string())?;
 
             let columns_json: Value = row.try_get("columns").map_err(|e| e.to_string())?;
-            let columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
+            let mut columns: Vec<ColumnInfo> = serde_json::from_value(columns_json)
                 .map_err(|e| format!("Failed to parse columns: {}", e))?;
+            for column in &mut columns {
+                column.filter_kind =
+                    classify_column_type(&column.data_type, FilterDialect::Postgres);
+            }
 
             let foreign_keys_json: Value =
                 row.try_get("foreign_keys").map_err(|e| e.to_string())?;

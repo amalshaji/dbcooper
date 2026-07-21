@@ -1,18 +1,24 @@
-import { useRef, useMemo, useCallback } from "react";
 import {
-	flexRender,
-	getCoreRowModel,
-	useReactTable,
-	type ColumnDef,
-} from "@tanstack/react-table";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@/components/ui/button";
-import {
-	CaretUp,
 	CaretDown,
+	CaretUp,
 	CaretUpDown,
 	MagnifyingGlass,
 } from "@phosphor-icons/react";
+import {
+	type ColumnDef,
+	flexRender,
+	getCoreRowModel,
+	useReactTable,
+} from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 export interface SortState {
 	column: string;
@@ -33,9 +39,11 @@ interface DataTableProps<TData> {
 	sort?: SortState | null;
 	onSortChange?: (sort: SortState | null) => void;
 	isRowHighlighted?: (row: TData) => boolean;
+	onCellFilter?: (column: string, value: unknown, exclude: boolean) => void;
 }
 
 const COLUMN_WIDTH = 150;
+const VISIBLE_ROW_CAPACITY = 30;
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 300;
 
@@ -53,9 +61,16 @@ export function DataTable<TData>({
 	sort = null,
 	onSortChange,
 	isRowHighlighted,
+	onCellFilter,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const [contextCell, setContextCell] = useState<{
+		column: string;
+		value: unknown;
+	} | null>(null);
 
+	// TanStack Table returns functions that cannot be safely memoized by React Compiler.
+	// eslint-disable-next-line react-hooks/incompatible-library
 	const table = useReactTable({
 		data,
 		columns,
@@ -69,13 +84,13 @@ export function DataTable<TData>({
 	const visibleColumns = headerGroups[0]?.headers ?? [];
 
 	const shouldVirtualizeColumns = visibleColumns.length > 20;
-	const shouldVirtualizeRows = virtualize && rows.length > 50;
+	const shouldVirtualizeRows = virtualize && rows.length > VISIBLE_ROW_CAPACITY;
 
 	const rowVirtualizer = useVirtualizer({
 		count: rows.length,
 		getScrollElement: () => containerRef.current,
 		estimateSize: () => estimatedRowHeight,
-		overscan: 10,
+		overscan: 12,
 		enabled: shouldVirtualizeRows,
 	});
 
@@ -84,7 +99,7 @@ export function DataTable<TData>({
 		count: visibleColumns.length,
 		getScrollElement: () => containerRef.current,
 		estimateSize: () => COLUMN_WIDTH,
-		overscan: 3,
+		overscan: 4,
 		enabled: shouldVirtualizeColumns,
 	});
 
@@ -168,21 +183,36 @@ export function DataTable<TData>({
 			const cell = row.getVisibleCells()[columnIndex];
 			if (!cell) return null;
 
+			const cellProps = {
+				style: {
+					width: COLUMN_WIDTH,
+					minWidth: MIN_COLUMN_WIDTH,
+					maxWidth: MAX_COLUMN_WIDTH,
+				},
+				className:
+					"h-10 px-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border",
+			};
+			const content = flexRender(cell.column.columnDef.cell, cell.getContext());
+
 			return (
 				<td
 					key={cell.id}
-					style={{
-						width: COLUMN_WIDTH,
-						minWidth: MIN_COLUMN_WIDTH,
-						maxWidth: MAX_COLUMN_WIDTH,
-					}}
-					className="p-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border"
+					{...cellProps}
+					onContextMenu={
+						onCellFilter
+							? () =>
+									setContextCell({
+										column: cell.column.id,
+										value: cell.getValue(),
+									})
+							: undefined
+					}
 				>
-					{flexRender(cell.column.columnDef.cell, cell.getContext())}
+					{content}
 				</td>
 			);
 		},
-		[],
+		[onCellFilter],
 	);
 
 	const renderTableBody = () => {
@@ -190,12 +220,14 @@ export function DataTable<TData>({
 			return (
 				<tr>
 					<td colSpan={columns.length} className="p-3">
-						<div className="flex flex-col items-center justify-center gap-2.5 py-14 text-center">
-							<div className="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground/70 ring-1 ring-border">
-								<MagnifyingGlass className="size-5" />
+						<div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+							<div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground/70 ring-1 ring-border">
+								<MagnifyingGlass className="size-4" />
 							</div>
 							<div className="space-y-0.5">
-								<p className="text-sm font-medium text-foreground">No results</p>
+								<p className="text-sm font-medium text-foreground">
+									No results
+								</p>
 								<p className="text-xs text-muted-foreground">
 									Nothing to show for this query.
 								</p>
@@ -223,7 +255,7 @@ export function DataTable<TData>({
 							ref={measureRowElement}
 							data-state={row.getIsSelected() && "selected"}
 							data-highlighted={highlighted ? "true" : undefined}
-							className={`hover:bg-muted/50 data-[state=selected]:bg-muted data-[highlighted=true]:bg-primary/5 border-b transition-colors ${
+							className={`border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted data-[highlighted=true]:bg-primary/5 ${
 								onRowClick ? "cursor-pointer" : ""
 							}`}
 							onClick={() => onRowClick?.(row.original)}
@@ -254,11 +286,7 @@ export function DataTable<TData>({
 			return totalColumnWidth;
 		}
 		return Math.max(visibleColumns.length * COLUMN_WIDTH, 100);
-	}, [
-		shouldVirtualizeColumns,
-		totalColumnWidth,
-		visibleColumns.length,
-	]);
+	}, [shouldVirtualizeColumns, totalColumnWidth, visibleColumns.length]);
 
 	const getSortIcon = (columnId: string) => {
 		if (!sortable) return null;
@@ -275,85 +303,110 @@ export function DataTable<TData>({
 
 	return (
 		<div className="flex flex-col max-h-full w-full min-w-0">
-			<div
-				ref={containerRef}
-				className="rounded-md border overflow-auto w-full"
-			>
-				<table
-					className="caption-bottom text-xs border-collapse tabular-figures"
-					style={{
-						width: tableWidth,
-						minWidth: "100%",
-						tableLayout: "fixed",
-					}}
+			<ContextMenu>
+				<ContextMenuTrigger
+					render={
+						<div
+							ref={containerRef}
+							className="w-full overflow-auto rounded-md border bg-card"
+						/>
+					}
 				>
-					<thead className="sticky top-0 bg-background z-10 shadow-[0_6px_10px_-8px_rgb(0_0_0/0.12)]">
-						{headerGroups.map((headerGroup) => (
-							<tr key={headerGroup.id} className="border-b">
-								{paddingLeft > 0 && (
-									<th
-										style={{ width: paddingLeft, minWidth: paddingLeft }}
-										className="bg-background"
-									/>
-								)}
-								{virtualColumns.map((virtualColumn) => {
-									const header = headerGroup.headers[virtualColumn.index];
-									if (!header) return null;
-									const columnDef = header.column.columnDef;
-									const columnId =
-										"accessorKey" in columnDef &&
-										typeof columnDef.accessorKey === "string"
-											? columnDef.accessorKey
-											: header.id;
-									return (
+					<table
+						className="caption-bottom border-collapse text-xs tabular-figures"
+						style={{
+							width: tableWidth,
+							minWidth: "100%",
+							tableLayout: "fixed",
+						}}
+					>
+						<thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm">
+							{headerGroups.map((headerGroup) => (
+								<tr key={headerGroup.id} className="border-b">
+									{paddingLeft > 0 && (
 										<th
-											key={header.id}
-											style={{
-												width: COLUMN_WIDTH,
-												minWidth: MIN_COLUMN_WIDTH,
-												maxWidth: MAX_COLUMN_WIDTH,
-											}}
-											className={`text-foreground h-12 px-3 text-left align-middle font-medium whitespace-nowrap bg-background overflow-hidden text-ellipsis box-border ${
-												sortable
-													? "cursor-pointer hover:bg-muted/50 select-none"
-													: ""
-											}`}
-											onClick={() => handleHeaderClick(columnId)}
-										>
-											<div className="flex items-center">
-												<span className="truncate">
-													{header.isPlaceholder
-														? null
-														: flexRender(
-																header.column.columnDef.header,
-																header.getContext(),
-															)}
-												</span>
-												{getSortIcon(columnId)}
-											</div>
-										</th>
-									);
-								})}
-								{paddingRight > 0 && (
-									<th
-										style={{ width: paddingRight, minWidth: paddingRight }}
-										className="bg-background"
-									/>
-								)}
-							</tr>
-						))}
-					</thead>
-					<tbody className="[&_tr:last-child]:border-0">
-						{renderTableBody()}
-					</tbody>
-				</table>
-			</div>
+											style={{ width: paddingLeft, minWidth: paddingLeft }}
+											className="bg-background"
+										/>
+									)}
+									{virtualColumns.map((virtualColumn) => {
+										const header = headerGroup.headers[virtualColumn.index];
+										if (!header) return null;
+										const columnDef = header.column.columnDef;
+										const columnId =
+											"accessorKey" in columnDef &&
+											typeof columnDef.accessorKey === "string"
+												? columnDef.accessorKey
+												: header.id;
+										return (
+											<th
+												key={header.id}
+												style={{
+													width: COLUMN_WIDTH,
+													minWidth: MIN_COLUMN_WIDTH,
+													maxWidth: MAX_COLUMN_WIDTH,
+												}}
+												className={`h-10 overflow-hidden text-ellipsis whitespace-nowrap bg-transparent px-3 text-left align-middle font-medium text-foreground box-border ${
+													sortable
+														? "cursor-pointer hover:bg-muted/50 select-none"
+														: ""
+												}`}
+												onClick={() => handleHeaderClick(columnId)}
+											>
+												<div className="flex items-center">
+													<span className="truncate">
+														{header.isPlaceholder
+															? null
+															: flexRender(
+																	header.column.columnDef.header,
+																	header.getContext(),
+																)}
+													</span>
+													{getSortIcon(columnId)}
+												</div>
+											</th>
+										);
+									})}
+									{paddingRight > 0 && (
+										<th
+											style={{ width: paddingRight, minWidth: paddingRight }}
+											className="bg-background"
+										/>
+									)}
+								</tr>
+							))}
+						</thead>
+						<tbody className="[&_tr:last-child]:border-0">
+							{renderTableBody()}
+						</tbody>
+					</table>
+				</ContextMenuTrigger>
+				{onCellFilter && contextCell && (
+					<ContextMenuContent>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(contextCell.column, contextCell.value, false)
+							}
+						>
+							Filter by this value
+						</ContextMenuItem>
+						<ContextMenuItem
+							onClick={() =>
+								onCellFilter(contextCell.column, contextCell.value, true)
+							}
+						>
+							Exclude this value
+						</ContextMenuItem>
+					</ContextMenuContent>
+				)}
+			</ContextMenu>
 
 			{!hidePagination && (
-				<div className="flex items-center justify-between px-2 pt-3 pb-1">
+				<div className="flex items-center justify-between px-1 pb-1 pt-3">
 					<div className="text-xs text-muted-foreground tabular-figures">
-						Page <span className="font-medium text-foreground">{currentPage}</span> of{" "}
-						<span className="font-medium text-foreground">{pageCount}</span>
+						Page{" "}
+						<span className="font-medium text-foreground">{currentPage}</span>{" "}
+						of <span className="font-medium text-foreground">{pageCount}</span>
 					</div>
 					<div className="flex items-center space-x-2">
 						<Button

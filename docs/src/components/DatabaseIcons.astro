@@ -1,0 +1,86 @@
+---
+import PostgresqlIcon from "../icons/postgres.astro";
+import SqliteIcon from "../icons/sqlite.astro";
+import RedisIcon from "../icons/redis.astro";
+import ClickhouseIcon from "../icons/clickhouse.astro";
+
+const databases = [
+	{ Icon: PostgresqlIcon, name: "PostgreSQL" },
+	{ Icon: SqliteIcon, name: "SQLite" },
+	{ Icon: RedisIcon, name: "Redis" },
+	{ Icon: ClickhouseIcon, name: "ClickHouse" },
+];
+---
+
+<div class="database-list">
+	{databases.map(({ Icon, name }) => (
+		<div class="database-item">
+			<Icon class="database-icon" />
+			<span>{name}</span>
+		</div>
+	))}
+</div>
+
+<style>
+	.database-list {
+		display: grid;
+		width: 100%;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+	}
+
+	.database-item {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		border-right: 1px solid var(--line);
+		color: var(--ink);
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		transition: color 180ms ease, background 180ms ease;
+	}
+
+	.database-item:last-child {
+		border-right: 0;
+	}
+
+	.database-item:hover {
+		background: var(--cyan-wash);
+		color: var(--cyan-bright);
+	}
+
+	.database-item :global(.database-icon) {
+		width: 22px;
+		height: 22px;
+		flex: 0 0 auto;
+		filter: grayscale(1) brightness(1.5);
+		opacity: 0.75;
+		transition: filter 180ms ease, opacity 180ms ease;
+	}
+
+	.database-item:hover :global(.database-icon) {
+		filter: none;
+		opacity: 1;
+	}
+
+	@media (max-width: 640px) {
+		.database-list {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.database-item {
+			min-height: 62px;
+			border-bottom: 1px solid var(--line);
+			font-size: 0.68rem;
+		}
+
+		.database-item:nth-child(2) {
+			border-right: 0;
+		}
+
+		.database-item:nth-child(n + 3) {
+			border-bottom: 0;
+		}
+	}
+</style>

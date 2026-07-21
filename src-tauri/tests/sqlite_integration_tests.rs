@@ -9,6 +9,11 @@ use tempfile::{tempdir, TempDir};
 // Re-export the modules we need to test
 use dbcooper_lib::database::sqlite::SqliteDriver;
 use dbcooper_lib::database::{DatabaseDriver, SqliteConfig};
+use dbcooper_lib::db::models::{
+    ColumnDefault, CreateTableColumn, CreateTableRequest, FilterCondition, FilterConjunction,
+    FilterExpression, FilterOperator, TableFilter,
+};
+use serde_json::json;
 
 /// Helper function to create a test SQLite driver with a temporary database
 fn create_test_driver(temp_dir: &TempDir) -> (SqliteDriver, PathBuf) {
@@ -115,6 +120,68 @@ async fn test_list_tables_empty_database() {
 
     let tables = result.unwrap();
     assert!(tables.is_empty(), "New database should have no tables");
+}
+
+#[tokio::test]
+async fn test_create_table_builds_sqlite_table_and_reports_duplicates() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    let request = CreateTableRequest {
+        schema: "main".to_string(),
+        name: "project_notes".to_string(),
+        columns: vec![
+            CreateTableColumn {
+                name: "id".to_string(),
+                data_type: "integer".to_string(),
+                nullable: false,
+                primary_key: true,
+                unique: false,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "slug".to_string(),
+                data_type: "text".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: true,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "created_at".to_string(),
+                data_type: "datetime".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: false,
+                default: Some(ColumnDefault::Expression {
+                    value: "current_timestamp".to_string(),
+                }),
+            },
+        ],
+    };
+
+    let table = driver.create_table(&request).await.unwrap();
+    assert_eq!(table.schema, "main");
+    assert_eq!(table.name, "project_notes");
+    assert_eq!(table.table_type, "table");
+
+    let structure = driver
+        .get_table_structure("main", "project_notes")
+        .await
+        .unwrap();
+    assert_eq!(structure.columns.len(), 3);
+    assert!(structure.columns[0].primary_key);
+    assert!(!structure.columns[0].nullable);
+    assert_eq!(
+        structure.columns[2].default.as_deref(),
+        Some("current_timestamp")
+    );
+    assert!(structure
+        .indexes
+        .iter()
+        .any(|index| index.unique && index.columns == vec!["slug"]));
+
+    let duplicate_error = driver.create_table(&request).await.unwrap_err();
+    assert!(duplicate_error.contains("already exists"));
 }
 
 #[tokio::test]
@@ -348,7 +415,7 @@ async fn test_get_table_data_with_filter() {
             "users",
             1,
             10,
-            Some("age > 25".to_string()),
+            Some(TableFilter::Advanced("age > 25".to_string())),
             None,
             None,
         )
@@ -358,6 +425,41 @@ async fn test_get_table_data_with_filter() {
     let data = result.unwrap();
     assert_eq!(data.data.len(), 2, "Should return 2 rows matching filter");
     assert_eq!(data.total, 2, "Total should be 2");
+}
+
+#[tokio::test]
+async fn test_get_table_data_with_parameterized_filter() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let driver = create_driver_with_table(&temp_dir).await;
+    driver
+        .execute_query(
+            "INSERT INTO users (name, email, age) VALUES ('O''Brien', 'obrien@test.com', 30), ('Alice', 'alice@test.com', 25)",
+        )
+        .await
+        .expect("Failed to insert test data");
+
+    let result = driver
+        .get_table_data(
+            "main",
+            "users",
+            1,
+            10,
+            Some(TableFilter::Structured(FilterExpression {
+                conjunction: FilterConjunction::And,
+                conditions: vec![FilterCondition {
+                    column: "name".to_string(),
+                    operator: FilterOperator::Equals,
+                    value: Some(json!("O'Brien")),
+                }],
+            })),
+            None,
+            None,
+        )
+        .await
+        .expect("Structured filter should execute");
+
+    assert_eq!(result.total, 1);
+    assert_eq!(result.data[0]["name"], "O'Brien");
 }
 
 // ============================================================================
@@ -505,6 +607,62 @@ async fn test_execute_query_select() {
     assert_eq!(query_result.row_count, 1);
     assert!(!query_result.data.is_empty());
     assert!(query_result.time_taken_ms.is_some());
+}
+
+#[tokio::test]
+async fn test_execute_query_bounds_large_result_sets() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    driver
+        .execute_query("CREATE TABLE large_results (id INTEGER PRIMARY KEY)")
+        .await
+        .unwrap();
+    driver
+        .execute_query(
+            "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 10001) INSERT INTO large_results SELECT id FROM rows",
+        )
+        .await
+        .unwrap();
+
+    let result = driver
+        .execute_query("SELECT id FROM large_results ORDER BY id")
+        .await
+        .unwrap();
+
+    assert_eq!(result.data.len(), 10_000);
+    assert!(result.truncated);
+}
+
+#[tokio::test]
+#[ignore = "million-row performance benchmark"]
+async fn benchmark_million_row_table_window() {
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let (driver, _) = create_test_driver(&temp_dir);
+    driver
+        .execute_query("CREATE TABLE million_rows (id INTEGER PRIMARY KEY, value TEXT)")
+        .await
+        .unwrap();
+    driver
+        .execute_query(
+            "WITH RECURSIVE rows(id) AS (SELECT 1 UNION ALL SELECT id + 1 FROM rows WHERE id < 1000000) INSERT INTO million_rows SELECT id, printf('row-%d', id) FROM rows",
+        )
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let result = driver
+        .get_table_data("main", "million_rows", 1, 100, None, None, None)
+        .await
+        .unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(result.total, 1_000_000);
+    assert_eq!(result.data.len(), 100);
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "million-row page exceeded the 5 second budget: {elapsed:?}"
+    );
+    eprintln!("million-row table window loaded in {elapsed:?}");
 }
 
 #[tokio::test]

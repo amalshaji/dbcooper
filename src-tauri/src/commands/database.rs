@@ -6,6 +6,9 @@
 use crate::database::clickhouse::ClickhouseDriver;
 use crate::database::postgres::PostgresDriver;
 use crate::database::redis::{RedisDriver, RedisKeyDetails, RedisKeyListResponse};
+use crate::database::sql_policy::{
+    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+};
 use crate::database::sqlite::SqliteDriver;
 use crate::database::{
     ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
@@ -300,19 +303,21 @@ pub async fn unified_get_table_data(
     page: i64,
     limit: i64,
     filter: Option<String>,
+    structured_filter: Option<crate::db::models::FilterExpression>,
     sort_column: Option<String>,
     sort_direction: Option<String>,
 ) -> Result<TableDataResponse, String> {
     let driver = create_driver(
         &db_type, host, port, database, username, password, ssl, file_path,
     )?;
+    let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
     driver
         .get_table_data(
             &schema,
             &table,
             page,
             limit,
-            filter,
+            table_filter,
             sort_column,
             sort_direction,
         )
@@ -664,193 +669,6 @@ pub async fn insert_table_row(
     );
 
     driver.execute_query(&query).await
-}
-
-/// Whitelist of allowed SQL functions/values for raw SQL injection.
-/// This prevents SQL injection by only allowing known safe SQL functions.
-/// Must match the frontend whitelist in src/lib/sqlFunctions.ts
-pub fn get_allowed_sql_functions() -> std::collections::HashSet<&'static str> {
-    [
-        // PostgreSQL functions
-        "now()",
-        "current_timestamp",
-        "localtimestamp",
-        "current_date",
-        "now()::date",
-        "current_time",
-        "localtime",
-        "gen_random_uuid()",
-        "uuid_generate_v4()",
-        "DEFAULT",
-        "TRUE",
-        "FALSE",
-        "'{}'::json",
-        "'[]'::json",
-        "'{}'::jsonb",
-        "'[]'::jsonb",
-        // SQLite functions
-        "datetime('now')",
-        "datetime('now', 'localtime')",
-        "date('now')",
-        "date('now', 'localtime')",
-        "time('now')",
-        "time('now', 'localtime')",
-        "NULL",
-        "1",
-        "0",
-        // ClickHouse functions
-        "now64()",
-        "today()",
-        "yesterday()",
-        "generateUUIDv4()",
-        "true",
-        "false",
-        "'{}'",
-    ]
-    .iter()
-    .cloned()
-    .collect()
-}
-
-/// Validate that a raw SQL value is in the whitelist of allowed functions.
-/// This prevents SQL injection by only allowing known safe SQL functions.
-/// Returns Ok(()) if valid, Err(String) if invalid.
-pub fn validate_raw_sql_value(value: &str, _db_type: &str) -> Result<(), String> {
-    let trimmed = value.trim();
-
-    // Empty string is not allowed for raw SQL
-    if trimmed.is_empty() {
-        return Err("Raw SQL value cannot be empty".to_string());
-    }
-
-    let allowed = get_allowed_sql_functions();
-
-    // Check exact match first (case-sensitive)
-    if allowed.contains(trimmed) {
-        return Ok(());
-    }
-
-    // For case-insensitive matching (some databases are case-insensitive)
-    // But only for specific values that are safe to match case-insensitively
-    let trimmed_lower = trimmed.to_lowercase();
-    let case_insensitive_allowed = [
-        "true",
-        "false",
-        "null",
-        "default",
-        "now()",
-        "current_timestamp",
-        "localtimestamp",
-        "current_date",
-        "current_time",
-        "localtime",
-        "gen_random_uuid()",
-        "uuid_generate_v4()",
-        "datetime('now')",
-        "datetime('now', 'localtime')",
-        "date('now')",
-        "date('now', 'localtime')",
-        "time('now')",
-        "time('now', 'localtime')",
-        "now64()",
-        "today()",
-        "yesterday()",
-        "generateuuidv4()",
-    ];
-
-    for allowed_func in case_insensitive_allowed.iter() {
-        if trimmed_lower == *allowed_func {
-            return Ok(());
-        }
-    }
-
-    // Additional security check: reject anything with SQL keywords that could be used for injection
-    // This is a defense-in-depth measure even if the value doesn't match the whitelist
-    let dangerous_patterns = [
-        "drop",
-        "delete",
-        "truncate",
-        "alter",
-        "create",
-        "insert",
-        "update",
-        "exec",
-        "execute",
-        "union",
-        "select",
-        "from",
-        "where",
-        "having",
-        "grant",
-        "revoke",
-        "commit",
-        "rollback",
-        "begin",
-        "transaction",
-        ";",
-        "--",
-        "/*",
-        "*/",
-        "xp_",
-        "sp_",
-        "script",
-        "javascript",
-    ];
-
-    let value_lower = trimmed_lower.as_str();
-    for pattern in dangerous_patterns.iter() {
-        if value_lower.contains(pattern) {
-            return Err(format!(
-                "Raw SQL value contains potentially dangerous pattern: '{}'. Only whitelisted SQL functions are allowed.",
-                pattern
-            ));
-        }
-    }
-
-    // If it doesn't match the whitelist, reject it to be safe
-    // This is the primary security check - whitelist-only approach
-    Err(format!(
-        "Raw SQL value '{}' is not in the whitelist of allowed functions. Only predefined SQL functions are allowed for security.",
-        trimmed
-    ))
-}
-
-/// Escape a SQL identifier (table name, column name, schema name) by doubling any double quotes.
-/// This prevents SQL injection through malicious identifiers like: column" OR 1=1 --
-pub fn escape_sql_identifier(identifier: &str) -> String {
-    identifier.replace('"', "\"\"")
-}
-
-/// Format a JSON value for SQL insertion
-pub fn format_sql_value(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "NULL".to_string(),
-        serde_json::Value::Bool(b) => {
-            if *b {
-                "TRUE".to_string()
-            } else {
-                "FALSE".to_string()
-            }
-        }
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => {
-            // Escape single quotes by doubling them
-            let escaped = s.replace('\'', "''");
-            format!("'{}'", escaped)
-        }
-        serde_json::Value::Array(arr) => {
-            // For arrays, convert to JSON string
-            let json_str = serde_json::to_string(arr).unwrap_or_default();
-            let escaped = json_str.replace('\'', "''");
-            format!("'{}'", escaped)
-        }
-        serde_json::Value::Object(obj) => {
-            // For objects, convert to JSON string
-            let json_str = serde_json::to_string(obj).unwrap_or_default();
-            let escaped = json_str.replace('\'', "''");
-            format!("'{}'", escaped)
-        }
-    }
 }
 
 // ============================================================================

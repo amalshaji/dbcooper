@@ -4,8 +4,8 @@
 
 use std::sync::Arc;
 
-use crate::database::pool_manager::{ConnectionConfig, ConnectionStatus, PoolManager};
-use crate::db::models::TestConnectionResult;
+use crate::database::pool_manager::{ConnectionStatus, PoolManager};
+use crate::db::models::{CreateTableRequest, TableInfo, TestConnectionResult};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -24,51 +24,12 @@ pub async fn pool_connect(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<ConnectionStatusResponse, String> {
-    // Get connection details from database
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let config = ConnectionConfig {
-        db_type: conn.db_type,
-        host: Some(conn.host),
-        port: Some(conn.port),
-        database: Some(conn.database),
-        username: Some(conn.username),
-        password: Some(conn.password),
-        ssl: Some(conn.ssl == 1),
-        file_path: conn.file_path,
-        ssh_enabled: conn.ssh_enabled == 1,
-        ssh_host: if conn.ssh_host.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_host)
-        },
-        ssh_port: Some(conn.ssh_port),
-        ssh_user: if conn.ssh_user.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_user)
-        },
-        ssh_password: if conn.ssh_password.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_password)
-        },
-        ssh_key_path: if conn.ssh_key_path.is_empty() {
-            None
-        } else {
-            Some(conn.ssh_key_path)
-        },
-    };
-
     // Serialize with data-op (re)connects for this UUID so a UI-initiated
     // connect can't race a concurrent ensure_connection/reconnect.
     let lock = pool_manager.get_connect_lock(&uuid).await;
     let _guard = lock.lock().await;
+    crate::docker::ensure_created_connection_running(sqlite_pool.inner(), &uuid).await?;
+    let config = crate::database::utils::get_connection_config(sqlite_pool.inner(), &uuid).await?;
 
     match pool_manager.connect(&uuid, config).await {
         Ok(_) => Ok(ConnectionStatusResponse {
@@ -133,7 +94,7 @@ async fn reconnect(
     // Disconnect stale connection
     pool_manager.disconnect(uuid).await;
 
-    // Reconnect using the shared config loader
+    crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     let config = crate::database::utils::get_connection_config(sqlite_pool, uuid).await?;
     pool_manager.connect(uuid, config).await?;
     Ok(())
@@ -175,10 +136,12 @@ pub async fn pool_get_table_data(
     page: i64,
     limit: i64,
     filter: Option<String>,
+    structured_filter: Option<crate::db::models::FilterExpression>,
     sort_column: Option<String>,
     sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
 
     match pool_manager
         .get_table_data(
@@ -187,7 +150,7 @@ pub async fn pool_get_table_data(
             &table,
             page,
             limit,
-            filter.clone(),
+            table_filter.clone(),
             sort_column.clone(),
             sort_direction.clone(),
         )
@@ -207,7 +170,7 @@ pub async fn pool_get_table_data(
                     &table,
                     page,
                     limit,
-                    filter,
+                    table_filter,
                     sort_column,
                     sort_direction,
                 )
@@ -243,6 +206,28 @@ pub async fn pool_get_table_structure(
                 .await
         }
     }
+}
+
+#[tauri::command]
+pub async fn pool_preview_create_table(
+    pool_manager: State<'_, Arc<PoolManager>>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    request: CreateTableRequest,
+) -> Result<String, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    pool_manager.preview_create_table(&uuid, &request).await
+}
+
+#[tauri::command]
+pub async fn pool_create_table(
+    pool_manager: State<'_, Arc<PoolManager>>,
+    sqlite_pool: State<'_, SqlitePool>,
+    uuid: String,
+    request: CreateTableRequest,
+) -> Result<TableInfo, String> {
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    pool_manager.create_table(&uuid, &request).await
 }
 
 /// Execute query using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -324,7 +309,9 @@ pub async fn pool_get_function_definition(
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================
 
-use crate::commands::database::{escape_sql_identifier, format_sql_value, validate_raw_sql_value};
+use crate::database::sql_policy::{
+    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+};
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]

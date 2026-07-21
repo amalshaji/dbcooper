@@ -1,10 +1,12 @@
+pub mod ai;
 pub mod commands;
 pub mod database;
 pub mod db;
+pub mod docker;
 pub mod mcp;
 mod ssh_tunnel;
 
-use commands::ai::{generate_sql, select_tables_for_query};
+use commands::ai::{detect_ai_harnesses, generate_sql, get_ai_status};
 use commands::connections::{
     create_connection, delete_connection, export_connection, get_connection_by_uuid,
     get_connections, import_connections, update_connection,
@@ -18,10 +20,10 @@ use commands::database::{
 };
 use commands::mcp::{mcp_get_status, mcp_regenerate_token, mcp_set_enabled};
 use commands::pool::{
-    pool_connect, pool_delete_table_row, pool_disconnect, pool_execute_query,
+    pool_connect, pool_create_table, pool_delete_table_row, pool_disconnect, pool_execute_query,
     pool_get_function_definition, pool_get_schema_overview, pool_get_status, pool_get_table_data,
     pool_get_table_structure, pool_health_check, pool_insert_table_row, pool_list_tables,
-    pool_update_table_row,
+    pool_preview_create_table, pool_update_table_row,
 };
 use commands::postgres::{
     execute_query, get_table_data, get_table_structure, list_tables, test_connection,
@@ -30,14 +32,22 @@ use commands::queries::{
     clear_query_history, create_saved_query, delete_saved_query, get_query_history,
     get_saved_queries, record_query_history, update_saved_query,
 };
-use commands::settings::{get_all_settings, get_setting, set_setting};
+use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
+#[cfg(desktop)]
+use commands::updates::check_for_update;
+use database::pool_manager::PoolManager;
+use docker::{
+    docker_connection_states, docker_control_connection, docker_create_database,
+    docker_get_connection_string, docker_link_connection, docker_list_containers,
+    docker_prepare_connection,
+};
+use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{Emitter, Manager, WebviewUrl};
 use std::sync::Arc;
 
-use database::pool_manager::PoolManager;
-use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Manager, WebviewUrl};
-
 const NEW_WINDOW_MENU_ID: &str = "new_window";
+const CLOSE_TAB_MENU_ID: &str = "close_tab";
+const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 
 fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     let label = format!("window-{}", uuid::Uuid::new_v4());
@@ -52,9 +62,23 @@ fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Res
     Ok(())
 }
 
+/// Resolve the window a menu accelerator should act on. Prefers the focused
+/// window (the one the user is interacting with) and falls back to the first
+/// window so single-window setups always have a target.
+fn menu_target_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Option<tauri::WebviewWindow<R>> {
+    let windows = app.webview_windows();
+    windows
+        .values()
+        .find(|window| window.is_focused().unwrap_or(false))
+        .or_else(|| windows.values().next())
+        .cloned()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -119,6 +143,26 @@ pub fn run() {
                 Some("CmdOrCtrl+Shift+N"),
             )?;
 
+            // Cmd/Ctrl+W closes the active in-app tab (not the window). The
+            // predefined close_window item hard-codes Cmd/Ctrl+W and the native
+            // menu intercepts that accelerator before the webview ever sees it,
+            // so closing a tab ended up closing the whole window (issue #66).
+            let close_tab_menu_item = MenuItem::with_id(
+                app_handle,
+                CLOSE_TAB_MENU_ID,
+                "Close Tab",
+                true,
+                Some("CmdOrCtrl+W"),
+            )?;
+
+            let close_window_menu_item = MenuItem::with_id(
+                app_handle,
+                CLOSE_WINDOW_MENU_ID,
+                "Close Window",
+                true,
+                Some("CmdOrCtrl+Shift+W"),
+            )?;
+
             let file_submenu = Submenu::with_items(
                 app_handle,
                 "File",
@@ -126,16 +170,32 @@ pub fn run() {
                 &[
                     &new_window_menu_item,
                     &PredefinedMenuItem::separator(app_handle)?,
-                    &PredefinedMenuItem::close_window(app_handle, Some("Close Window"))?,
+                    &close_tab_menu_item,
+                    &close_window_menu_item,
                 ],
             )?;
 
             Menu::with_items(app_handle, &[&app_submenu, &file_submenu, &edit_submenu])
         })
         .on_menu_event(|app, event| {
-            if event.id() == NEW_WINDOW_MENU_ID {
+            let id = event.id();
+            if id == NEW_WINDOW_MENU_ID {
                 if let Err(error) = create_new_window(app) {
                     eprintln!("Failed to open new window: {error}");
+                }
+            } else if id == CLOSE_TAB_MENU_ID {
+                // Let the frontend close the active tab; it falls back to
+                // closing the window when no tab is open.
+                if let Some(window) = menu_target_window(app) {
+                    if let Err(error) = window.emit("menu:close-tab", ()) {
+                        eprintln!("Failed to emit close-tab event: {error}");
+                    }
+                }
+            } else if id == CLOSE_WINDOW_MENU_ID {
+                if let Some(window) = menu_target_window(app) {
+                    if let Err(error) = window.close() {
+                        eprintln!("Failed to close window: {error}");
+                    }
                 }
             }
         })
@@ -211,8 +271,13 @@ pub fn run() {
             clear_query_history,
             get_setting,
             set_setting,
+            set_settings,
             get_all_settings,
+            #[cfg(desktop)]
+            check_for_update,
             generate_sql,
+            detect_ai_harnesses,
+            get_ai_status,
             pool_connect,
             pool_disconnect,
             pool_get_status,
@@ -220,17 +285,32 @@ pub fn run() {
             pool_list_tables,
             pool_get_table_data,
             pool_get_table_structure,
+            pool_preview_create_table,
+            pool_create_table,
             pool_execute_query,
             pool_get_schema_overview,
             pool_get_function_definition,
             pool_update_table_row,
             pool_delete_table_row,
             pool_insert_table_row,
-            select_tables_for_query,
             mcp_get_status,
             mcp_set_enabled,
             mcp_regenerate_token,
+            docker_list_containers,
+            docker_prepare_connection,
+            docker_create_database,
+            docker_link_connection,
+            docker_connection_states,
+            docker_control_connection,
+            docker_get_connection_string,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            let pool = app_handle.state::<sqlx::SqlitePool>().inner().clone();
+            tauri::async_runtime::block_on(docker::stop_created_databases(&pool));
+        }
+    });
 }

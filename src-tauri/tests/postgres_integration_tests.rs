@@ -7,6 +7,11 @@
 
 use dbcooper_lib::database::postgres::PostgresDriver;
 use dbcooper_lib::database::{DatabaseDriver, PostgresConfig};
+use dbcooper_lib::db::models::{
+    ColumnDefault, CreateTableColumn, CreateTableRequest, FilterCondition, FilterConjunction,
+    FilterExpression, FilterOperator, TableFilter,
+};
+use serde_json::json;
 
 /// Helper function to create a test PostgreSQL driver
 fn create_test_driver() -> PostgresDriver {
@@ -135,6 +140,79 @@ async fn test_list_tables_excludes_system() {
             "Should not list system schema tables"
         );
     }
+}
+
+#[tokio::test]
+async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
+    let driver = create_test_driver();
+    let schema = test_table_name("create_schema");
+    let table_name = test_table_name("create_table");
+    driver
+        .execute_query(&format!("CREATE SCHEMA \"{}\"", schema))
+        .await
+        .unwrap();
+
+    let request = CreateTableRequest {
+        schema: schema.clone(),
+        name: table_name.clone(),
+        columns: vec![
+            CreateTableColumn {
+                name: "id".to_string(),
+                data_type: "bigserial".to_string(),
+                nullable: false,
+                primary_key: true,
+                unique: false,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "slug".to_string(),
+                data_type: "text".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: true,
+                default: None,
+            },
+            CreateTableColumn {
+                name: "created_at".to_string(),
+                data_type: "timestamptz".to_string(),
+                nullable: false,
+                primary_key: false,
+                unique: false,
+                default: Some(ColumnDefault::Expression {
+                    value: "current_timestamp".to_string(),
+                }),
+            },
+        ],
+    };
+
+    let table = driver.create_table(&request).await.unwrap();
+    assert_eq!(table.schema, schema);
+    assert_eq!(table.name, table_name);
+    assert_eq!(table.table_type, "table");
+
+    let structure = driver
+        .get_table_structure(&request.schema, &request.name)
+        .await
+        .unwrap();
+    assert!(structure.columns[0].primary_key);
+    assert!(structure
+        .indexes
+        .iter()
+        .any(|index| index.unique && index.columns == vec!["slug"]));
+
+    let duplicate_error = driver.create_table(&request).await.unwrap_err();
+    assert!(duplicate_error.contains("already exists"));
+
+    let mut missing_schema_request = request.clone();
+    missing_schema_request.schema = "missing_create_schema".to_string();
+    missing_schema_request.name = "missing_schema_table".to_string();
+    let missing_schema_error = driver
+        .create_table(&missing_schema_request)
+        .await
+        .unwrap_err();
+    assert!(missing_schema_error.contains("does not exist"));
+
+    drop_schema(&driver, &schema).await;
 }
 
 #[tokio::test]
@@ -382,7 +460,7 @@ async fn test_get_table_data_with_filter() {
             &table_name,
             1,
             10,
-            Some("age > 25".to_string()),
+            Some(TableFilter::Advanced("age > 25".to_string())),
             None,
             None,
         )
@@ -394,6 +472,50 @@ async fn test_get_table_data_with_filter() {
     assert_eq!(data.total, 2, "Total should be 2");
 
     // Cleanup
+    drop_table(&driver, &table_name).await;
+}
+
+#[tokio::test]
+async fn test_get_table_data_with_structured_filter() {
+    let driver = create_test_driver();
+    let table_name = test_table_name("structured_filter");
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{}\" (id SERIAL PRIMARY KEY, name TEXT)",
+            table_name
+        ))
+        .await
+        .unwrap();
+    driver
+        .execute_query(&format!(
+            "INSERT INTO \"{}\" (name) VALUES ('O''Brien'), ('Alice')",
+            table_name
+        ))
+        .await
+        .unwrap();
+
+    let result = driver
+        .get_table_data(
+            "public",
+            &table_name,
+            1,
+            10,
+            Some(TableFilter::Structured(FilterExpression {
+                conjunction: FilterConjunction::And,
+                conditions: vec![FilterCondition {
+                    column: "name".to_string(),
+                    operator: FilterOperator::Equals,
+                    value: Some(json!("O'Brien")),
+                }],
+            })),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.total, 1);
+    assert_eq!(result.data[0]["name"], "O'Brien");
     drop_table(&driver, &table_name).await;
 }
 

@@ -1,9 +1,8 @@
+import { ArrowsClockwise, X } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { ArrowsClockwise, X } from "@phosphor-icons/react";
-import { handleDragStart } from "@/lib/windowDrag";
 
 interface DisconnectedScreenProps {
 	connectionName: string;
@@ -38,41 +37,39 @@ export function DisconnectedScreen({
 	};
 
 	return (
-		<div className="flex flex-col h-screen">
+		<div className="workspace-canvas flex h-screen flex-col">
 			<header
-				onMouseDown={handleDragStart}
-				className="flex h-12 shrink-0 items-center gap-2 border-b pl-20 pr-4 bg-background sticky top-0 z-20 select-none"
+				data-tauri-drag-region
+				className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b pl-20 pr-4"
 			>
-				<div className="flex items-center gap-2 flex-1 ml-4">
-					<Button variant="ghost" size="sm" onClick={onClose} className="gap-2">
-						<X className="w-4 h-4" />
-						Close Connection
+				<div className="ml-4 flex flex-1 items-center gap-2">
+					<Button variant="ghost" size="sm" onClick={onClose}>
+						<X className="size-4" />
+						Close connection
 					</Button>
-					<span className="font-semibold">{connectionName}</span>
+					<span className="text-sm font-semibold">{connectionName}</span>
 				</div>
 			</header>
-			<div className="flex-1 flex items-center justify-center bg-background">
-				<div className="flex flex-col items-center gap-5 max-w-md px-6 text-center">
-					<div className="shrink-0 opacity-50">{databaseIcon}</div>
-					<div className="flex flex-col gap-2">
+			<div className="flex flex-1 items-center justify-center p-6">
+				<div className="workspace-panel flex w-full max-w-md flex-col items-center rounded-xl border px-7 py-8 text-center shadow-sm">
+					<div className="mb-5 shrink-0 opacity-60">{databaseIcon}</div>
+					<div>
 						<h2 className="text-lg font-semibold">Connection failed</h2>
-						<p className="text-sm text-muted-foreground">
+						<p className="mt-1 text-sm text-muted-foreground">
 							Couldn't connect to {connectionName}.
 						</p>
 						{error && (
-							<p className="text-sm text-red-500 break-words">{error}</p>
+							<p className="mt-3 break-words rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-left font-mono text-xs text-destructive">
+								{error}
+							</p>
 						)}
 					</div>
-					<div className="flex items-center gap-2">
-						<Button
-							onClick={handleRetry}
-							disabled={isReconnecting}
-							className="gap-2"
-						>
+					<div className="mt-5 flex items-center gap-2">
+						<Button onClick={handleRetry} disabled={isReconnecting}>
 							{isReconnecting ? (
-								<Spinner className="w-4 h-4" />
+								<Spinner className="size-4" />
 							) : (
-								<ArrowsClockwise className="w-4 h-4" />
+								<ArrowsClockwise className="size-4" />
 							)}
 							Retry connection
 						</Button>

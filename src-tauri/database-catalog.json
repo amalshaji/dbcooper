@@ -1,0 +1,105 @@
+{
+  "postgres": {
+    "label": "PostgreSQL",
+    "defaultSchema": "public",
+    "createTableTypes": [
+      "SMALLINT",
+      "INTEGER",
+      "BIGINT",
+      "SERIAL",
+      "BIGSERIAL",
+      "REAL",
+      "DOUBLE PRECISION",
+      "NUMERIC",
+      "BOOLEAN",
+      "TEXT",
+      "VARCHAR",
+      "DATE",
+      "TIME",
+      "TIMESTAMP",
+      "TIMESTAMPTZ",
+      "UUID",
+      "JSON",
+      "JSONB",
+      "BYTEA"
+    ],
+    "literalKinds": {
+      "SMALLINT": "number",
+      "INTEGER": "number",
+      "BIGINT": "number",
+      "SERIAL": "number",
+      "BIGSERIAL": "number",
+      "REAL": "number",
+      "DOUBLE PRECISION": "number",
+      "NUMERIC": "number",
+      "BOOLEAN": "boolean"
+    },
+    "expressionsByType": {
+      "SERIAL": ["DEFAULT"],
+      "BIGSERIAL": ["DEFAULT"],
+      "BOOLEAN": ["TRUE", "FALSE"],
+      "BOOL": ["TRUE", "FALSE"],
+      "DATE": ["current_date", "now()::date"],
+      "TIME": ["current_time", "localtime"],
+      "TIMESTAMP": ["now()", "current_timestamp", "localtimestamp"],
+      "TIMESTAMPTZ": ["now()", "current_timestamp"],
+      "UUID": ["gen_random_uuid()", "uuid_generate_v4()"],
+      "JSON": ["'{}'::json", "'[]'::json"],
+      "JSONB": ["'{}'::jsonb", "'[]'::jsonb"]
+    }
+  },
+  "sqlite": {
+    "label": "SQLite",
+    "defaultSchema": "main",
+    "createTableTypes": [
+      "INTEGER",
+      "REAL",
+      "TEXT",
+      "BLOB",
+      "NUMERIC",
+      "BOOLEAN",
+      "DATE",
+      "DATETIME"
+    ],
+    "literalKinds": {
+      "INTEGER": "number",
+      "REAL": "number",
+      "NUMERIC": "number",
+      "BOOLEAN": "boolean"
+    },
+    "expressionsByType": {
+      "INTEGER": ["NULL"],
+      "BOOLEAN": ["1", "0"],
+      "BOOL": ["1", "0"],
+      "DATE": ["current_date", "date('now')", "date('now', 'localtime')"],
+      "TIME": ["current_time", "time('now')", "time('now', 'localtime')"],
+      "DATETIME": [
+        "current_timestamp",
+        "datetime('now')",
+        "datetime('now', 'localtime')"
+      ],
+      "TIMESTAMP": [
+        "current_timestamp",
+        "datetime('now')",
+        "datetime('now', 'localtime')"
+      ]
+    }
+  },
+  "clickhouse": {
+    "label": "ClickHouse",
+    "defaultSchema": "default",
+    "createTableTypes": [],
+    "literalKinds": {
+      "BOOL": "boolean"
+    },
+    "expressionsByType": {
+      "BOOL": ["true", "false"],
+      "DATE": ["today()", "yesterday()"],
+      "DATE32": ["today()", "yesterday()"],
+      "DATETIME": ["now()", "now64()", "today()"],
+      "DATETIME64": ["now()", "now64()", "today()"],
+      "UUID": ["generateUUIDv4()"],
+      "JSON": ["'{}'"]
+    }
+  }
+}

@@ -53,6 +53,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run frontend checks
+        run: bun run check
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -64,3 +75,124 @@ jobs:
       - name: Run tests
         working-directory: src-tauri
         run: cargo test -- --test-threads=1
+
+  canary:
+    name: Publish canary
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-26
+    outputs:
+      tag: ${{ steps.canary.outputs.tag }}
+      version: ${{ steps.canary.outputs.version }}
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve canary version
+        id: canary
+        run: |
+          current_version="$(bun -e "console.log((await Bun.file('./src-tauri/tauri.conf.json').json()).version)")"
+          if ! echo "$current_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: invalid stable version: $current_version"
+            exit 1
+          fi
+
+          IFS='.' read -r major minor patch <<< "$current_version"
+          version="$major.$minor.$((patch + 1))-canary.${GITHUB_RUN_NUMBER}"
+          CANARY_VERSION="$version" bun -e "
+            const path = './src-tauri/tauri.conf.json';
+            const config = await Bun.file(path).json();
+            config.version = process.env.CANARY_VERSION;
+            await Bun.write(path, JSON.stringify(config, null, 2) + '\\n');
+          "
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          retryAttempts: 3
+          tagName: ${{ steps.canary.outputs.tag }}
+          releaseName: DBcooper ${{ steps.canary.outputs.version }} (canary)
+          releaseBody: |
+            Canary build from `${{ github.sha }}`.
+
+            This build may be unstable and is intended for early testing.
+          releaseCommitish: ${{ github.sha }}
+          releaseDraft: false
+          prerelease: true
+          args: '--target aarch64-apple-darwin'
+
+  promote-canary:
+    name: Promote canary feed
+    needs: canary
+    runs-on: ubuntu-latest
+    concurrency:
+      group: canary-feed
+      cancel-in-progress: false
+    permissions:
+      contents: write
+
+    steps:
+      - name: Update canary feed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          CANARY_TAG: ${{ needs.canary.outputs.tag }}
+          CANARY_VERSION: ${{ needs.canary.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          feed_dir="$RUNNER_TEMP/canary-feed"
+          mkdir -p "$feed_dir"
+          gh release download "$CANARY_TAG" --pattern latest.json --dir "$feed_dir"
+
+          manifest_path="$feed_dir/latest.json"
+          manifest_version="$(jq -r '.version' "$manifest_path")"
+          if [ "$manifest_version" != "$CANARY_VERSION" ]; then
+            echo "Error: updater manifest version $manifest_version does not match $CANARY_VERSION"
+            exit 1
+          fi
+
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq '.sha')"
+          if [ "$current_main" != "$GITHUB_SHA" ]; then
+            echo "A newer main commit exists; leaving the canary feed unchanged."
+            exit 0
+          fi
+
+          if ! gh release view canary >/dev/null 2>&1; then
+            gh release create canary \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "DBcooper canary feed" \
+              --notes "Mutable updater manifest for the latest successful canary build."
+          fi
+
+          gh release upload canary "$manifest_path" --clobber
