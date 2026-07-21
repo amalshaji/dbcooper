@@ -45,11 +45,15 @@ pub struct ClickhouseConfig {
 
 pub struct ClickhouseDriver {
     config: ClickhouseConfig,
+    client: reqwest::Client,
 }
 
 impl ClickhouseDriver {
     pub fn new(config: ClickhouseConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: reqwest::Client::new(),
+        }
     }
 
     fn build_url(&self) -> String {
@@ -85,7 +89,6 @@ impl ClickhouseDriver {
         params: &[(String, String)],
     ) -> Result<Vec<Value>, String> {
         let url = self.build_url();
-        let client = reqwest::Client::new();
 
         // Clean up the query: trim whitespace, remove trailing semicolons
         let cleaned_query = query.trim().trim_end_matches(';').trim();
@@ -100,7 +103,8 @@ impl ClickhouseDriver {
         let mut query_params = vec![("database".to_string(), self.config.database.clone())];
         query_params.extend_from_slice(params);
 
-        let response = client
+        let response = self
+            .client
             .post(&url)
             .basic_auth(&self.config.username, Some(&self.config.password))
             .query(&query_params)
@@ -146,9 +150,9 @@ impl ClickhouseDriver {
     /// Execute a non-SELECT query
     async fn execute_command(&self, query: &str) -> Result<(), String> {
         let url = self.build_url();
-        let client = reqwest::Client::new();
 
-        let response = client
+        let response = self
+            .client
             .post(&url)
             .basic_auth(&self.config.username, Some(&self.config.password))
             .query(&[("database", &self.config.database)])

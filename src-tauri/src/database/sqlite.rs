@@ -3,6 +3,7 @@ use futures_util::{StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{Column, Row, TypeInfo};
+use tokio::sync::OnceCell;
 
 use super::create_table::build_sqlite_create_table_sql;
 use super::filter::{
@@ -22,11 +23,16 @@ use std::collections::HashMap;
 
 pub struct SqliteDriver {
     config: SqliteConfig,
+    /// Dropping the driver drops the final pool handle and closes its connections.
+    pool: OnceCell<sqlx::SqlitePool>,
 }
 
 impl SqliteDriver {
     pub fn new(config: SqliteConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            pool: OnceCell::new(),
+        }
     }
 
     fn connection_string(&self) -> String {
@@ -49,13 +55,16 @@ impl SqliteDriver {
         query
     }
 
-    async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
-        let conn_str = self.connection_string();
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&conn_str)
+    async fn get_pool(&self) -> Result<&sqlx::SqlitePool, String> {
+        self.pool
+            .get_or_try_init(|| async {
+                SqlitePoolOptions::new()
+                    .max_connections(1)
+                    .connect(&self.connection_string())
+                    .await
+                    .map_err(|e| e.to_string())
+            })
             .await
-            .map_err(|e| e.to_string())
     }
 
     async fn get_primary_key_columns(
@@ -144,8 +153,7 @@ impl DatabaseDriver for SqliteDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_pool().await {
             Ok(pool) => {
-                let result = sqlx::query("SELECT 1").fetch_one(&pool).await;
-                pool.close().await;
+                let result = sqlx::query("SELECT 1").fetch_one(pool).await;
                 match result {
                     Ok(_) => Ok(TestConnectionResult {
                         success: true,
@@ -179,11 +187,9 @@ impl DatabaseDriver for SqliteDriver {
             ORDER BY name
             "#,
         )
-        .fetch_all(&pool)
+        .fetch_all(pool)
         .await
         .map_err(|e| e.to_string())?;
-
-        pool.close().await;
 
         Ok(tables
             .into_iter()
@@ -252,7 +258,7 @@ impl DatabaseDriver for SqliteDriver {
             let escaped_col = col.replace('"', "\"\"");
             format!(" ORDER BY \"{}\" {}", escaped_col, dir)
         } else {
-            let primary_key_columns = Self::get_primary_key_columns(&pool, table).await?;
+            let primary_key_columns = Self::get_primary_key_columns(pool, table).await?;
             if primary_key_columns.is_empty() {
                 String::new()
             } else {
@@ -271,11 +277,11 @@ impl DatabaseDriver for SqliteDriver {
         );
         let count_row = if let Some(filter) = compiled_filter.as_ref() {
             Self::bind_filter(sqlx::query(&count_query), filter)
-                .fetch_one(&pool)
+                .fetch_one(pool)
                 .await
                 .map(|row| (row.get::<i64, _>(0),))
         } else {
-            sqlx::query_as(&count_query).fetch_one(&pool).await
+            sqlx::query_as(&count_query).fetch_one(pool).await
         }
         .map_err(|e| e.to_string())?;
         let total = count_row.0;
@@ -287,14 +293,12 @@ impl DatabaseDriver for SqliteDriver {
 
         let rows = if let Some(filter) = compiled_filter.as_ref() {
             Self::bind_filter(sqlx::query(&data_query), filter)
-                .fetch_all(&pool)
+                .fetch_all(pool)
                 .await
         } else {
-            sqlx::query(&data_query).fetch_all(&pool).await
+            sqlx::query(&data_query).fetch_all(pool).await
         }
         .map_err(|e| e.to_string())?;
-
-        pool.close().await;
 
         let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
 
@@ -316,7 +320,7 @@ impl DatabaseDriver for SqliteDriver {
         // Get columns using PRAGMA
         let pragma_query = format!("PRAGMA table_info(\"{}\")", table);
         let columns_raw = sqlx::query(&pragma_query)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -346,7 +350,7 @@ impl DatabaseDriver for SqliteDriver {
         // Get indexes using PRAGMA
         let index_list_query = format!("PRAGMA index_list(\"{}\")", table);
         let indexes_raw = sqlx::query(&index_list_query)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -359,7 +363,7 @@ impl DatabaseDriver for SqliteDriver {
             // Get columns for this index
             let idx_info_query = format!("PRAGMA index_info(\"{}\")", idx_name);
             let idx_cols = sqlx::query(&idx_info_query)
-                .fetch_all(&pool)
+                .fetch_all(pool)
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -379,7 +383,7 @@ impl DatabaseDriver for SqliteDriver {
         // Get foreign keys using PRAGMA
         let fk_query = format!("PRAGMA foreign_key_list(\"{}\")", table);
         let fks_raw = sqlx::query(&fk_query)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -400,8 +404,6 @@ impl DatabaseDriver for SqliteDriver {
             })
             .collect();
 
-        pool.close().await;
-
         Ok(TableStructure {
             columns,
             indexes,
@@ -415,13 +417,12 @@ impl DatabaseDriver for SqliteDriver {
 
         if query_returns_rows(query) {
             match sqlx::query(query)
-                .fetch(&pool)
+                .fetch(pool)
                 .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
                 .try_collect::<Vec<_>>()
                 .await
             {
                 Ok(rows) => {
-                    pool.close().await;
                     let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
                     let data: Vec<Value> = rows
                         .iter()
@@ -438,22 +439,18 @@ impl DatabaseDriver for SqliteDriver {
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     })
                 }
-                Err(e) => {
-                    pool.close().await;
-                    Ok(QueryResult {
-                        data: vec![],
-                        row_count: 0,
-                        truncated: false,
-                        rows_affected: None,
-                        error: Some(e.to_string()),
-                        time_taken_ms: Some(start_time.elapsed().as_millis()),
-                    })
-                }
+                Err(e) => Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    truncated: false,
+                    rows_affected: None,
+                    error: Some(e.to_string()),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                }),
             }
         } else {
-            match sqlx::query(query).execute(&pool).await {
+            match sqlx::query(query).execute(pool).await {
                 Ok(result) => {
-                    pool.close().await;
                     let rows_affected = result.rows_affected();
                     Ok(QueryResult {
                         data: vec![],
@@ -464,17 +461,14 @@ impl DatabaseDriver for SqliteDriver {
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     })
                 }
-                Err(e) => {
-                    pool.close().await;
-                    Ok(QueryResult {
-                        data: vec![],
-                        row_count: 0,
-                        truncated: false,
-                        rows_affected: None,
-                        error: Some(e.to_string()),
-                        time_taken_ms: Some(start_time.elapsed().as_millis()),
-                    })
-                }
+                Err(e) => Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    truncated: false,
+                    rows_affected: None,
+                    error: Some(e.to_string()),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                }),
             }
         }
     }
@@ -483,7 +477,7 @@ impl DatabaseDriver for SqliteDriver {
         let pool = self.get_pool().await?;
 
         let tables_rows = sqlx::query(TABLES_QUERY)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -507,7 +501,7 @@ impl DatabaseDriver for SqliteDriver {
         }
 
         let columns_rows = sqlx::query(COLUMNS_QUERY)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -535,7 +529,7 @@ impl DatabaseDriver for SqliteDriver {
         }
 
         let foreign_keys_rows = sqlx::query(FOREIGN_KEYS_QUERY)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -559,7 +553,7 @@ impl DatabaseDriver for SqliteDriver {
         }
 
         let indexes_rows = sqlx::query(INDEXES_QUERY)
-            .fetch_all(&pool)
+            .fetch_all(pool)
             .await
             .map_err(|e| e.to_string())?;
 
@@ -588,7 +582,7 @@ impl DatabaseDriver for SqliteDriver {
                 index_name
             );
             let index_cols = sqlx::query(&index_info_query)
-                .fetch_all(&pool)
+                .fetch_all(pool)
                 .await
                 .map_err(|e| e.to_string())?;
 
@@ -607,13 +601,40 @@ impl DatabaseDriver for SqliteDriver {
             }
         }
 
-        pool.close().await;
-
         let tables: Vec<TableWithStructure> = tables_map.into_values().collect();
 
         Ok(SchemaOverview {
             tables,
             functions: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn initializes_one_pool_and_reuses_it_across_operations() {
+        let directory = tempfile::tempdir().unwrap();
+        let driver = SqliteDriver::new(SqliteConfig {
+            file_path: directory.path().join("reuse.sqlite").display().to_string(),
+        });
+
+        let (first, second) = tokio::join!(driver.get_pool(), driver.get_pool());
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        assert!(std::ptr::eq(first, second));
+        assert_eq!(first.options().get_max_connections(), 1);
+
+        driver
+            .execute_query("CREATE TABLE reused_pool (id INTEGER PRIMARY KEY)")
+            .await
+            .unwrap();
+        let tables = driver.list_tables().await.unwrap();
+
+        assert!(tables.iter().any(|table| table.name == "reused_pool"));
+        assert!(std::ptr::eq(first, driver.get_pool().await.unwrap()));
     }
 }
