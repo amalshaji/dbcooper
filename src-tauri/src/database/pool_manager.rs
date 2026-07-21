@@ -279,6 +279,12 @@ impl PoolManager {
 
     /// Disconnect and remove a connection from the pool
     pub async fn disconnect(&self, uuid: &str) {
+        let lock = self.get_connect_lock(uuid).await;
+        let _guard = lock.lock().await;
+        self.disconnect_locked(uuid).await;
+    }
+
+    pub(crate) async fn disconnect_locked(&self, uuid: &str) {
         let mut pools = self.pools.write().await;
         pools.remove(uuid);
     }
@@ -474,5 +480,28 @@ impl PoolManager {
         driver
             .get_function_definition(schema, name, identity_args)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PoolManager;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn disconnect_waits_for_the_connection_lifecycle_lock() {
+        let manager = Arc::new(PoolManager::new());
+        let lock = manager.get_connect_lock("connection-1").await;
+        let guard = lock.lock().await;
+        let disconnect = {
+            let manager = manager.clone();
+            tokio::spawn(async move { manager.disconnect("connection-1").await })
+        };
+
+        tokio::task::yield_now().await;
+        assert!(!disconnect.is_finished());
+
+        drop(guard);
+        disconnect.await.unwrap();
     }
 }

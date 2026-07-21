@@ -38,19 +38,31 @@ impl McpControl {
     }
 
     pub async fn is_running(&self) -> bool {
-        self.handle.lock().await.is_some()
+        self.handle
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(McpServerHandle::is_running)
     }
 
     pub async fn port(&self) -> Option<u16> {
-        self.handle.lock().await.as_ref().map(|h| h.port)
+        self.handle
+            .lock()
+            .await
+            .as_ref()
+            .filter(|handle| handle.is_running())
+            .map(|handle| handle.port)
     }
 
     /// Start the server if it isn't already running. Returns the bound port.
     /// The server is always read-only; writes are rejected by the database engine.
     pub async fn start(&self) -> Result<u16, String> {
         let mut guard = self.handle.lock().await;
-        if let Some(handle) = guard.as_ref() {
+        if let Some(handle) = guard.as_ref().filter(|handle| handle.is_running()) {
             return Ok(handle.port);
+        }
+        if let Some(handle) = guard.take() {
+            handle.stop().await;
         }
 
         let token = get_or_create_token(&self.sqlite_pool).await?;

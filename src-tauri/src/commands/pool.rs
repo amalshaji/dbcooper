@@ -92,7 +92,7 @@ async fn reconnect(
     let _guard = lock.lock().await;
 
     // Disconnect stale connection
-    pool_manager.disconnect(uuid).await;
+    pool_manager.disconnect_locked(uuid).await;
 
     crate::docker::ensure_created_connection_running(sqlite_pool, uuid).await?;
     let config = crate::database::utils::get_connection_config(sqlite_pool, uuid).await?;

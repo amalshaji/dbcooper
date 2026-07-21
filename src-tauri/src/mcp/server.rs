@@ -23,6 +23,10 @@ pub struct McpServerHandle {
 }
 
 impl McpServerHandle {
+    pub fn is_running(&self) -> bool {
+        !self.task.is_finished()
+    }
+
     pub async fn stop(self) {
         self.cancellation_token.cancel();
         let _ = self.task.await;
@@ -104,4 +108,25 @@ async fn bind_with_retry(
         start_port + max_attempts - 1
     )
     .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::McpServerHandle;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn completed_server_task_is_not_reported_as_running() {
+        let handle = McpServerHandle {
+            port: 9420,
+            cancellation_token: CancellationToken::new(),
+            task: tokio::spawn(async {}),
+        };
+        while !handle.task.is_finished() {
+            tokio::task::yield_now().await;
+        }
+
+        assert!(!handle.is_running());
+        handle.stop().await;
+    }
 }
