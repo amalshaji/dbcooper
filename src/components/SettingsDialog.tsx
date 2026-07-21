@@ -19,7 +19,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
 				<DialogHeader>
 					<DialogTitle>Settings</DialogTitle>
 					<DialogDescription>
-						Appearance, updates, and contextual AI.
+						Appearance, updates, MCP, and contextual AI.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="py-2">

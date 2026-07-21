@@ -169,6 +169,14 @@ export interface AiStatus {
 	error: string | null;
 }
 
+export interface McpStatus {
+	enabled: boolean;
+	running: boolean;
+	port: number | null;
+	url: string | null;
+	token: string;
+}
+
 // Redis types
 export interface RedisKeyInfo {
 	key: string;
@@ -712,6 +720,15 @@ export const api = {
 			invoke<void>("set_settings", { settings }),
 
 		getAll: () => invoke<Record<string, string>>("get_all_settings"),
+	},
+
+	mcp: {
+		getStatus: () => invoke<McpStatus>("mcp_get_status"),
+
+		setEnabled: (enabled: boolean) =>
+			invoke<McpStatus>("mcp_set_enabled", { enabled }),
+
+		regenerateToken: () => invoke<McpStatus>("mcp_regenerate_token"),
 	},
 
 	pool: {
