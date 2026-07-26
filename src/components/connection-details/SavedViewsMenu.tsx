@@ -18,7 +18,7 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getSavedViewStatus } from "@/lib/savedViews";
+import { decodeSavedViewState, getSavedViewStatus } from "@/lib/savedViews";
 import { api, type SavedView, type SavedViewStateV1 } from "@/lib/tauri";
 import {
 	SavedViewDialogs,
@@ -166,11 +166,18 @@ function SavedViewsMenuContent({
 
 	const renameView = async () => {
 		if (dialogAction?.type !== "rename" || !dialogAction.name.trim()) return;
+		const decodedState = decodeSavedViewState(dialogAction.view.state);
+		if (!decodedState.state) {
+			toast.error("Failed to rename view", {
+				description: decodedState.error,
+			});
+			return;
+		}
 		setBusy(true);
 		try {
 			const updated = await api.savedViews.update(dialogAction.view.id, {
 				name: dialogAction.name,
-				state: dialogAction.view.state,
+				state: decodedState.state,
 			});
 			replaceView(updated);
 			setDialogAction(null);

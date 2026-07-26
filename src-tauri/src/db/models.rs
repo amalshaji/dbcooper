@@ -297,12 +297,19 @@ pub struct SavedViewState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SavedViewStatePayload {
+    Current { state: SavedViewState },
+    Unsupported { version: u64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedView {
     pub id: i64,
     pub connection_uuid: String,
     pub table_name: String,
     pub name: String,
-    pub state: SavedViewState,
+    pub state: SavedViewStatePayload,
     pub created_at: String,
     pub updated_at: String,
 }

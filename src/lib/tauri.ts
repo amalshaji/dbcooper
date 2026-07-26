@@ -149,12 +149,16 @@ export interface SavedViewStateV1 {
 	column_widths: Record<string, number>;
 }
 
+export type SavedViewStatePayload =
+	| { status: "current"; state: SavedViewStateV1 }
+	| { status: "unsupported"; version: number };
+
 export interface SavedView {
 	id: number;
 	connection_uuid: string;
 	table_name: string;
 	name: string;
-	state: SavedViewStateV1;
+	state: SavedViewStatePayload;
 	created_at: string;
 	updated_at: string;
 }

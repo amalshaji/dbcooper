@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import {
 	captureSavedViewState,
 	createColumnLayout,
+	decodeSavedViewState,
 	getSavedViewStatus,
 } from "../../lib/savedViews";
 import type { SavedView } from "../../lib/tauri";
@@ -26,7 +27,10 @@ mock.module("@/components/ui/input", () => ({
 mock.module("@/components/ui/spinner", () => ({
 	Spinner: () => <span>Loading</span>,
 }));
-mock.module("@/lib/savedViews", () => ({ getSavedViewStatus }));
+mock.module("@/lib/savedViews", () => ({
+	decodeSavedViewState,
+	getSavedViewStatus,
+}));
 mock.module("@/lib/tauri", () => ({
 	api: {
 		savedViews: {
@@ -62,7 +66,9 @@ mock.module("@/components/ui/dropdown-menu", () => ({
 		<div>{children}</div>
 	),
 	DropdownMenuSeparator: () => <hr />,
-	DropdownMenuSub: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	DropdownMenuSub: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
 	DropdownMenuSubContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
@@ -137,7 +143,7 @@ function view(id: number, tableName: string, name: string): SavedView {
 		connection_uuid: "connection-1",
 		table_name: tableName,
 		name,
-		state: currentState,
+		state: { status: "current", state: currentState },
 		created_at: "2026-07-26 12:00:00",
 		updated_at: "2026-07-26 12:00:00",
 	};
@@ -184,7 +190,9 @@ describe("SavedViewsMenu", () => {
 			<SavedViewsMenu {...props} tableName="public.events" />,
 		);
 
-		expect((await screen.findAllByText("Recent events")).length).toBeGreaterThan(0);
+		expect(
+			(await screen.findAllByText("Recent events")).length,
+		).toBeGreaterThan(0);
 		rerender(<SavedViewsMenu {...props} tableName="public.audit_log" />);
 
 		await waitFor(() => {

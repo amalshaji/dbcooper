@@ -43,7 +43,10 @@ describe("saved view state", () => {
 			column_widths: { removed: 200, name: 900 },
 		};
 
-		const result = reconcileSavedViewState(saved, ["id", "name", "created_at"]);
+		const result = reconcileSavedViewState(
+			{ status: "current", state: saved },
+			["id", "name", "created_at"],
+		);
 
 		expect(result.error).toBeNull();
 		expect(result.warning).toContain("sort column");
@@ -71,7 +74,10 @@ describe("saved view state", () => {
 			column_widths: {},
 		};
 
-		const result = reconcileSavedViewState(saved, ["id", "name"]);
+		const result = reconcileSavedViewState(
+			{ status: "current", state: saved },
+			["id", "name"],
+		);
 
 		expect(result.state).toBeNull();
 		expect(result.error).toContain("removed");
@@ -109,7 +115,7 @@ describe("saved view state", () => {
 
 	test("rejects a future state before reading version-specific fields", () => {
 		const result = reconcileSavedViewState(
-			{ version: 2 } as unknown as SavedViewStateV1,
+			{ status: "unsupported", version: 2 },
 			["id"],
 		);
 
@@ -143,7 +149,10 @@ describe("saved view state", () => {
 
 	test("marks only changes to the active saved snapshot as edited", () => {
 		const state = captureSavedViewState(null, null, createColumnLayout(["id"]));
-		const activeView = { id: 7, state };
+		const activeView = {
+			id: 7,
+			state: { status: "current" as const, state },
+		};
 
 		expect(getSavedViewStatus(7, [activeView], state)).toEqual({
 			activeView,

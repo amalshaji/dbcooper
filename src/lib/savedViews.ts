@@ -1,5 +1,5 @@
-import type { TableFilter } from "@/lib/resultFilters";
-import type { SavedViewStateV1 } from "@/lib/tauri";
+import type { TableFilter } from "./resultFilters";
+import type { SavedViewStatePayload, SavedViewStateV1 } from "@/lib/tauri";
 import type { SortConfig } from "@/types/tabTypes";
 
 export const DEFAULT_COLUMN_WIDTH = 150;
@@ -17,6 +17,23 @@ interface ReconciledSavedView {
 	layout: TableColumnLayout;
 	warning: string | null;
 	error: string | null;
+}
+
+interface DecodedSavedViewState {
+	state: SavedViewStateV1 | null;
+	error: string | null;
+}
+
+export function decodeSavedViewState(
+	payload: SavedViewStatePayload,
+): DecodedSavedViewState {
+	if (payload.status === "unsupported") {
+		return {
+			state: null,
+			error: "This view was created by a newer version of DBcooper.",
+		};
+	}
+	return { state: payload.state, error: null };
 }
 
 export function createColumnLayout(columnNames: string[]): TableColumnLayout {
@@ -81,17 +98,19 @@ export function captureSavedViewState(
 }
 
 export function reconcileSavedViewState(
-	state: SavedViewStateV1,
+	persistedState: SavedViewStatePayload,
 	columnNames: string[],
 ): ReconciledSavedView {
-	if ((state.version as number) !== 1) {
+	const decoded = decodeSavedViewState(persistedState);
+	if (!decoded.state) {
 		return {
 			state: null,
 			layout: createColumnLayout(columnNames),
 			warning: null,
-			error: "This view was created by a newer version of DBcooper.",
+			error: decoded.error,
 		};
 	}
+	const state = decoded.state;
 
 	const layout = normalizeColumnLayout(
 		{
@@ -157,13 +176,16 @@ export function isSavedViewStateEqual(
 }
 
 export function getSavedViewStatus<
-	T extends { id: number; state: SavedViewStateV1 },
+	T extends { id: number; state: SavedViewStatePayload },
 >(activeViewId: number | null, views: T[], currentState: SavedViewStateV1) {
 	const activeView = views.find((view) => view.id === activeViewId) ?? null;
+	const activeState = activeView
+		? decodeSavedViewState(activeView.state).state
+		: null;
 	return {
 		activeView,
-		isEdited: activeView
-			? !isSavedViewStateEqual(activeView.state, currentState)
+		isEdited: activeState
+			? !isSavedViewStateEqual(activeState, currentState)
 			: false,
 	};
 }

@@ -1,4 +1,6 @@
-use crate::db::models::{SavedView, SavedViewFormData, SavedViewState, SavedViewUpdateData};
+use crate::db::models::{
+    SavedView, SavedViewFormData, SavedViewState, SavedViewStatePayload, SavedViewUpdateData,
+};
 use sqlx::{FromRow, SqlitePool};
 use tauri::State;
 
@@ -20,8 +22,20 @@ struct SavedViewRow {
 
 impl SavedViewRow {
     fn into_saved_view(self) -> Result<SavedView, String> {
-        let state = serde_json::from_str(&self.state_json)
+        let value = serde_json::from_str::<serde_json::Value>(&self.state_json)
             .map_err(|_| format!("Saved view '{}' has invalid state", self.name))?;
+        let version = value
+            .get("version")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| format!("Saved view '{}' has invalid state", self.name))?;
+        let state = if version == u64::from(VIEW_STATE_VERSION) {
+            SavedViewStatePayload::Current {
+                state: serde_json::from_value(value)
+                    .map_err(|_| format!("Saved view '{}' has invalid state", self.name))?,
+            }
+        } else {
+            SavedViewStatePayload::Unsupported { version }
+        };
 
         Ok(SavedView {
             id: self.id,
@@ -174,8 +188,8 @@ pub async fn delete_saved_view(pool: State<'_, SqlitePool>, id: i64) -> Result<b
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_view_name, validate_view_state};
-    use crate::db::models::SavedViewState;
+    use super::{normalize_view_name, validate_view_state, SavedViewRow};
+    use crate::db::models::{SavedViewState, SavedViewStatePayload};
     use std::collections::HashMap;
 
     fn state() -> SavedViewState {
@@ -214,5 +228,25 @@ mod tests {
         let mut too_wide = state();
         too_wide.column_widths.insert("id".to_string(), 301);
         assert!(validate_view_state(&too_wide).is_err());
+    }
+
+    #[test]
+    fn classifies_future_saved_view_state_without_parsing_v1_fields() {
+        let saved = SavedViewRow {
+            id: 1,
+            connection_uuid: "connection-1".to_string(),
+            table_name: "public.events".to_string(),
+            name: "Future".to_string(),
+            state_json: r#"{"version":2,"layout":{"density":"compact"}}"#.to_string(),
+            created_at: "2026-07-26 12:00:00".to_string(),
+            updated_at: "2026-07-26 12:00:00".to_string(),
+        }
+        .into_saved_view()
+        .unwrap();
+
+        assert!(matches!(
+            saved.state,
+            SavedViewStatePayload::Unsupported { version: 2 }
+        ));
     }
 }
