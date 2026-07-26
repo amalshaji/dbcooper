@@ -1,0 +1,16 @@
+- [x] Add pinned helper manifest and secure installer
+  - Acceptance: supported target resolves to an official URL/hash; invalid archives never install; concurrent calls are serialized.
+  - Verify: `cargo test --manifest-path src-tauri/Cargo.toml duckdb_helper`
+  - Files: `src-tauri/src/duckdb_helper.rs`, `src-tauri/src/lib.rs`, `src-tauri/Cargo.toml`
+- [x] Replace embedded DuckDB driver with CLI execution
+  - Acceptance: the existing DuckDB integration behaviors pass and SQL is supplied via stdin.
+  - Verify: `cargo test --manifest-path src-tauri/Cargo.toml --test duckdb_integration_tests`
+  - Files: `src-tauri/src/database/duckdb.rs`, `src-tauri/tests/duckdb_integration_tests.rs`, `src-tauri/Cargo.toml`
+- [x] Show helper progress for new and saved connections
+  - Acceptance: users see downloading, verifying, and installing progress; controls are disabled during installation; failures remain actionable.
+  - Verify: `bun test src && bun run typecheck`
+  - Files: `src/lib/duckdbHelper.ts`, `src/components/DuckDbHelperProgress.tsx`, `src/components/ConnectionForm.tsx`, `src/pages/ConnectionDetails.tsx`
+- [x] Run release checks and prepare publication
+  - Acceptance: complete frontend/Rust checks pass, release binary size returns near the pre-DuckDB baseline, changes are committed and pushed.
+  - Verify: `bun run check && cargo test --manifest-path src-tauri/Cargo.toml && cargo build --release --manifest-path src-tauri/Cargo.toml`
+  - Files: lockfiles and task checklist only.

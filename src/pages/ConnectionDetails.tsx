@@ -152,6 +152,7 @@ import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { CommandPalette } from "@/components/CommandPalette";
+import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
@@ -169,6 +170,10 @@ import {
 	getSqlFormatterLanguage,
 	supportsStructuredRowMutations,
 } from "@/lib/databaseCapabilities";
+import {
+	ensureDuckDbHelper,
+	type DuckDbHelperProgress as DuckDbHelperProgressValue,
+} from "@/lib/duckdbHelper";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -178,6 +183,7 @@ const SchemaVisualizer = lazy(() =>
 
 type LoadingPhase =
 	| "fetching-config"
+	| "preparing-duckdb"
 	| "establishing-ssh"
 	| "connecting"
 	| "loading-schema"
@@ -417,6 +423,8 @@ export function ConnectionDetails() {
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
+	const [duckDbHelperProgress, setDuckDbHelperProgress] =
+		useState<DuckDbHelperProgressValue | null>(null);
 	const [refreshingTables, setRefreshingTables] = useState(false);
 	const [sidebarTab, setSidebarTab] = useState<
 		"objects" | "queries" | "history"
@@ -645,6 +653,21 @@ export function ConnectionDetails() {
 			try {
 				const data = await api.connections.getByUuid(uuid);
 				setConnection(data);
+				if (data.type === "duckdb") {
+					setLoadingPhase("preparing-duckdb");
+					try {
+						await ensureDuckDbHelper(setDuckDbHelperProgress);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						markDisconnected(message);
+						setLoadingPhase("complete");
+						toast.error("Could not prepare DuckDB support", {
+							description: message,
+						});
+						return;
+					}
+				}
 				// For SSH connections, show the SSH tunnel phase first
 				if (data.ssh_enabled) {
 					setLoadingPhase("establishing-ssh");
@@ -660,7 +683,7 @@ export function ConnectionDetails() {
 		if (uuid) {
 			fetchConnection();
 		}
-	}, [uuid, navigate]);
+	}, [uuid, navigate, markDisconnected]);
 
 	// Tear down the pooled driver (and any SSH tunnel) when leaving this
 	// connection so connections/tunnels don't leak for the app's lifetime.
@@ -2479,6 +2502,14 @@ export function ConnectionDetails() {
 
 	const loadingPhases: Array<{ phase: LoadingPhase; label: string }> = [
 		{ phase: "fetching-config", label: "Fetching connection details" },
+		...(connection?.type === "duckdb"
+			? [
+					{
+						phase: "preparing-duckdb" as LoadingPhase,
+						label: "Preparing DuckDB support",
+					},
+				]
+			: []),
 		...(connection?.ssh_enabled
 			? [
 					{
@@ -2540,7 +2571,8 @@ export function ConnectionDetails() {
 								connectionStatus !== "connected";
 
 							return (
-								<div key={phaseInfo.phase} className="flex items-center gap-3">
+								<div key={phaseInfo.phase}>
+								<div className="flex items-center gap-3">
 									<div className="flex size-5 shrink-0 items-center justify-center">
 										{status === "complete" ? (
 											<Check className="size-4 text-emerald-600" />
@@ -2571,6 +2603,16 @@ export function ConnectionDetails() {
 											? "Connection failed"
 											: phaseInfo.label}
 									</span>
+								</div>
+								{phaseInfo.phase === "preparing-duckdb" &&
+									status === "active" &&
+									duckDbHelperProgress && (
+										<div className="ml-8 mt-2">
+											<DuckDbHelperProgress
+												progress={duckDbHelperProgress}
+											/>
+										</div>
+									)}
 								</div>
 							);
 						})}

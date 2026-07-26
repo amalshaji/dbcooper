@@ -4,16 +4,23 @@ use dbcooper_lib::db::models::{
     FilterCondition, FilterConjunction, FilterExpression, FilterOperator, TableFilter,
 };
 use serde_json::json;
+use std::path::PathBuf;
 use tempfile::{tempdir, TempDir};
 
 fn create_driver(temp_dir: &TempDir) -> DuckDbDriver {
-    DuckDbDriver::new(DuckDbConfig {
-        file_path: temp_dir
-            .path()
-            .join("analytics.duckdb")
-            .to_string_lossy()
-            .to_string(),
-    })
+    let helper = std::env::var_os("DBCOOPER_DUCKDB_CLI")
+        .map(PathBuf::from)
+        .expect("DBCOOPER_DUCKDB_CLI must point to the DuckDB CLI");
+    DuckDbDriver::with_helper_path(
+        DuckDbConfig {
+            file_path: temp_dir
+                .path()
+                .join("analytics.duckdb")
+                .to_string_lossy()
+                .to_string(),
+        },
+        helper,
+    )
 }
 
 #[tokio::test]
@@ -220,4 +227,17 @@ async fn supports_duckdb_query_syntax_and_caps_results() {
         .unwrap();
     assert_eq!(capped.row_count, 10_000);
     assert!(capped.truncated);
+}
+
+#[tokio::test]
+async fn keeps_the_session_usable_after_a_query_error() {
+    let temp_dir = tempdir().unwrap();
+    let driver = create_driver(&temp_dir);
+
+    let failed = driver.execute_query("SELECT missing_column").await.unwrap();
+    assert!(failed.error.is_some());
+
+    let recovered = driver.execute_query("SELECT 1 AS value").await.unwrap();
+    assert!(recovered.error.is_none());
+    assert_eq!(recovered.data[0]["value"], 1);
 }

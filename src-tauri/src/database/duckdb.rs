@@ -1,12 +1,14 @@
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveTime, Utc};
-use duckdb::types::{TimeUnit, Value as DuckValue};
-use duckdb::{params_from_iter, AccessMode, Config, Connection};
-use serde_json::{json, Map, Number, Value};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
 use std::time::Instant;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::sync::Mutex;
+use tokio::time::{timeout, Duration};
 
 use super::filter::{
     build_where_clause, classify_column_type, compile_filter, structured_expression,
@@ -19,130 +21,108 @@ use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
     TableFilter, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
 };
+use crate::duckdb_helper;
 
-const MAX_SAFE_JSON_INTEGER: i128 = 9_007_199_254_740_991;
-
-static FILE_LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<StdMutex<()>>>>> = OnceLock::new();
-
-#[derive(Clone, Copy)]
-enum ConnectionMode {
-    Interactive,
-    ReadOnly,
-}
+const MAX_SAFE_JSON_INTEGER: i64 = 9_007_199_254_740_991;
+const MAX_CLI_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_CLI_ERROR_BYTES: usize = 1024 * 1024;
+static FILE_LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
 
 pub struct DuckDbDriver {
     config: DuckDbConfig,
-    file_lock: Arc<StdMutex<()>>,
-    interactive_connection: Arc<StdMutex<Option<Connection>>>,
+    helper_path: PathBuf,
+    managed_helper: bool,
+    file_lock: Arc<Mutex<()>>,
+    interactive_session: Arc<Mutex<Option<DuckDbSession>>>,
 }
 
 impl DuckDbDriver {
     pub fn new(config: DuckDbConfig) -> Self {
+        let helper_path = duckdb_helper::helper_path().unwrap_or_default();
+        Self::build(config, helper_path, true)
+    }
+
+    pub fn with_helper_path(config: DuckDbConfig, helper_path: PathBuf) -> Self {
+        Self::build(config, helper_path, false)
+    }
+
+    fn build(config: DuckDbConfig, helper_path: PathBuf, managed_helper: bool) -> Self {
         let key = normalized_path(&config.file_path);
         let locks = FILE_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
         let mut locks = locks.lock().expect("DuckDB file lock registry poisoned");
         let file_lock = locks.get(&key).and_then(Weak::upgrade).unwrap_or_else(|| {
-            let lock = Arc::new(StdMutex::new(()));
+            let lock = Arc::new(Mutex::new(()));
             locks.insert(key, Arc::downgrade(&lock));
             lock
         });
-
         Self {
             config,
+            helper_path,
+            managed_helper,
             file_lock,
-            interactive_connection: Arc::new(StdMutex::new(None)),
+            interactive_session: Arc::new(Mutex::new(None)),
         }
     }
 
-    async fn run_blocking<T, F>(&self, mode: ConnectionMode, operation: F) -> Result<T, String>
-    where
-        T: Send + 'static,
-        F: FnOnce(&Connection) -> Result<T, String> + Send + 'static,
-    {
-        let file_lock = Arc::clone(&self.file_lock);
-        let path = self.config.file_path.clone();
-        let interactive_connection = Arc::clone(&self.interactive_connection);
-        tokio::task::spawn_blocking(move || {
-            let _guard = file_lock
-                .lock()
-                .map_err(|_| "DuckDB file lock poisoned".to_string())?;
-            match mode {
-                ConnectionMode::Interactive => {
-                    let mut connection = interactive_connection
-                        .lock()
-                        .map_err(|_| "DuckDB connection lock poisoned".to_string())?;
-                    if connection.is_none() {
-                        *connection = Some(open_connection(&path, mode)?);
-                    }
-                    operation(connection.as_ref().expect("DuckDB connection initialized"))
-                }
-                ConnectionMode::ReadOnly => {
-                    let connection = open_connection(&path, mode)?;
-                    operation(&connection)
-                }
+    async fn query_rows(&self, sql: &str) -> Result<Vec<Value>, String> {
+        self.run_cli(sql, false).await
+    }
+
+    async fn run_cli(&self, sql: &str, read_only: bool) -> Result<Vec<Value>, String> {
+        if !self.helper_path.is_file()
+            || (self.managed_helper && !duckdb_helper::is_helper_installed())
+        {
+            return Err("DuckDB helper is not installed. Reconnect to download it.".to_string());
+        }
+        let _guard = self.file_lock.lock().await;
+        if read_only {
+            let mut session = self.interactive_session.lock().await;
+            if let Some(mut session) = session.take() {
+                session.shutdown().await;
             }
-        })
-        .await
-        .map_err(|error| format!("DuckDB operation failed: {error}"))?
+            drop(session);
+            return run_cli_once(&self.helper_path, &self.config.file_path, sql, true).await;
+        }
+
+        let mut session = self.interactive_session.lock().await;
+        if session.is_none() {
+            *session = Some(DuckDbSession::start(&self.helper_path, &self.config.file_path).await?);
+        }
+        session
+            .as_mut()
+            .expect("DuckDB session initialized")
+            .execute(sql)
+            .await
     }
 
-    fn bind_filter_values(filter: Option<&CompiledFilter>) -> Vec<DuckValue> {
-        filter
-            .map(|filter| {
-                filter
-                    .values
-                    .iter()
-                    .map(|value| match value {
-                        FilterValue::Text(value) => DuckValue::Text(value.clone()),
-                        FilterValue::Integer(value) => DuckValue::BigInt(*value),
-                        FilterValue::Float(value) => DuckValue::Double(*value),
-                        FilterValue::Boolean(value) => DuckValue::Boolean(*value),
-                        FilterValue::ExactNumber { value, .. } => DuckValue::Text(value.clone()),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    fn table_structure_sync(
-        connection: &Connection,
+    async fn table_structure_inner(
+        &self,
         schema: &str,
         table: &str,
     ) -> Result<TableStructure, String> {
-        let columns = query_rows(
-            connection,
-            "SELECT column_name, data_type, is_nullable = 'YES' AS nullable, column_default \
-             FROM information_schema.columns \
-             WHERE table_catalog = current_catalog() AND table_schema = ? AND table_name = ? \
-             ORDER BY ordinal_position",
-            vec![
-                DuckValue::Text(schema.to_string()),
-                DuckValue::Text(table.to_string()),
-            ],
-            usize::MAX,
-        )?
-        .0;
-
-        let constraints = query_rows(
-            connection,
-            "SELECT constraint_name, constraint_type, constraint_column_names, \
-                    referenced_table, referenced_column_names \
-             FROM duckdb_constraints() \
-             WHERE database_name = current_catalog() AND schema_name = ? AND table_name = ?",
-            vec![
-                DuckValue::Text(schema.to_string()),
-                DuckValue::Text(table.to_string()),
-            ],
-            usize::MAX,
-        )?
-        .0;
-
+        let schema = sql_string(schema);
+        let table = sql_string(table);
+        let columns = self
+            .query_rows(&format!(
+                "SELECT column_name, data_type, is_nullable = 'YES' AS nullable, column_default \
+                 FROM information_schema.columns \
+                 WHERE table_catalog = current_catalog() AND table_schema = {schema} AND table_name = {table} \
+                 ORDER BY ordinal_position"
+            ))
+            .await?;
+        let constraints = self
+            .query_rows(&format!(
+                "SELECT constraint_name, constraint_type, constraint_column_names, \
+                        referenced_table, referenced_column_names \
+                 FROM duckdb_constraints() \
+                 WHERE database_name = current_catalog() AND schema_name = {schema} AND table_name = {table}"
+            ))
+            .await?;
         let primary_columns: HashSet<String> = constraints
             .iter()
             .filter(|row| row["constraint_type"] == "PRIMARY KEY")
             .flat_map(|row| string_array(&row["constraint_column_names"]))
             .collect();
-
         let columns = columns
             .into_iter()
             .map(|row| {
@@ -158,7 +138,6 @@ impl DuckDbDriver {
                 })
             })
             .collect::<Result<Vec<_>, String>>()?;
-
         let mut indexes = Vec::new();
         let mut foreign_keys = Vec::new();
         for row in &constraints {
@@ -186,18 +165,12 @@ impl DuckDbDriver {
                 }
             }
         }
-
-        let secondary_indexes = query_rows(
-            connection,
-            "SELECT index_name, is_unique FROM duckdb_indexes() \
-             WHERE database_name = current_catalog() AND schema_name = ? AND table_name = ?",
-            vec![
-                DuckValue::Text(schema.to_string()),
-                DuckValue::Text(table.to_string()),
-            ],
-            usize::MAX,
-        )?
-        .0;
+        let secondary_indexes = self
+            .query_rows(&format!(
+                "SELECT index_name, is_unique FROM duckdb_indexes() \
+                 WHERE database_name = current_catalog() AND schema_name = {schema} AND table_name = {table}"
+            ))
+            .await?;
         for row in secondary_indexes {
             indexes.push(IndexInfo {
                 name: required_string(&row, "index_name")?,
@@ -206,7 +179,6 @@ impl DuckDbDriver {
                 primary: false,
             });
         }
-
         Ok(TableStructure {
             columns,
             indexes,
@@ -215,46 +187,265 @@ impl DuckDbDriver {
     }
 }
 
+struct DuckDbSession {
+    child: Child,
+    stdin: ChildStdin,
+    stdout: Lines<BufReader<ChildStdout>>,
+    stderr: Lines<BufReader<ChildStderr>>,
+}
+
+impl DuckDbSession {
+    async fn start(helper_path: &PathBuf, file_path: &str) -> Result<Self, String> {
+        let mut command = duckdb_command(helper_path);
+        let mut child = command
+            .arg("-batch")
+            .arg("-no-init")
+            .arg("-json")
+            .arg(file_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| format!("Could not start DuckDB helper: {error}"))?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Could not open DuckDB helper input".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Could not open DuckDB helper output".to_string())?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Could not open DuckDB helper errors".to_string())?;
+        Ok(Self {
+            child,
+            stdin,
+            stdout: BufReader::new(stdout).lines(),
+            stderr: BufReader::new(stderr).lines(),
+        })
+    }
+
+    async fn execute(&mut self, sql: &str) -> Result<Vec<Value>, String> {
+        let marker = format!("__dbcooper_{}", uuid::Uuid::new_v4().simple());
+        self.stdin
+            .write_all(sql.as_bytes())
+            .await
+            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+        if !sql.trim_end().ends_with(';') {
+            self.stdin
+                .write_all(b";")
+                .await
+                .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+        }
+        self.stdin
+            .write_all(format!("\nSELECT '{marker}' AS __dbcooper_marker;\n").as_bytes())
+            .await
+            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+        self.stdin
+            .flush()
+            .await
+            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+
+        let mut output = String::new();
+        let mut errors = Vec::new();
+        let mut error_bytes = 0;
+        let mut stderr_open = true;
+        loop {
+            tokio::select! {
+                line = self.stderr.next_line(), if stderr_open => match line {
+                    Ok(Some(line)) => {
+                        error_bytes += line.len();
+                        if error_bytes > MAX_CLI_ERROR_BYTES {
+                            let _ = self.child.kill().await;
+                            return Err("DuckDB query returned too many errors".to_string());
+                        }
+                        errors.push(line);
+                    },
+                    Ok(None) => stderr_open = false,
+                    Err(error) => return Err(format!("Could not read DuckDB helper errors: {error}")),
+                },
+                line = self.stdout.next_line() => match line {
+                    Ok(Some(line)) if line.contains(&marker) => break,
+                    Ok(Some(line)) => {
+                        if output.len() + line.len() > MAX_CLI_OUTPUT_BYTES {
+                            let _ = self.child.kill().await;
+                            return Err("DuckDB query output exceeds the 64 MB safety limit".to_string());
+                        }
+                        output.push_str(&line);
+                        output.push('\n');
+                    }
+                    Ok(None) => return Err("DuckDB helper exited before completing the query".to_string()),
+                    Err(error) => return Err(format!("Could not read DuckDB helper output: {error}")),
+                },
+            }
+        }
+        while stderr_open {
+            match timeout(Duration::from_millis(2), self.stderr.next_line()).await {
+                Ok(Ok(Some(line))) => {
+                    error_bytes += line.len();
+                    if error_bytes > MAX_CLI_ERROR_BYTES {
+                        let _ = self.child.kill().await;
+                        return Err("DuckDB query returned too many errors".to_string());
+                    }
+                    errors.push(line);
+                }
+                Ok(Ok(None)) => stderr_open = false,
+                Ok(Err(error)) => {
+                    return Err(format!("Could not read DuckDB helper errors: {error}"))
+                }
+                Err(_) => break,
+            }
+        }
+        if !errors.is_empty() {
+            return Err(errors.join("\n"));
+        }
+        parse_cli_output(output.as_bytes())
+    }
+
+    async fn shutdown(&mut self) {
+        let _ = self.stdin.write_all(b".quit\n").await;
+        let _ = self.stdin.flush().await;
+        if timeout(Duration::from_secs(1), self.child.wait())
+            .await
+            .is_err()
+        {
+            let _ = self.child.kill().await;
+        }
+    }
+}
+
+async fn run_cli_once(
+    helper_path: &PathBuf,
+    file_path: &str,
+    sql: &str,
+    read_only: bool,
+) -> Result<Vec<Value>, String> {
+    let mut command = duckdb_command(helper_path);
+    command
+        .arg("-batch")
+        .arg("-bail")
+        .arg("-no-init")
+        .arg("-json");
+    if read_only {
+        command.arg("-safe").arg("-readonly");
+    }
+    command
+        .arg(file_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Could not start DuckDB helper: {error}"))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Could not open DuckDB helper input".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Could not open DuckDB helper output".to_string())?;
+    let mut stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Could not open DuckDB helper errors".to_string())?;
+    stdin
+        .write_all(sql.as_bytes())
+        .await
+        .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+    drop(stdin);
+    let stderr_task = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let read = stderr
+                .read(&mut buffer)
+                .await
+                .map_err(|error| format!("Could not read DuckDB helper errors: {error}"))?;
+            if read == 0 {
+                break;
+            }
+            let remaining = MAX_CLI_ERROR_BYTES.saturating_sub(bytes.len());
+            bytes.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
+        Ok::<_, String>(bytes)
+    });
+    let mut output = Vec::new();
+    stdout
+        .take((MAX_CLI_OUTPUT_BYTES + 1) as u64)
+        .read_to_end(&mut output)
+        .await
+        .map_err(|error| format!("Could not read DuckDB helper output: {error}"))?;
+    if output.len() > MAX_CLI_OUTPUT_BYTES {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        let _ = stderr_task.await;
+        return Err("DuckDB query output exceeds the 64 MB safety limit".to_string());
+    }
+    let status = child
+        .wait()
+        .await
+        .map_err(|error| format!("DuckDB helper failed: {error}"))?;
+    let stderr = stderr_task
+        .await
+        .map_err(|error| format!("Could not read DuckDB helper errors: {error}"))??;
+    if !status.success() {
+        let error = String::from_utf8_lossy(&stderr).trim().to_string();
+        return Err(if error.is_empty() {
+            "DuckDB query failed".to_string()
+        } else {
+            error
+        });
+    }
+    parse_cli_output(&output)
+}
+
+fn duckdb_command(helper_path: &PathBuf) -> Command {
+    #[cfg(windows)]
+    {
+        let mut command = Command::new(helper_path);
+        command.creation_flags(0x08000000);
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(helper_path)
+    }
+}
+
 #[async_trait]
 impl DatabaseDriver for DuckDbDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
-        self.run_blocking(ConnectionMode::Interactive, |connection| {
-            connection
-                .query_row("SELECT 1", [], |_| Ok(()))
-                .map_err(|error| error.to_string())?;
-            Ok(TestConnectionResult {
-                success: true,
-                message: "Connection successful!".to_string(),
-            })
+        self.query_rows("SELECT 1").await?;
+        Ok(TestConnectionResult {
+            success: true,
+            message: "Connection successful!".to_string(),
         })
-        .await
     }
 
     async fn list_tables(&self) -> Result<Vec<TableInfo>, String> {
-        self.run_blocking(ConnectionMode::Interactive, |connection| {
-            let rows = query_rows(
-                connection,
-                "SELECT table_schema, table_name, \
-                        CASE WHEN table_type = 'VIEW' THEN 'view' ELSE 'table' END AS object_type \
-                 FROM information_schema.tables \
-                 WHERE table_catalog = current_catalog() \
-                   AND table_schema NOT IN ('information_schema', 'pg_catalog') \
-                 ORDER BY table_schema, table_name",
-                Vec::new(),
-                usize::MAX,
-            )?
-            .0;
-            rows.into_iter()
-                .map(|row| {
-                    Ok(TableInfo {
-                        schema: required_string(&row, "table_schema")?,
-                        name: required_string(&row, "table_name")?,
-                        table_type: required_string(&row, "object_type")?,
-                    })
-                })
-                .collect()
+        self.query_rows(
+            "SELECT table_schema, table_name, \
+                    CASE WHEN table_type = 'VIEW' THEN 'view' ELSE 'table' END AS object_type \
+             FROM information_schema.tables \
+             WHERE table_catalog = current_catalog() \
+               AND table_schema NOT IN ('information_schema', 'pg_catalog') \
+             ORDER BY table_schema, table_name",
+        )
+        .await?
+        .into_iter()
+        .map(|row| {
+            Ok(TableInfo {
+                schema: required_string(&row, "table_schema")?,
+                name: required_string(&row, "table_name")?,
+                table_type: required_string(&row, "object_type")?,
+            })
         })
-        .await
+        .collect()
     }
 
     async fn get_table_data(
@@ -271,13 +462,14 @@ impl DatabaseDriver for DuckDbDriver {
         let compiled = structured_expression(filter.as_ref())
             .map(|expression| compile_filter(expression, &structure.columns, FilterDialect::DuckDb))
             .transpose()?;
-        let where_clause = build_where_clause(filter.as_ref(), compiled.as_ref());
-        let values = Self::bind_filter_values(compiled.as_ref());
+        let mut where_clause = build_where_clause(filter.as_ref(), compiled.as_ref());
+        if let Some(compiled) = compiled.as_ref() {
+            where_clause = render_filter(&where_clause, compiled)?;
+        }
         let table_ref = qualified_name(schema, table);
         let page = page.max(1);
         let limit = limit.clamp(1, 1_000);
         let offset = (page - 1) * limit;
-
         let order_columns = if let Some(column) = sort_column {
             if !structure
                 .columns
@@ -306,37 +498,39 @@ impl DatabaseDriver for DuckDbDriver {
         let order_clause = if order_columns.is_empty() {
             String::new()
         } else {
-            let columns = order_columns
-                .iter()
-                .map(|column| format!("{} {order_direction}", quote_identifier(column)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(" ORDER BY {columns}")
+            format!(
+                " ORDER BY {}",
+                order_columns
+                    .iter()
+                    .map(|column| format!("{} {order_direction}", quote_identifier(column)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         };
-        let count_sql = format!("SELECT COUNT(*) AS total FROM {table_ref}{where_clause}");
-        let data_sql = format!(
-            "SELECT * FROM {table_ref}{where_clause}{order_clause} LIMIT {limit} OFFSET {offset}"
-        );
-
-        self.run_blocking(ConnectionMode::Interactive, move |connection| {
-            let count = query_rows(connection, &count_sql, values.clone(), 1)?
-                .0
-                .first()
-                .and_then(|row| {
-                    row["total"]
-                        .as_i64()
-                        .or_else(|| row["total"].as_str()?.parse().ok())
-                })
-                .unwrap_or(0);
-            let data = query_rows(connection, &data_sql, values, usize::MAX)?.0;
-            Ok(TableDataResponse {
-                data,
-                total: count,
-                page,
-                limit,
+        let count_rows = self
+            .query_rows(&format!(
+                "SELECT COUNT(*) AS total FROM {table_ref}{where_clause}"
+            ))
+            .await?;
+        let total = count_rows
+            .first()
+            .and_then(|row| {
+                row["total"]
+                    .as_i64()
+                    .or_else(|| row["total"].as_str()?.parse().ok())
             })
+            .unwrap_or(0);
+        let data = self
+            .query_rows(&format!(
+                "SELECT * FROM {table_ref}{where_clause}{order_clause} LIMIT {limit} OFFSET {offset}"
+            ))
+            .await?;
+        Ok(TableDataResponse {
+            data,
+            total,
+            page,
+            limit,
         })
-        .await
     }
 
     async fn get_table_structure(
@@ -344,28 +538,15 @@ impl DatabaseDriver for DuckDbDriver {
         schema: &str,
         table: &str,
     ) -> Result<TableStructure, String> {
-        let schema = schema.to_string();
-        let table = table.to_string();
-        self.run_blocking(ConnectionMode::Interactive, move |connection| {
-            Self::table_structure_sync(connection, &schema, &table)
-        })
-        .await
+        self.table_structure_inner(schema, table).await
     }
 
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String> {
-        let query = query.to_string();
-        self.run_blocking(ConnectionMode::Interactive, move |connection| {
-            execute_query(connection, &query)
-        })
-        .await
+        execute_query(self, query, false).await
     }
 
     async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
-        let query = query.to_string();
-        self.run_blocking(ConnectionMode::ReadOnly, move |connection| {
-            execute_query(connection, &query)
-        })
-        .await
+        execute_query(self, query, true).await
     }
 
     async fn get_schema_overview(&self) -> Result<SchemaOverview, String> {
@@ -391,64 +572,29 @@ impl DatabaseDriver for DuckDbDriver {
     }
 }
 
-fn normalized_path(path: &str) -> PathBuf {
-    let path = Path::new(path);
-    if let Ok(path) = path.canonicalize() {
-        return path;
-    }
-    let file_name = path.file_name().map(ToOwned::to_owned);
-    match (
-        path.parent().and_then(|parent| parent.canonicalize().ok()),
-        file_name,
-    ) {
-        (Some(parent), Some(file_name)) => parent.join(file_name),
-        _ => path.to_path_buf(),
-    }
-}
-
-fn open_connection(path: &str, mode: ConnectionMode) -> Result<Connection, String> {
-    let config = match mode {
-        ConnectionMode::Interactive => Config::default()
-            .access_mode(AccessMode::ReadWrite)
-            .and_then(|config| config.enable_external_access(true))
-            .and_then(|config| config.enable_autoload_extension(true))
-            .and_then(|config| config.with("allow_community_extensions", "false")),
-        ConnectionMode::ReadOnly => Config::default()
-            .access_mode(AccessMode::ReadOnly)
-            .and_then(|config| config.enable_external_access(false))
-            .and_then(|config| config.enable_autoload_extension(false))
-            .and_then(|config| config.with("allow_community_extensions", "false"))
-            .and_then(|config| config.with("lock_configuration", "true")),
-    }
-    .map_err(|error| error.to_string())?;
-    Connection::open_with_flags(path, config).map_err(|error| error.to_string())
-}
-
-fn execute_query(connection: &Connection, query: &str) -> Result<QueryResult, String> {
+async fn execute_query(
+    driver: &DuckDbDriver,
+    query: &str,
+    read_only: bool,
+) -> Result<QueryResult, String> {
     let start = Instant::now();
-    let returns_rows = duckdb_query_returns_rows(query);
-    let mut statement = match connection.prepare(query) {
-        Ok(statement) => statement,
-        Err(error) => return Ok(QueryResult::from_error(error.to_string(), start)),
-    };
-
-    if returns_rows {
-        return match query_statement(&mut statement, Vec::new(), MAX_QUERY_RESULT_ROWS) {
-            Ok((data, truncated)) => Ok(QueryResult::from_rows(data, truncated, start)),
-            Err(error) => Ok(QueryResult::from_error(error, start)),
-        };
-    }
-
-    match statement.execute([]) {
-        Ok(rows_affected) => Ok(QueryResult {
-            data: Vec::new(),
-            row_count: 0,
-            truncated: false,
-            rows_affected: Some(rows_affected as u64),
-            error: None,
-            time_taken_ms: Some(start.elapsed().as_millis()),
-        }),
-        Err(error) => Ok(QueryResult::from_error(error.to_string(), start)),
+    match driver.run_cli(query, read_only).await {
+        Ok(mut data) => {
+            if !duckdb_query_returns_rows(query) {
+                data.clear();
+            }
+            let truncated = data.len() > MAX_QUERY_RESULT_ROWS;
+            data.truncate(MAX_QUERY_RESULT_ROWS);
+            Ok(QueryResult {
+                row_count: data.len() as i64,
+                data,
+                truncated,
+                rows_affected: None,
+                error: None,
+                time_taken_ms: Some(start.elapsed().as_millis()),
+            })
+        }
+        Err(error) => Ok(QueryResult::from_error(error, start)),
     }
 }
 
@@ -456,143 +602,121 @@ fn duckdb_query_returns_rows(query: &str) -> bool {
     query_returns_rows_with_keywords(query, &["FROM", "SUMMARIZE", "PIVOT", "UNPIVOT"])
 }
 
-fn query_rows(
-    connection: &Connection,
-    sql: &str,
-    values: Vec<DuckValue>,
-    max_rows: usize,
-) -> Result<(Vec<Value>, bool), String> {
-    let mut statement = connection.prepare(sql).map_err(|error| error.to_string())?;
-    query_statement(&mut statement, values, max_rows)
-}
-
-fn query_statement(
-    statement: &mut duckdb::Statement<'_>,
-    values: Vec<DuckValue>,
-    max_rows: usize,
-) -> Result<(Vec<Value>, bool), String> {
-    let rows = statement
-        .query(params_from_iter(values.iter()))
-        .map_err(|error| error.to_string())?;
-    let column_names = rows
-        .as_ref()
-        .ok_or_else(|| "DuckDB query returned no statement metadata".to_string())?
-        .column_names();
-    let mut rows = rows;
-    let mut data = Vec::new();
-    while let Some(row) = rows.next().map_err(|error| error.to_string())? {
-        if data.len() == max_rows {
-            return Ok((data, true));
+fn parse_cli_output(output: &[u8]) -> Result<Vec<Value>, String> {
+    let text = std::str::from_utf8(output)
+        .map_err(|error| format!("DuckDB helper returned invalid UTF-8: {error}"))?;
+    let mut last_rows = Vec::new();
+    for value in serde_json::Deserializer::from_str(text).into_iter::<Value>() {
+        let value =
+            value.map_err(|error| format!("DuckDB helper returned invalid JSON: {error}"))?;
+        if let Value::Array(rows) = value {
+            last_rows = rows;
         }
-        let mut object = Map::new();
-        for (index, column) in column_names.iter().enumerate() {
-            let value = row
-                .get::<_, DuckValue>(index)
-                .map_err(|error| error.to_string())?;
-            object.insert(column.clone(), duck_value_to_json(value)?);
-        }
-        data.push(Value::Object(object));
     }
-    Ok((data, false))
+    for row in &mut last_rows {
+        normalize_cli_value(row);
+    }
+    Ok(last_rows)
 }
 
-fn duck_value_to_json(value: DuckValue) -> Result<Value, String> {
-    let value = match value {
-        DuckValue::Null => Value::Null,
-        DuckValue::Boolean(value) => json!(value),
-        DuckValue::TinyInt(value) => json!(value),
-        DuckValue::SmallInt(value) => json!(value),
-        DuckValue::Int(value) => json!(value),
-        DuckValue::BigInt(value) if i128::from(value).abs() <= MAX_SAFE_JSON_INTEGER => {
-            json!(value)
+fn normalize_cli_value(value: &mut Value) {
+    match value {
+        Value::Number(number) => {
+            let unsafe_integer = number
+                .as_i64()
+                .filter(|value| value.abs() > MAX_SAFE_JSON_INTEGER)
+                .map(|value| value.to_string())
+                .or_else(|| {
+                    number
+                        .as_u64()
+                        .filter(|value| *value > MAX_SAFE_JSON_INTEGER as u64)
+                        .map(|value| value.to_string())
+                });
+            if let Some(integer) = unsafe_integer {
+                *value = Value::String(integer);
+            }
         }
-        DuckValue::BigInt(value) => json!(value.to_string()),
-        DuckValue::HugeInt(value) if value.abs() <= MAX_SAFE_JSON_INTEGER => json!(value as i64),
-        DuckValue::HugeInt(value) => json!(value.to_string()),
-        DuckValue::UHugeInt(value) if value <= MAX_SAFE_JSON_INTEGER as u128 => json!(value as u64),
-        DuckValue::UHugeInt(value) => json!(value.to_string()),
-        DuckValue::UTinyInt(value) => json!(value),
-        DuckValue::USmallInt(value) => json!(value),
-        DuckValue::UInt(value) => json!(value),
-        DuckValue::UBigInt(value) if value <= MAX_SAFE_JSON_INTEGER as u64 => json!(value),
-        DuckValue::UBigInt(value) => json!(value.to_string()),
-        DuckValue::Float(value) => Number::from_f64(value.into())
-            .map(Value::Number)
-            .unwrap_or_else(|| json!(value.to_string())),
-        DuckValue::Double(value) => Number::from_f64(value)
-            .map(Value::Number)
-            .unwrap_or_else(|| json!(value.to_string())),
-        DuckValue::Decimal(value) => json!(value.to_string()),
-        DuckValue::Timestamp(unit, value) => json!(format_timestamp(unit, value)),
-        DuckValue::Text(value) | DuckValue::Enum(value) => json!(value),
-        DuckValue::Blob(value) | DuckValue::Geometry(value) => {
-            json!(format!("\\x{}", hex::encode_upper(value)))
+        Value::String(text) => {
+            if let Some(blob) = normalize_blob(text) {
+                *text = blob;
+            }
         }
-        DuckValue::Date32(days) => json!(format_date(days)),
-        DuckValue::Time64(unit, value) => json!(format_time(unit, value)),
-        DuckValue::Interval {
-            months,
-            days,
-            nanos,
-        } => {
-            json!(format!(
-                "P{months}M{days}DT{}S",
-                nanos as f64 / 1_000_000_000.0
-            ))
-        }
-        DuckValue::List(values) | DuckValue::Array(values) => Value::Array(
-            values
-                .into_iter()
-                .map(duck_value_to_json)
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
-        DuckValue::Struct(values) => {
-            let values = values
-                .iter()
-                .map(|(key, value)| Ok((key.clone(), duck_value_to_json(value.clone())?)))
-                .collect::<Result<Map<_, _>, String>>()?;
-            Value::Object(values)
-        }
-        DuckValue::Map(values) => {
-            let values = values
-                .iter()
-                .map(|(key, value)| {
-                    Ok(json!({
-                        "key": duck_value_to_json(key.clone())?,
-                        "value": duck_value_to_json(value.clone())?
-                    }))
-                })
-                .collect::<Result<Vec<_>, String>>()?;
-            Value::Array(values)
-        }
-        DuckValue::Union(value) => return duck_value_to_json(*value),
-        unsupported => return Err(format!("Unsupported DuckDB value type: {unsupported:?}")),
-    };
-    Ok(value)
+        Value::Array(values) => values.iter_mut().for_each(normalize_cli_value),
+        Value::Object(values) => values.values_mut().for_each(normalize_cli_value),
+        _ => {}
+    }
 }
 
-fn format_timestamp(unit: TimeUnit, value: i64) -> String {
-    let micros = unit.to_micros(value);
-    let seconds = micros.div_euclid(1_000_000);
-    let nanos = micros.rem_euclid(1_000_000) as u32 * 1_000;
-    DateTime::<Utc>::from_timestamp(seconds, nanos)
-        .map(|value| value.naive_utc().to_string())
-        .unwrap_or_else(|| value.to_string())
+fn normalize_blob(value: &str) -> Option<String> {
+    if value.len() < 4 || !value.len().is_multiple_of(4) {
+        return None;
+    }
+    let bytes = value.as_bytes();
+    if bytes.chunks_exact(4).all(|chunk| {
+        chunk[0] == b'\\'
+            && chunk[1] == b'x'
+            && chunk[2].is_ascii_hexdigit()
+            && chunk[3].is_ascii_hexdigit()
+    }) {
+        Some(format!(
+            "\\x{}",
+            bytes
+                .chunks_exact(4)
+                .map(|chunk| std::str::from_utf8(&chunk[2..4]).unwrap())
+                .collect::<String>()
+        ))
+    } else {
+        None
+    }
 }
 
-fn format_date(days: i32) -> String {
-    DateTime::<Utc>::from_timestamp(i64::from(days) * 86_400, 0)
-        .map(|value| value.date_naive().to_string())
-        .unwrap_or_else(|| days.to_string())
+fn render_filter(where_clause: &str, filter: &CompiledFilter) -> Result<String, String> {
+    let mut parts = where_clause.split('?');
+    let mut rendered = parts.next().unwrap_or_default().to_string();
+    for value in &filter.values {
+        rendered.push_str(&filter_value_sql(value)?);
+        rendered.push_str(
+            parts
+                .next()
+                .ok_or_else(|| "DuckDB filter parameter mismatch".to_string())?,
+        );
+    }
+    if parts.next().is_some() {
+        return Err("DuckDB filter parameter mismatch".to_string());
+    }
+    Ok(rendered)
 }
 
-fn format_time(unit: TimeUnit, value: i64) -> String {
-    let micros = unit.to_micros(value);
-    let seconds = micros.div_euclid(1_000_000);
-    let nanos = micros.rem_euclid(1_000_000) as u32 * 1_000;
-    NaiveTime::from_num_seconds_from_midnight_opt(seconds as u32, nanos)
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| value.to_string())
+fn filter_value_sql(value: &FilterValue) -> Result<String, String> {
+    match value {
+        FilterValue::Text(value) => Ok(sql_string(value)),
+        FilterValue::Integer(value) => Ok(value.to_string()),
+        FilterValue::Float(value) if value.is_finite() => Ok(value.to_string()),
+        FilterValue::Float(_) => Err("DuckDB filter number must be finite".to_string()),
+        FilterValue::Boolean(value) => Ok(value.to_string()),
+        FilterValue::ExactNumber { value, .. }
+            if value.chars().all(|character| {
+                character.is_ascii_digit() || matches!(character, '+' | '-' | '.' | 'e' | 'E')
+            }) =>
+        {
+            Ok(value.clone())
+        }
+        FilterValue::ExactNumber { .. } => Err("Invalid DuckDB numeric filter".to_string()),
+    }
+}
+
+fn normalized_path(path: &str) -> PathBuf {
+    let path = std::path::Path::new(path);
+    if let Ok(path) = path.canonicalize() {
+        return path;
+    }
+    match (
+        path.parent().and_then(|parent| parent.canonicalize().ok()),
+        path.file_name(),
+    ) {
+        (Some(parent), Some(file_name)) => parent.join(file_name),
+        _ => path.to_path_buf(),
+    }
 }
 
 fn qualified_name(schema: &str, table: &str) -> String {
@@ -601,6 +725,10 @@ fn qualified_name(schema: &str, table: &str) -> String {
 
 fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+fn sql_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn required_string(row: &Value, key: &str) -> Result<String, String> {
@@ -625,77 +753,28 @@ fn string_array(value: &Value) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{duck_value_to_json, ConnectionMode, DuckDbConfig, DuckDbDriver};
-    use duckdb::types::Value as DuckValue;
+    use super::{normalize_cli_value, render_filter, CompiledFilter, FilterValue};
     use serde_json::json;
-    use std::sync::{mpsc, Arc};
-    use std::time::Duration;
-    use tempfile::tempdir;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn cancelled_call_keeps_file_lock_until_blocking_work_finishes() {
-        let temp_dir = tempdir().unwrap();
-        let file_path = temp_dir
-            .path()
-            .join("analytics.duckdb")
-            .to_string_lossy()
-            .to_string();
-        let first = Arc::new(DuckDbDriver::new(DuckDbConfig {
-            file_path: file_path.clone(),
-        }));
-        let second = Arc::new(DuckDbDriver::new(DuckDbConfig { file_path }));
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-
-        let first_task = tokio::spawn({
-            let first = Arc::clone(&first);
-            async move {
-                first
-                    .run_blocking(ConnectionMode::Interactive, move |_| {
-                        started_tx.send(()).unwrap();
-                        release_rx.recv().unwrap();
-                        Ok(())
-                    })
-                    .await
-            }
-        });
-        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(2)))
-            .await
-            .unwrap()
-            .unwrap();
-
-        first_task.abort();
-        let _ = first_task.await;
-
-        let (second_entered_tx, second_entered_rx) = mpsc::channel();
-        let second_task = tokio::spawn(async move {
-            second
-                .run_blocking(ConnectionMode::Interactive, move |_| {
-                    let _ = second_entered_tx.send(());
-                    Ok(())
-                })
-                .await
-        });
-        let entered_before_release = tokio::task::spawn_blocking(move || {
-            second_entered_rx
-                .recv_timeout(Duration::from_millis(300))
-                .is_ok()
-        })
-        .await
-        .unwrap();
-
-        release_tx.send(()).unwrap();
-        second_task.await.unwrap().unwrap();
-
-        assert!(!entered_before_release);
+    #[test]
+    fn normalizes_cli_values_for_javascript() {
+        let mut value = json!({"id": 9007199254740993_i64, "payload": "\\xCA\\xFE"});
+        normalize_cli_value(&mut value);
+        assert_eq!(
+            value,
+            json!({"id": "9007199254740993", "payload": "\\xCAFE"})
+        );
     }
 
     #[test]
-    fn converts_supported_values_through_a_fallible_boundary() {
-        assert_eq!(duck_value_to_json(DuckValue::Int(7)).unwrap(), json!(7));
+    fn renders_structured_filter_values_without_sql_injection() {
+        let filter = CompiledFilter {
+            sql: "\"name\" = ?".to_string(),
+            values: vec![FilterValue::Text("O'Reilly".to_string())],
+        };
         assert_eq!(
-            duck_value_to_json(DuckValue::List(vec![DuckValue::Text("ok".to_string())])).unwrap(),
-            json!(["ok"])
+            render_filter(" WHERE \"name\" = ?", &filter).unwrap(),
+            " WHERE \"name\" = 'O''Reilly'"
         );
     }
 }

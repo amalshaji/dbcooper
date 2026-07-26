@@ -3,6 +3,7 @@ pub mod commands;
 pub mod database;
 pub mod db;
 pub mod docker;
+pub mod duckdb_helper;
 pub mod mcp;
 mod ssh_tunnel;
 
@@ -44,6 +45,7 @@ use docker::{
     docker_get_connection_string, docker_link_connection, docker_list_containers,
     docker_prepare_connection,
 };
+use duckdb_helper::ensure_duckdb_helper;
 use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
@@ -207,6 +209,8 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            duckdb_helper::set_app_data_dir(app.path().app_data_dir()?);
+
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             let pool = rt
                 .block_on(db::init_pool())
@@ -235,6 +239,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_connections,
+            ensure_duckdb_helper,
             get_connection_by_uuid,
             create_connection,
             update_connection,

@@ -30,6 +30,11 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
+import {
+	ensureDuckDbHelper,
+	type DuckDbHelperProgress as DuckDbHelperProgressValue,
+} from "@/lib/duckdbHelper";
+import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 
 interface ConnectionFormProps {
 	onSubmit: (data: ConnectionFormData) => Promise<void>;
@@ -115,9 +120,12 @@ export function ConnectionForm({
 	const [isTesting, setIsTesting] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const [showSshPassword, setShowSshPassword] = useState(false);
+	const [duckDbHelperProgress, setDuckDbHelperProgress] =
+		useState<DuckDbHelperProgressValue | null>(null);
 
 	const isEditMode = !!initialData;
 	const usesFile = isFileDatabase(formData.type);
+	const isBusy = isSubmitting || isTesting;
 
 	useEffect(() => {
 		if (initialData) {
@@ -143,6 +151,7 @@ export function ConnectionForm({
 		} else {
 			setFormData(defaultFormData);
 		}
+		setDuckDbHelperProgress(null);
 	}, [initialData, isOpen]);
 
 	const handleTypeChange = (type: ConnectionType) => {
@@ -157,6 +166,9 @@ export function ConnectionForm({
 	const handleTestConnection = async () => {
 		setIsTesting(true);
 		try {
+			if (formData.type === "duckdb") {
+				await ensureDuckDbHelper(setDuckDbHelperProgress);
+			}
 			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
 			const result =
 				formData.type === "redis" ||
@@ -207,8 +219,10 @@ export function ConnectionForm({
 			} else {
 				toast.error(result.message || "Connection failed");
 			}
-		} catch {
-			toast.error("Failed to test connection");
+		} catch (error) {
+			toast.error("Failed to test connection", {
+				description: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
 			setIsTesting(false);
 		}
@@ -217,6 +231,17 @@ export function ConnectionForm({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setIsSubmitting(true);
+		if (formData.type === "duckdb") {
+			try {
+				await ensureDuckDbHelper(setDuckDbHelperProgress);
+			} catch (error) {
+				toast.error("Could not prepare DuckDB support", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+				setIsSubmitting(false);
+				return;
+			}
+		}
 		try {
 			await onSubmit(formData);
 			if (!isEditMode) {
@@ -228,7 +253,10 @@ export function ConnectionForm({
 	};
 
 	return (
-		<AlertDialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
+		<AlertDialog
+			open={isOpen}
+			onOpenChange={(open) => !open && !isBusy && onCancel()}
+		>
 			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
@@ -677,9 +705,19 @@ export function ConnectionForm({
 							</>
 						)}
 					</FieldGroup>
+					{formData.type === "duckdb" && duckDbHelperProgress && (
+						<div className="mt-4">
+							<DuckDbHelperProgress progress={duckDbHelperProgress} />
+						</div>
+					)}
 
 					<AlertDialogFooter className="mt-6">
-						<Button variant="outline" type="button" onClick={onCancel}>
+						<Button
+							variant="outline"
+							type="button"
+							onClick={onCancel}
+							disabled={isBusy}
+						>
 							Cancel
 						</Button>
 						{!usesFile && (

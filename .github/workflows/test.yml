@@ -77,8 +77,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Download DuckDB test helper
+        run: |
+          mkdir -p "${{ runner.temp }}/duckdb"
+          curl -fsSL -o "${{ runner.temp }}/duckdb.zip" "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
+          echo "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05  ${{ runner.temp }}/duckdb.zip" | sha256sum -c -
+          unzip -q "${{ runner.temp }}/duckdb.zip" -d "${{ runner.temp }}/duckdb"
+
       - name: Run tests
         working-directory: src-tauri
+        env:
+          DBCOOPER_DUCKDB_CLI: ${{ runner.temp }}/duckdb/duckdb
         run: cargo test -- --test-threads=1
 
   canary:
