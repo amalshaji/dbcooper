@@ -364,7 +364,7 @@ pub struct PostgresConfig {
 
 #[derive(Clone)]
 pub struct MysqlConfig {
-    pub engine: DatabaseType,
+    pub flavor: MysqlFlavor,
     pub host: String,
     pub port: i64,
     pub database: String,
@@ -398,6 +398,7 @@ pub struct RedisConfig {
 // Re-export ClickHouse config from its module
 pub use clickhouse::{ClickhouseConfig, ClickhouseProtocol};
 
+/// Database type enum for dispatching
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatabaseType {
     Postgres,
@@ -410,17 +411,79 @@ pub enum DatabaseType {
 }
 
 impl DatabaseType {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "postgres" | "postgresql" => Some(DatabaseType::Postgres),
-            "mysql" => Some(DatabaseType::Mysql),
-            "mariadb" => Some(DatabaseType::Mariadb),
-            "sqlite" | "sqlite3" => Some(DatabaseType::Sqlite),
-            "duckdb" => Some(DatabaseType::DuckDb),
-            "redis" => Some(DatabaseType::Redis),
-            "clickhouse" => Some(DatabaseType::Clickhouse),
-            _ => None,
+    pub fn default_port(self) -> i64 {
+        match self {
+            Self::Postgres | Self::Sqlite | Self::DuckDb => 5432,
+            Self::Mysql | Self::Mariadb => 3306,
+            Self::Redis => 6379,
+            Self::Clickhouse => 8123,
         }
+    }
+}
+
+impl TryFrom<&str> for DatabaseType {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value.to_ascii_lowercase().as_str() {
+            "postgres" | "postgresql" => Ok(Self::Postgres),
+            "mysql" => Ok(Self::Mysql),
+            "mariadb" => Ok(Self::Mariadb),
+            "sqlite" | "sqlite3" => Ok(Self::Sqlite),
+            "duckdb" => Ok(Self::DuckDb),
+            "redis" => Ok(Self::Redis),
+            "clickhouse" => Ok(Self::Clickhouse),
+            _ => Err(format!("Unsupported database type: {value}")),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MysqlFlavor {
+    Mysql,
+    Mariadb,
+}
+
+impl TryFrom<DatabaseType> for MysqlFlavor {
+    type Error = String;
+
+    fn try_from(value: DatabaseType) -> Result<Self, Self::Error> {
+        match value {
+            DatabaseType::Mysql => Ok(Self::Mysql),
+            DatabaseType::Mariadb => Ok(Self::Mariadb),
+            _ => Err("MySQL configuration requires a MySQL or MariaDB engine".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod database_type_tests {
+    use super::{DatabaseType, MysqlFlavor};
+
+    #[test]
+    fn parses_aliases_and_owns_default_ports() {
+        assert_eq!(
+            DatabaseType::try_from("postgresql"),
+            Ok(DatabaseType::Postgres)
+        );
+        assert_eq!(DatabaseType::try_from("mysql"), Ok(DatabaseType::Mysql));
+        assert_eq!(DatabaseType::Mysql.default_port(), 3306);
+        assert_eq!(DatabaseType::Mariadb.default_port(), 3306);
+        assert_eq!(DatabaseType::Redis.default_port(), 6379);
+        assert_eq!(DatabaseType::Clickhouse.default_port(), 8123);
+    }
+
+    #[test]
+    fn mysql_flavor_rejects_unrelated_engines() {
+        assert_eq!(
+            MysqlFlavor::try_from(DatabaseType::Mysql),
+            Ok(MysqlFlavor::Mysql)
+        );
+        assert_eq!(
+            MysqlFlavor::try_from(DatabaseType::Mariadb),
+            Ok(MysqlFlavor::Mariadb)
+        );
+        assert!(MysqlFlavor::try_from(DatabaseType::Postgres).is_err());
     }
 }
 

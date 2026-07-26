@@ -14,7 +14,7 @@ use super::filter::{
 };
 use super::{
     mysql_read_only_query_is_safe, mysql_read_only_uses_text_protocol, query_returns_rows,
-    DatabaseDriver, DatabaseType, MysqlConfig,
+    DatabaseDriver, MysqlConfig, MysqlFlavor,
 };
 use crate::db::models::{
     ColumnInfo, CreateTableRequest, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
@@ -36,7 +36,7 @@ impl MysqlDriver {
     }
 
     fn label(&self) -> &'static str {
-        if self.config.engine == DatabaseType::Mariadb {
+        if self.config.flavor == MysqlFlavor::Mariadb {
             "MariaDB"
         } else {
             "MySQL"
@@ -254,7 +254,7 @@ impl DatabaseDriver for MysqlDriver {
         if request.schema != self.config.database {
             return Err("Tables can only be created in the selected database".to_string());
         }
-        if self.config.engine == DatabaseType::Mariadb {
+        if self.config.flavor == MysqlFlavor::Mariadb {
             build_mariadb_create_table_sql(request)
         } else {
             build_mysql_create_table_sql(request)

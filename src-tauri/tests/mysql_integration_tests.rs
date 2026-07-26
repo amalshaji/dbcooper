@@ -1,10 +1,10 @@
 use dbcooper_lib::database::mysql::MysqlDriver;
-use dbcooper_lib::database::{DatabaseDriver, DatabaseType, MysqlConfig};
+use dbcooper_lib::database::{DatabaseDriver, DatabaseType, MysqlConfig, MysqlFlavor};
 use dbcooper_lib::db::models::{CreateTableColumn, CreateTableRequest};
 
 fn driver(engine: DatabaseType, port: i64) -> MysqlDriver {
     MysqlDriver::new(MysqlConfig {
-        engine,
+        flavor: MysqlFlavor::try_from(engine).unwrap(),
         host: "127.0.0.1".to_string(),
         port,
         database: "testdb".to_string(),
