@@ -4,7 +4,7 @@
 
 # DBcooper
 
-A database client for PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
+A database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
 
 ![dbcooper](./docs/public/images/dbcooper.png)
 ![aggregation](./docs/public/images/aggregate.png)
@@ -37,8 +37,8 @@ Check out the full list of features on our [documentation site](https://dbcooper
 
 From the Connections screen, DBcooper can:
 
-- Create PostgreSQL 17, Redis 7, or ClickHouse 25.8 in a Docker container and save a ready-to-use connection.
-- Link a compatible PostgreSQL, Redis, or ClickHouse container that already exists in the current Docker context, including Docker Compose services.
+- Create PostgreSQL 17, MySQL 8.4, MariaDB 11.4, Redis 7, or ClickHouse 25.8 in a Docker container and save a ready-to-use connection.
+- Link a compatible PostgreSQL, MySQL, MariaDB, Redis, or ClickHouse container that already exists in the current Docker context, including Docker Compose services.
 - Copy the complete connection string for a Docker-managed connection.
 - Stop and restart the linked container from the connection menu.
 
@@ -60,7 +60,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: Rust + Tauri v2
-- **Database**: SQLite app storage; PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse connections
+- **Database**: SQLite app storage; PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse connections
 - **UI**: shadcn/ui components
 - **Package Manager**: Bun
 

@@ -41,6 +41,11 @@ export interface CreateTableColumn {
 	primary_key: boolean;
 	unique: boolean;
 	default: ColumnDefault | null;
+	length?: number | null;
+	precision?: number | null;
+	scale?: number | null;
+	unsigned?: boolean;
+	auto_increment?: boolean;
 }
 
 export interface CreateTableRequest {
@@ -297,9 +302,10 @@ export const api = {
 	docker: {
 		listContainers: () =>
 			invoke<DockerContainerSummary[]>("docker_list_containers"),
-		prepareConnection: (containerId: string) =>
+		prepareConnection: (containerId: string, engine?: DockerDatabaseEngine) =>
 			invoke<DockerConnectionDraft>("docker_prepare_connection", {
 				containerId,
+				engine,
 			}),
 		createDatabase: (engine: DockerDatabaseEngine, name: string) =>
 			invoke<Connection>("docker_create_database", {

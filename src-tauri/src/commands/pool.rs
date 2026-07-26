@@ -314,6 +314,40 @@ use crate::database::sql_policy::{
     validate_raw_sql_value,
 };
 
+fn mutation_identifier(identifier: &str, db_type: &str) -> String {
+    if matches!(db_type, "mysql" | "mariadb") {
+        format!("`{}`", identifier.replace('`', "``"))
+    } else {
+        format!("\"{}\"", escape_sql_identifier(identifier))
+    }
+}
+
+fn mutation_table_ref(schema: &str, table: &str, db_type: &str) -> String {
+    if matches!(db_type, "sqlite" | "sqlite3") {
+        mutation_identifier(table, db_type)
+    } else {
+        format!(
+            "{}.{}",
+            mutation_identifier(schema, db_type),
+            mutation_identifier(table, db_type)
+        )
+    }
+}
+
+#[cfg(test)]
+mod mutation_sql_tests {
+    use super::{mutation_identifier, mutation_table_ref};
+
+    #[test]
+    fn mysql_mutations_use_backtick_qualified_identifiers() {
+        assert_eq!(mutation_identifier("odd`name", "mysql"), "`odd``name`");
+        assert_eq!(
+            mutation_table_ref("app", "orders", "mariadb"),
+            "`app`.`orders`"
+        );
+    }
+}
+
 /// Update a row in a table using the pooled connection
 #[tauri::command]
 pub async fn pool_update_table_row(
@@ -346,15 +380,9 @@ pub async fn pool_update_table_row(
     ensure_structured_mutations_supported(db_type)?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = mutation_table_ref(&schema, &table, db_type);
+    let parameterized = matches!(db_type.as_str(), "mysql" | "mariadb");
+    let mut bound_values = Vec::new();
 
     // Extract columns and values from the updates array
     let mut set_parts: Vec<String> = Vec::new();
@@ -379,13 +407,16 @@ pub async fn pool_update_table_row(
             validate_raw_sql_value(raw_value, db_type)
                 .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
             raw_value.to_string()
+        } else if parameterized {
+            bound_values.push(value.clone());
+            "?".to_string()
         } else {
             format_sql_value(value)
         };
 
         set_parts.push(format!(
-            "\"{}\" = {}",
-            escape_sql_identifier(column),
+            "{} = {}",
+            mutation_identifier(column, db_type),
             formatted_value
         ));
     }
@@ -397,8 +428,17 @@ pub async fn pool_update_table_row(
         .iter()
         .zip(primary_key_values.iter())
         .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
+            let identifier = mutation_identifier(col, db_type);
+            if parameterized {
+                if val.is_null() {
+                    format!("{identifier} IS NULL")
+                } else {
+                    bound_values.push(val.clone());
+                    format!("{identifier} = ?")
+                }
+            } else {
+                format!("{identifier} = {}", format_sql_value(val))
+            }
         })
         .collect();
     let where_clause = where_parts.join(" AND ");
@@ -410,15 +450,21 @@ pub async fn pool_update_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] update_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
+    if parameterized {
+        pool_manager
+            .execute_parameterized(&uuid, &query, &bound_values)
+            .await
+    } else {
+        match pool_manager.execute_query(&uuid, &query).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                println!(
+                    "[Pool] update_table_row failed: {}, retrying with fresh connection",
+                    e
+                );
+                reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+                pool_manager.execute_query(&uuid, &query).await
+            }
         }
     }
 }
@@ -450,23 +496,26 @@ pub async fn pool_delete_table_row(
     ensure_structured_mutations_supported(db_type)?;
 
     // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = mutation_table_ref(&schema, &table, db_type);
+    let parameterized = matches!(db_type.as_str(), "mysql" | "mariadb");
+    let mut bound_values = Vec::new();
 
     // Build WHERE clause for primary key
     let where_parts: Vec<String> = primary_key_columns
         .iter()
         .zip(primary_key_values.iter())
         .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
+            let identifier = mutation_identifier(col, db_type);
+            if parameterized {
+                if val.is_null() {
+                    format!("{identifier} IS NULL")
+                } else {
+                    bound_values.push(val.clone());
+                    format!("{identifier} = ?")
+                }
+            } else {
+                format!("{identifier} = {}", format_sql_value(val))
+            }
         })
         .collect();
     let where_clause = where_parts.join(" AND ");
@@ -475,15 +524,21 @@ pub async fn pool_delete_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] delete_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
+    if parameterized {
+        pool_manager
+            .execute_parameterized(&uuid, &query, &bound_values)
+            .await
+    } else {
+        match pool_manager.execute_query(&uuid, &query).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                println!(
+                    "[Pool] delete_table_row failed: {}, retrying with fresh connection",
+                    e
+                );
+                reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+                pool_manager.execute_query(&uuid, &query).await
+            }
         }
     }
 }
@@ -514,15 +569,9 @@ pub async fn pool_insert_table_row(
     ensure_structured_mutations_supported(db_type)?;
 
     // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = mutation_table_ref(&schema, &table, db_type);
+    let parameterized = matches!(db_type.as_str(), "mysql" | "mariadb");
+    let mut bound_values = Vec::new();
 
     // Extract columns and values from the values array
     let mut columns: Vec<String> = Vec::new();
@@ -543,13 +592,16 @@ pub async fn pool_insert_table_row(
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        columns.push(format!("\"{}\"", escape_sql_identifier(column)));
+        columns.push(mutation_identifier(column, db_type));
 
         let formatted_value = if is_raw_sql {
             let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
             validate_raw_sql_value(raw_value, db_type)
                 .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
             raw_value.to_string()
+        } else if parameterized {
+            bound_values.push(value.clone());
+            "?".to_string()
         } else {
             format_sql_value(value)
         };
@@ -567,15 +619,21 @@ pub async fn pool_insert_table_row(
 
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] insert_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
+    if parameterized {
+        pool_manager
+            .execute_parameterized(&uuid, &query, &bound_values)
+            .await
+    } else {
+        match pool_manager.execute_query(&uuid, &query).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                println!(
+                    "[Pool] insert_table_row failed: {}, retrying with fresh connection",
+                    e
+                );
+                reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+                pool_manager.execute_query(&uuid, &query).await
+            }
         }
     }
 }

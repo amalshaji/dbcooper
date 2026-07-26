@@ -14,7 +14,7 @@ export function DockerContainerList({
 	if (compatible.length === 0) {
 		return (
 			<p className="rounded-lg border p-4 text-sm text-muted-foreground">
-				No compatible PostgreSQL, Redis, or ClickHouse containers were found.
+				No compatible PostgreSQL, MySQL, MariaDB, Redis, or ClickHouse containers were found.
 			</p>
 		);
 	}

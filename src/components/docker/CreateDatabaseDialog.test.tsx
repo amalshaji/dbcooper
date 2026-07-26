@@ -80,6 +80,8 @@ test("offers every Docker database engine supported by the backend", () => {
 	);
 
 	expect(markup).toContain('data-value="postgres"');
+	expect(markup).toContain('data-value="mysql"');
+	expect(markup).toContain('data-value="mariadb"');
 	expect(markup).toContain('data-value="redis"');
 	expect(markup).toContain('data-value="clickhouse"');
 });

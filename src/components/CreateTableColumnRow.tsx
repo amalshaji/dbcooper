@@ -17,6 +17,7 @@ import {
 	getDefaultExpressions,
 } from "../lib/createTableForm";
 import { CreateTableColumnDefault } from "./CreateTableColumnDefault";
+import { CreateTableMysqlModifiers } from "./CreateTableMysqlModifiers";
 
 interface CreateTableColumnRowProps {
 	column: CreateTableColumnDraft;
@@ -47,6 +48,11 @@ export function CreateTableColumnRow({
 			!nextExpressions.includes(column.default.value);
 		update({
 			dataType,
+			length: "",
+			precision: "",
+			scale: "",
+			unsigned: false,
+			autoIncrement: false,
 			...(shouldClearExpression ? { default: { kind: "none" as const } } : {}),
 		});
 	};
@@ -99,6 +105,10 @@ export function CreateTableColumnRow({
 				inputId={inputId}
 				onChange={onChange}
 			/>
+
+			{(dbType === "mysql" || dbType === "mariadb") && (
+				<CreateTableMysqlModifiers column={column} onChange={onChange} />
+			)}
 
 			<fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2">
 				<legend className="sr-only">Column constraints</legend>

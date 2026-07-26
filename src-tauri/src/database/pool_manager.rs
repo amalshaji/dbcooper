@@ -106,7 +106,14 @@ impl PoolManager {
             let ssh_password = config.ssh_password.as_ref().map(|s| s.as_str());
             let ssh_key_path = config.ssh_key_path.as_ref().map(|s| s.as_str());
             let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
-            let remote_port = config.port.unwrap_or(5432) as u16;
+            let remote_port = config
+                .port
+                .unwrap_or_else(|| match config.db_type.as_str() {
+                    "mysql" | "mariadb" => 3306,
+                    "redis" => 6379,
+                    "clickhouse" => 8123,
+                    _ => 5432,
+                }) as u16;
 
             // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
             let tunnel = match tokio::time::timeout(
@@ -138,7 +145,14 @@ impl PoolManager {
         } else {
             (
                 config.host.clone().unwrap_or_default(),
-                config.port.unwrap_or(5432),
+                config
+                    .port
+                    .unwrap_or_else(|| match config.db_type.as_str() {
+                        "mysql" | "mariadb" => 3306,
+                        "redis" => 6379,
+                        "clickhouse" => 8123,
+                        _ => 5432,
+                    }),
                 None,
             )
         };
@@ -390,6 +404,19 @@ impl PoolManager {
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver.execute_query(query).await
+    }
+
+    pub async fn execute_parameterized(
+        &self,
+        uuid: &str,
+        query: &str,
+        values: &[serde_json::Value],
+    ) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.execute_parameterized(query, values).await
     }
 
     /// Execute a query with read-only enforcement (engine-enforced where possible).

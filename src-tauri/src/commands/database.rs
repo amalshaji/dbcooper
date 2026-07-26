@@ -67,7 +67,12 @@ async fn create_driver_with_ssh(
         };
 
         let remote_host = host.clone().unwrap_or_default();
-        let remote_port = port.unwrap_or(5432) as u16;
+        let remote_port = port.unwrap_or_else(|| match db_type {
+            "mysql" | "mariadb" => 3306,
+            "redis" => 6379,
+            "clickhouse" => 8123,
+            _ => 5432,
+        }) as u16;
 
         // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
         let tunnel = match tokio::time::timeout(
@@ -95,7 +100,16 @@ async fn create_driver_with_ssh(
             Some(tunnel),
         )
     } else {
-        (host.clone().unwrap_or_default(), port.unwrap_or(5432), None)
+        (
+            host.clone().unwrap_or_default(),
+            port.unwrap_or_else(|| match db_type {
+                "mysql" | "mariadb" => 3306,
+                "redis" => 6379,
+                "clickhouse" => 8123,
+                _ => 5432,
+            }),
+            None,
+        )
     };
 
     let driver = create_database_driver(DriverConfig {

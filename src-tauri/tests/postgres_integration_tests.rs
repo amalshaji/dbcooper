@@ -163,6 +163,11 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 primary_key: true,
                 unique: false,
                 default: None,
+                length: None,
+                precision: None,
+                scale: None,
+                unsigned: false,
+                auto_increment: false,
             },
             CreateTableColumn {
                 name: "slug".to_string(),
@@ -171,6 +176,11 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 primary_key: false,
                 unique: true,
                 default: None,
+                length: None,
+                precision: None,
+                scale: None,
+                unsigned: false,
+                auto_increment: false,
             },
             CreateTableColumn {
                 name: "created_at".to_string(),
@@ -181,6 +191,11 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 default: Some(ColumnDefault::Expression {
                     value: "current_timestamp".to_string(),
                 }),
+                length: None,
+                precision: None,
+                scale: None,
+                unsigned: false,
+                auto_increment: false,
             },
         ],
     };

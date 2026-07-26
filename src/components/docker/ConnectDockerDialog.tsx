@@ -12,11 +12,21 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import {
 	api,
+	DOCKER_DATABASE_ENGINES,
 	type Connection,
 	type DockerConnectionDraft,
 	type DockerContainerSummary,
+	type DockerDatabaseEngine,
 } from "@/lib/tauri";
 
 interface ConnectDockerDialogProps {
@@ -33,11 +43,16 @@ export function ConnectDockerDialog({
 	const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
 	const [draft, setDraft] = useState<DockerConnectionDraft | null>(null);
 	const [name, setName] = useState("");
+	const [pendingContainer, setPendingContainer] =
+		useState<DockerContainerSummary | null>(null);
+	const [selectedEngine, setSelectedEngine] =
+		useState<DockerDatabaseEngine>("mysql");
 	const [loading, setLoading] = useState(false);
 
 	useEffect(() => {
 		if (!open) {
 			setDraft(null);
+			setPendingContainer(null);
 			return;
 		}
 		setLoading(true);
@@ -48,17 +63,30 @@ export function ConnectDockerDialog({
 			.finally(() => setLoading(false));
 	}, [open]);
 
-	const selectContainer = async (container: DockerContainerSummary) => {
+	const prepareContainer = async (
+		container: DockerContainerSummary,
+		engine?: DockerDatabaseEngine,
+	) => {
 		setLoading(true);
 		try {
-			const next = await api.docker.prepareConnection(container.id);
+			const next = await api.docker.prepareConnection(container.id, engine);
 			setDraft(next);
+			setPendingContainer(null);
 			setName(next.container_name);
 		} catch (error) {
 			toast.error(String(error));
 		} finally {
 			setLoading(false);
 		}
+	};
+
+	const selectContainer = async (container: DockerContainerSummary) => {
+		if (!container.engine && container.possible_engines.length > 1) {
+			setPendingContainer(container);
+			setSelectedEngine(container.possible_engines[0]);
+			return;
+		}
+		await prepareContainer(container, container.engine || undefined);
 	};
 
 	const link = async () => {
@@ -109,6 +137,35 @@ export function ConnectDockerDialog({
 						onNameChange={setName}
 						onDraftChange={setDraft}
 					/>
+				) : pendingContainer ? (
+					<div className="space-y-4 rounded-lg border p-4">
+						<div className="space-y-1">
+							<p className="text-sm font-medium">Choose database type</p>
+							<p className="text-xs text-muted-foreground">
+								Port 3306 can host MySQL or MariaDB, and the image name does not identify which one this is.
+							</p>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="docker-engine-choice">Database</Label>
+							<Select
+								value={selectedEngine}
+								onValueChange={(value) => setSelectedEngine(value as DockerDatabaseEngine)}
+							>
+								<SelectTrigger id="docker-engine-choice" className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{pendingContainer.possible_engines.map((engine) => {
+										const option = DOCKER_DATABASE_ENGINES.find((item) => item.value === engine);
+										return <SelectItem key={engine} value={engine}>{option?.label || engine}</SelectItem>;
+									})}
+								</SelectContent>
+							</Select>
+						</div>
+						<Button onClick={() => prepareContainer(pendingContainer, selectedEngine)}>
+							Continue
+						</Button>
+					</div>
 				) : (
 					<div className="max-h-72 space-y-2 overflow-auto">
 						<DockerContainerList
@@ -118,10 +175,13 @@ export function ConnectDockerDialog({
 					</div>
 				)}
 				<DialogFooter>
-					{draft && (
+					{(draft || pendingContainer) && (
 						<Button
 							variant="outline"
-							onClick={() => setDraft(null)}
+							onClick={() => {
+								setDraft(null);
+								setPendingContainer(null);
+							}}
 							disabled={loading}
 						>
 							Back

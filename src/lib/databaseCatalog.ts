@@ -3,7 +3,7 @@ import type { ConnectionType } from "@/types/connection";
 
 export type CreateTableDbType = Extract<
 	ConnectionType,
-	"postgres" | "sqlite"
+	"postgres" | "mysql" | "mariadb" | "sqlite"
 >;
 export type DatabaseValueType = ConnectionType;
 export type LiteralKind = "text" | "number" | "boolean";
@@ -29,7 +29,9 @@ export function getDatabasePolicy(dbType: ConnectionType): DatabasePolicy {
 export function getCreateTableDbType(
 	dbType: ConnectionType | undefined,
 ): CreateTableDbType | null {
-	return dbType === "postgres" || dbType === "sqlite" ? dbType : null;
+	return dbType === "postgres" || dbType === "mysql" || dbType === "mariadb" || dbType === "sqlite"
+		? dbType
+		: null;
 }
 
 export function getDatabaseLabel(dbType: DatabaseValueType): string {

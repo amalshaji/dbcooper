@@ -16,6 +16,42 @@ services:
       timeout: 5s
       retries: 5
 
+  mysql:
+    image: mysql:8.4
+    container_name: dbindex-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: dbcooper
+      MYSQL_PASSWORD: dbcooper
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "dbcooper", "--password=dbcooper" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  mariadb:
+    image: mariadb:11.4
+    container_name: dbindex-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: mariadb
+      MARIADB_DATABASE: testdb
+      MARIADB_USER: dbcooper
+      MARIADB_PASSWORD: dbcooper
+    ports:
+      - "3307:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     container_name: dbindex-redis
@@ -50,3 +86,5 @@ volumes:
   postgres_data:
   redis_data:
   clickhouse_data:
+  mysql_data:
+  mariadb_data:

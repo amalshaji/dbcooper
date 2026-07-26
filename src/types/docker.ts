@@ -4,6 +4,8 @@ export const DOCKER_DATABASE_ENGINES = [
 		label: "PostgreSQL 17",
 		defaultName: "Local PostgreSQL",
 	},
+	{ value: "mysql", label: "MySQL 8.4", defaultName: "Local MySQL" },
+	{ value: "mariadb", label: "MariaDB 11.4", defaultName: "Local MariaDB" },
 	{ value: "redis", label: "Redis 7", defaultName: "Local Redis" },
 	{
 		value: "clickhouse",
@@ -22,6 +24,7 @@ export interface DockerContainerSummary {
 	state: string;
 	engine: DockerDatabaseEngine | null;
 	compatible: boolean;
+	possible_engines: DockerDatabaseEngine[];
 }
 
 export interface DockerConnectionDraft {

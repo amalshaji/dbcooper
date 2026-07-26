@@ -134,6 +134,33 @@ describe("ObjectExplorer create table capability", () => {
 		);
 	});
 
+	test("uses the selected database for an empty MySQL connection", async () => {
+		render(
+			<ObjectExplorer
+				{...requiredProps}
+				createTable={{
+					dbType: "mysql",
+					defaultSchema: "app",
+					onPreview: async () => "",
+					onCreate: async () => ({
+						schema: "app",
+						name: "events",
+						type: "table",
+					}),
+					onCreated: () => {},
+				}}
+			/>,
+		);
+
+		await userEvent
+			.setup()
+			.click(screen.getByRole("button", { name: "Create table" }));
+
+		expect((screen.getByLabelText("Database") as HTMLInputElement).value).toBe(
+			"app",
+		);
+	});
+
 	test("hides the action when the engine has no create-table capability", () => {
 		render(<ObjectExplorer {...requiredProps} />);
 

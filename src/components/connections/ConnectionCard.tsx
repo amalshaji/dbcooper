@@ -41,6 +41,12 @@ function dbTypeConfig(type: string) {
 				iconClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
 				accentClass: "bg-orange-500",
 			};
+		case "mariadb":
+			return {
+				icon: Database,
+				iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+				accentClass: "bg-amber-500",
+			};
 		case "sqlite":
 			return {
 				icon: SqliteIcon,

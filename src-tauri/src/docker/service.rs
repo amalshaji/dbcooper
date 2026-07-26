@@ -1,6 +1,6 @@
 use super::cli::{self, ContainerInspect};
 use super::model::{
-    connection_string, detect_engine, managed_container_matches, DockerConnectionDraft,
+    connection_string, detect_engines, managed_container_matches, DockerConnectionDraft,
     DockerConnectionState, DockerConnectionStatus, DockerContainerSummary, DockerDatabaseEngine,
     DockerLink, DockerOperation, DockerOwnership, ManagedDatabasePlan, DEFAULT_HOST,
 };
@@ -44,10 +44,21 @@ pub async fn docker_list_containers() -> Result<Vec<DockerContainerSummary>, Str
 #[tauri::command]
 pub async fn docker_prepare_connection(
     container_id: String,
+    engine: Option<DockerDatabaseEngine>,
 ) -> Result<DockerConnectionDraft, String> {
     let mut inspect = cli::inspect(&container_id).await?;
-    let engine = detect_engine(&inspect.config.image, &inspect.exposed_ports())
-        .ok_or_else(|| "This container is not a supported database".to_string())?;
+    let possible_engines = detect_engines(&inspect.config.image, &inspect.exposed_ports());
+    let engine = match (engine, possible_engines.as_slice()) {
+        (Some(engine), possible) if possible.contains(&engine) => engine,
+        (Some(_), _) => {
+            return Err("The selected database type does not match the container".to_string())
+        }
+        (None, [engine]) => *engine,
+        (None, []) => return Err("This container is not a supported database".to_string()),
+        (None, _) => {
+            return Err("Choose whether this port 3306 container is MySQL or MariaDB".to_string())
+        }
+    };
     if !inspect.state.running {
         cli::start(&container_id).await?;
         inspect = cli::inspect(&container_id).await?;
@@ -100,6 +111,35 @@ async fn credentials(
             )?;
             Ok((database, username, password))
         }
+        DockerDatabaseEngine::Mysql => {
+            let database = first_env_value(container_id, env, &["MYSQL_DATABASE"]).await?;
+            let username = first_env_value(container_id, env, &["MYSQL_USER"]).await?;
+            let password = first_env_value(
+                container_id,
+                env,
+                &["MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"],
+            )
+            .await?;
+            Ok((database, username, password))
+        }
+        DockerDatabaseEngine::Mariadb => {
+            let database =
+                first_env_value(container_id, env, &["MARIADB_DATABASE", "MYSQL_DATABASE"]).await?;
+            let username =
+                first_env_value(container_id, env, &["MARIADB_USER", "MYSQL_USER"]).await?;
+            let password = first_env_value(
+                container_id,
+                env,
+                &[
+                    "MARIADB_PASSWORD",
+                    "MYSQL_PASSWORD",
+                    "MARIADB_ROOT_PASSWORD",
+                    "MYSQL_ROOT_PASSWORD",
+                ],
+            )
+            .await?;
+            Ok((database, username, password))
+        }
         DockerDatabaseEngine::Redis => {
             let password = cli::env_value(container_id, env, "REDIS_PASSWORD").await?;
             Ok((
@@ -121,6 +161,20 @@ async fn credentials(
             Ok((database, username, password))
         }
     }
+}
+
+async fn first_env_value(
+    container_id: &str,
+    env: &std::collections::HashMap<String, String>,
+    keys: &[&str],
+) -> Result<String, String> {
+    for key in keys {
+        let value = cli::env_value(container_id, env, key).await?;
+        if !value.is_empty() {
+            return Ok(value);
+        }
+    }
+    Ok(String::new())
 }
 
 fn value_or_default(value: String, default: &str) -> String {
@@ -218,7 +272,8 @@ pub async fn docker_link_connection(
         );
     }
     let context = cli::current_context().await?;
-    let draft = docker_prepare_connection(request.container_id.clone()).await?;
+    let draft =
+        docker_prepare_connection(request.container_id.clone(), Some(request.engine)).await?;
     if draft.engine != request.engine {
         return Err("The selected database type does not match the container".to_string());
     }

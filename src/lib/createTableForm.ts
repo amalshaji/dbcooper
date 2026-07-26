@@ -24,6 +24,11 @@ export interface CreateTableColumnDraft {
 	primaryKey: boolean;
 	unique: boolean;
 	default: CreateTableColumnDefaultDraft;
+	length?: string;
+	precision?: string;
+	scale?: string;
+	unsigned?: boolean;
+	autoIncrement?: boolean;
 }
 
 export interface CreateTableDraft {
@@ -43,6 +48,11 @@ export function createEmptyTableColumn(): CreateTableColumnDraft {
 		primaryKey: false,
 		unique: false,
 		default: { kind: "none" },
+		length: "",
+		precision: "",
+		scale: "",
+		unsigned: false,
+		autoIncrement: false,
 	};
 }
 
@@ -105,6 +115,30 @@ export function getCreateTableValidationError(
 			return `Unsupported ${getDatabaseLabel(dbType)} data type: ${column.dataType}`;
 		}
 
+		const mysqlFamily = dbType === "mysql" || dbType === "mariadb";
+		const lengthTypes = ["CHAR", "VARCHAR", "BINARY", "VARBINARY"];
+		const decimalTypes = ["DECIMAL", "NUMERIC"];
+		const integerTypes = ["TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT"];
+		const unsignedTypes = [...integerTypes, ...decimalTypes, "FLOAT", "DOUBLE"];
+		if (column.length && (!mysqlFamily || !lengthTypes.includes(dataType) || !/^\d+$/.test(column.length) || Number(column.length) < 1)) {
+			return `Length is not supported for ${name}`;
+		}
+		if (column.precision || column.scale) {
+			const precisionValue = column.precision || "";
+			const scaleValue = column.scale || "";
+			const precision = Number(precisionValue);
+			const scale = scaleValue ? Number(scaleValue) : 0;
+			if (!mysqlFamily || !decimalTypes.includes(dataType) || !/^\d+$/.test(precisionValue) || (scaleValue && !/^\d+$/.test(scaleValue)) || precision < 1 || precision > 65 || scale > 30 || scale > precision) {
+				return `Decimal precision or scale is invalid for ${name}`;
+			}
+		}
+		if (column.unsigned && (!mysqlFamily || !unsignedTypes.includes(dataType))) {
+			return `Unsigned is not supported for ${name}`;
+		}
+		if (column.autoIncrement && (!mysqlFamily || !integerTypes.includes(dataType) || !column.primaryKey)) {
+			return `Auto increment requires an integer primary key for ${name}`;
+		}
+
 		const literalKind = getLiteralKind(dbType, dataType);
 		if (column.default.kind === "literal" && literalKind === "number") {
 			if (
@@ -162,6 +196,17 @@ export function buildCreateTableRequest(
 				};
 			}
 
+			const mysqlModifiers =
+				dbType === "mysql" || dbType === "mariadb"
+					? {
+							length: column.length ? Number(column.length) : null,
+							precision: column.precision ? Number(column.precision) : null,
+							scale: column.scale ? Number(column.scale) : null,
+							unsigned: Boolean(column.unsigned),
+							auto_increment: Boolean(column.autoIncrement),
+						}
+					: {};
+
 			return {
 				name: column.name.trim(),
 				data_type: dataType,
@@ -169,6 +214,7 @@ export function buildCreateTableRequest(
 				primary_key: column.primaryKey,
 				unique: column.unique,
 				default: defaultValue,
+				...mysqlModifiers,
 			};
 		}),
 	};

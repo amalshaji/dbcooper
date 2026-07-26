@@ -120,4 +120,38 @@ describe("create table form", () => {
 			"datetime('now')",
 		);
 	});
+
+	test("builds MySQL native length, decimal, unsigned, and auto increment modifiers", () => {
+		const draft = createInitialTableDraft("mysql", "app");
+		draft.tableName = "orders";
+		draft.columns[0] = {
+			...draft.columns[0],
+			name: "id",
+			dataType: "BIGINT",
+			primaryKey: true,
+			unsigned: true,
+			autoIncrement: true,
+		};
+		draft.columns.push({
+			...draft.columns[0],
+			id: "amount",
+			name: "amount",
+			dataType: "DECIMAL",
+			primaryKey: false,
+			unsigned: false,
+			autoIncrement: false,
+			precision: "12",
+			scale: "2",
+		});
+
+		const request = buildCreateTableRequest(draft, "mysql");
+		expect(request.columns[0]).toMatchObject({
+			unsigned: true,
+			auto_increment: true,
+		});
+		expect(request.columns[1]).toMatchObject({
+			precision: 12,
+			scale: 2,
+		});
+	});
 });

@@ -11,11 +11,14 @@ describe("database catalog", () => {
 	test("scopes create-table support and type options by engine", () => {
 		expect(getCreateTableDbType("postgres")).toBe("postgres");
 		expect(getCreateTableDbType("sqlite")).toBe("sqlite");
+		expect(getCreateTableDbType("mysql")).toBe("mysql");
+		expect(getCreateTableDbType("mariadb")).toBe("mariadb");
 		expect(getCreateTableDbType("clickhouse")).toBeNull();
 		expect(getCreateTableDbType("duckdb")).toBeNull();
 		expect(getCreateTableDbType("redis")).toBeNull();
 		expect(getCreateTableTypes("postgres")).toContain("JSONB");
 		expect(getCreateTableTypes("sqlite")).not.toContain("JSONB");
+		expect(getCreateTableTypes("mysql")).toContain("BIGINT");
 	});
 
 	test("provides DuckDB query expressions without enabling table creation", () => {

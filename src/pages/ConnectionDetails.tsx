@@ -232,7 +232,7 @@ function isWrappableQuery(query: string): boolean {
 
 function quoteResultColumn(column: string, dbType?: string): string {
 	const resolvedType = (dbType || "").toLowerCase();
-	if (resolvedType === "clickhouse") {
+	if (["clickhouse", "mysql", "mariadb"].includes(resolvedType)) {
 		return `\`${column.replace(/`/g, "``")}\``;
 	}
 	return `"${column.replace(/"/g, '""')}"`;
@@ -641,10 +641,7 @@ export function ConnectionDetails() {
 		return schemaNames.size;
 	}, [tables, schemaOverview]);
 
-	const createTableDbType =
-		connection?.type === "postgres" || connection?.type === "sqlite"
-			? getCreateTableDbType(connection.db_type)
-			: null;
+	const createTableDbType = getCreateTableDbType(connection?.db_type);
 
 	useEffect(() => {
 		const fetchConnection = async () => {
@@ -2490,6 +2487,10 @@ export function ConnectionDetails() {
 		switch (connection.type) {
 			case "postgres":
 				return <PostgresqlIcon className="size-8" />;
+			case "mysql":
+				return <Database className="size-8 text-sky-600" weight="duotone" />;
+			case "mariadb":
+				return <Database className="size-8 text-amber-700" weight="duotone" />;
 			case "sqlite":
 				return <SqliteIcon className="size-8" />;
 			case "duckdb":
@@ -3078,7 +3079,6 @@ export function ConnectionDetails() {
 										size="sm"
 										variant="outline"
 										onClick={() => {
-											try {
 												const formatted = formatSQL(tab.query, {
 													language: getSqlFormatterLanguage(
 														connection?.db_type || "postgres",
@@ -4137,6 +4137,7 @@ export function ConnectionDetails() {
 									uuid && createTableDbType
 										? {
 												dbType: createTableDbType,
+												defaultSchema: connection.database,
 												onPreview: (request) =>
 													api.pool.previewCreateTable(uuid, request),
 												onCreate: (request) =>

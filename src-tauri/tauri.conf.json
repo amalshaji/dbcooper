@@ -36,7 +36,7 @@
     "category": "DeveloperTool",
     "copyright": "© 2026 Amal Shaji",
     "shortDescription": "A modern, fast database client for developers",
-    "longDescription": "DBcooper is a beautiful, lightweight database client that lets you connect to PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse databases. Browse tables, run queries, visualize schemas, and manage your data with a modern interface.",
+    "longDescription": "DBcooper is a beautiful, lightweight database client that lets you connect to PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse databases. Browse tables, run queries, visualize schemas, and manage your data with a modern interface.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
