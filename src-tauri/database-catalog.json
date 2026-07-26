@@ -2,6 +2,9 @@
   "postgres": {
     "label": "PostgreSQL",
     "defaultSchema": "public",
+    "fileDatabase": false,
+    "structuredRowMutations": true,
+    "formatterLanguage": "postgresql",
     "createTableTypes": [
       "SMALLINT",
       "INTEGER",
@@ -51,6 +54,9 @@
   "sqlite": {
     "label": "SQLite",
     "defaultSchema": "main",
+    "fileDatabase": true,
+    "structuredRowMutations": true,
+    "formatterLanguage": "sqlite",
     "createTableTypes": [
       "INTEGER",
       "REAL",
@@ -88,6 +94,9 @@
   "duckdb": {
     "label": "DuckDB",
     "defaultSchema": "main",
+    "fileDatabase": true,
+    "structuredRowMutations": false,
+    "formatterLanguage": "duckdb",
     "createTableTypes": [],
     "literalKinds": {
       "BOOLEAN": "boolean",
@@ -113,6 +122,9 @@
   "clickhouse": {
     "label": "ClickHouse",
     "defaultSchema": "default",
+    "fileDatabase": false,
+    "structuredRowMutations": false,
+    "formatterLanguage": "sql",
     "createTableTypes": [],
     "literalKinds": {
       "BOOL": "boolean"
@@ -126,5 +138,15 @@
       "UUID": ["generateUUIDv4()"],
       "JSON": ["'{}'"]
     }
+  },
+  "redis": {
+    "label": "Redis",
+    "defaultSchema": "",
+    "fileDatabase": false,
+    "structuredRowMutations": false,
+    "formatterLanguage": "sql",
+    "createTableTypes": [],
+    "literalKinds": {},
+    "expressionsByType": {}
   }
 }

@@ -8,6 +8,8 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase")]
 struct DialectPolicy {
     label: String,
+    file_database: bool,
+    structured_row_mutations: bool,
     create_table_types: Vec<String>,
     expressions_by_type: HashMap<String, Vec<String>>,
 }
@@ -23,6 +25,11 @@ fn catalog() -> &'static DatabaseCatalog {
 }
 
 fn dialect_policy(db_type: &str) -> Result<&'static DialectPolicy, String> {
+    let db_type = match db_type {
+        "postgresql" => "postgres",
+        "sqlite3" => "sqlite",
+        other => other,
+    };
     catalog()
         .get(db_type)
         .ok_or_else(|| format!("Unsupported database type: {db_type}"))
@@ -30,6 +37,22 @@ fn dialect_policy(db_type: &str) -> Result<&'static DialectPolicy, String> {
 
 pub fn database_label(db_type: &str) -> Result<&'static str, String> {
     Ok(&dialect_policy(db_type)?.label)
+}
+
+pub fn is_file_database(db_type: &str) -> Result<bool, String> {
+    Ok(dialect_policy(db_type)?.file_database)
+}
+
+pub fn ensure_structured_mutations_supported(db_type: &str) -> Result<(), String> {
+    let policy = dialect_policy(db_type)?;
+    if policy.structured_row_mutations {
+        Ok(())
+    } else {
+        Err(format!(
+            "Structured row editing is not supported for {}; use the SQL editor",
+            policy.label
+        ))
+    }
 }
 
 pub fn supports_create_table_type(db_type: &str, data_type: &str) -> Result<bool, String> {
@@ -115,7 +138,10 @@ pub fn format_sql_value(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{supports_create_table_type, validate_default_expression, validate_raw_sql_value};
+    use super::{
+        ensure_structured_mutations_supported, supports_create_table_type,
+        validate_default_expression, validate_raw_sql_value,
+    };
 
     #[test]
     fn catalog_scopes_types_and_defaults_to_their_dialect() {
@@ -130,5 +156,15 @@ mod tests {
         assert!(validate_raw_sql_value("now()", "postgres").is_ok());
         assert!(validate_raw_sql_value("today()", "postgres").is_err());
         assert!(validate_raw_sql_value("today()", "clickhouse").is_ok());
+    }
+
+    #[test]
+    fn structured_mutation_capability_comes_from_the_database_catalog() {
+        assert!(ensure_structured_mutations_supported("postgres").is_ok());
+        assert!(ensure_structured_mutations_supported("postgresql").is_ok());
+        assert!(ensure_structured_mutations_supported("sqlite").is_ok());
+        assert!(ensure_structured_mutations_supported("duckdb").is_err());
+        assert!(ensure_structured_mutations_supported("clickhouse").is_err());
+        assert!(ensure_structured_mutations_supported("redis").is_err());
     }
 }

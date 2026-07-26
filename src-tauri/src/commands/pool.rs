@@ -310,17 +310,9 @@ pub async fn pool_get_function_definition(
 // ============================================================================
 
 use crate::database::sql_policy::{
-    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+    ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
+    validate_raw_sql_value,
 };
-
-fn ensure_structured_mutations_supported(db_type: &str) -> Result<(), String> {
-    if db_type == "duckdb" {
-        return Err(
-            "Structured row editing is not supported for DuckDB; use the SQL editor".to_string(),
-        );
-    }
-    Ok(())
-}
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]

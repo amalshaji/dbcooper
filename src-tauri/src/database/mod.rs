@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 pub mod clickhouse;
 pub mod create_table;
+pub mod driver_factory;
 pub mod duckdb;
 pub mod filter;
 pub mod pool_manager;
@@ -278,9 +279,7 @@ pub struct RedisConfig {
 // Re-export ClickHouse config from its module
 pub use clickhouse::{ClickhouseConfig, ClickhouseProtocol};
 
-/// Database type enum for dispatching
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatabaseType {
     Postgres,
     Sqlite,
@@ -290,7 +289,6 @@ pub enum DatabaseType {
 }
 
 impl DatabaseType {
-    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "postgres" | "postgresql" => Some(DatabaseType::Postgres),

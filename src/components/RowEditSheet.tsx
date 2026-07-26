@@ -29,6 +29,7 @@ import {
 	SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { supportsStructuredRowMutations } from "@/lib/databaseCapabilities";
 import type { TableColumn } from "@/types/tabTypes";
 
 interface RowEditSheetProps {
@@ -86,7 +87,7 @@ export function RowEditSheet({
 
 	const hasPrimaryKey = primaryKeyColumns.length > 0;
 
-	const isReadOnly = dbType === "clickhouse" || dbType === "duckdb";
+	const isReadOnly = !supportsStructuredRowMutations(dbType);
 
 	// Reset edited values when row changes
 	useEffect(() => {

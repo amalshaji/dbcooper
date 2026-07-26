@@ -5,21 +5,26 @@ export type CreateTableDbType = Extract<
 	ConnectionType,
 	"postgres" | "sqlite"
 >;
-export type DatabaseValueType = Exclude<ConnectionType, "redis">;
+export type DatabaseValueType = ConnectionType;
 export type LiteralKind = "text" | "number" | "boolean";
+export type SqlFormatterLanguage = "postgresql" | "sqlite" | "duckdb" | "sql";
 
 interface DatabasePolicy {
 	label: string;
 	defaultSchema: string;
+	fileDatabase: boolean;
+	structuredRowMutations: boolean;
+	formatterLanguage: SqlFormatterLanguage;
 	createTableTypes: string[];
 	literalKinds: Record<string, LiteralKind>;
 	expressionsByType: Record<string, string[]>;
 }
 
-const catalog = databaseCatalog as Record<
-	DatabaseValueType,
-	DatabasePolicy
->;
+const catalog = databaseCatalog as Record<DatabaseValueType, DatabasePolicy>;
+
+export function getDatabasePolicy(dbType: ConnectionType): DatabasePolicy {
+	return catalog[dbType];
+}
 
 export function getCreateTableDbType(
 	dbType: ConnectionType | undefined,
@@ -28,7 +33,7 @@ export function getCreateTableDbType(
 }
 
 export function getDatabaseLabel(dbType: DatabaseValueType): string {
-	return catalog[dbType].label;
+	return getDatabasePolicy(dbType).label;
 }
 
 export function getDefaultSchema(dbType: CreateTableDbType): string {
