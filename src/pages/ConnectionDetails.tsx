@@ -38,7 +38,6 @@ import {
 	type QueryHistory,
 	type RedisKeyDetails,
 	type RedisKeyInfo,
-	type SavedView,
 	type TableInfo,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
@@ -136,6 +135,7 @@ import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useTableDataFilters } from "@/hooks/useTableDataFilters";
+import { useSavedViewApplication } from "@/hooks/useSavedViewApplication";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
@@ -157,16 +157,11 @@ import {
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
-import {
-	createTableFilterState,
-	createCellFilter,
-	getFilterRequest,
-} from "@/lib/resultFilters";
+import { createCellFilter, getFilterRequest } from "@/lib/resultFilters";
 import {
 	captureSavedViewState,
 	hasUnappliedFilterDraft,
 	normalizeColumnLayout,
-	reconcileSavedViewState,
 } from "@/lib/savedViews";
 
 const SchemaVisualizer = lazy(() =>
@@ -884,62 +879,11 @@ export function ConnectionDetails() {
 		fetchTableData,
 	});
 
-	const handleApplySavedView = useCallback(
-		async (view: SavedView) => {
-			const tab = activeTableDataTab;
-			if (!tab) return false;
-			const reconciled = reconcileSavedViewState(
-				view.state,
-				tab.columns.map((column) => column.name),
-			);
-			if (!reconciled.state) {
-				toast.error("Couldn’t apply saved view", {
-					description: reconciled.error,
-				});
-				return false;
-			}
-
-			const filterState = reconciled.state.filter
-				? {
-						draft: reconciled.state.filter,
-						applied: reconciled.state.filter,
-					}
-				: createTableFilterState();
-			const nextTab: TableDataTab = {
-				...tab,
-				currentPage: 1,
-				filterState,
-				sort: reconciled.state.sort,
-				columnLayout: reconciled.layout,
-			};
-
-			updateTab<TableDataTab>(tab.id, { loading: true });
-			try {
-				const data = await requestTableData(nextTab);
-				updateTab<TableDataTab>(tab.id, {
-					data,
-					currentPage: 1,
-					filterState,
-					sort: reconciled.state.sort,
-					columnLayout: reconciled.layout,
-					loading: false,
-				});
-				if (reconciled.warning) {
-					toast.warning("Saved view adjusted", {
-						description: reconciled.warning,
-					});
-				}
-				return true;
-			} catch (error) {
-				toast.error("Couldn’t apply saved view", {
-					description: error instanceof Error ? error.message : String(error),
-				});
-				updateTab<TableDataTab>(tab.id, { loading: false });
-				return false;
-			}
-		},
-		[activeTableDataTab, requestTableData, updateTab],
-	);
+	const handleApplySavedView = useSavedViewApplication({
+		tab: activeTableDataTab,
+		requestTableData,
+		updateTab: updateTableDataTab,
+	});
 
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
