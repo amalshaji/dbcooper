@@ -153,6 +153,39 @@ test("preserves a completed background draft and navigates to it from the toast"
 	expect(result.current.activeTabId).toBe(queryTab.id);
 });
 
+test("does not treat the untouched starter query as AI context", async () => {
+	const queryTab = createQuery();
+	queryTab.query = "SELECT * FROM ";
+	queryTab.ai.instruction = "Create an events table";
+	let existingSql: string | undefined;
+
+	const { result } = renderHook(() => {
+		const [tabs, setTabs] = useState<Tab[]>([queryTab]);
+		const [activeTabId, setActiveTabId] = useState<string | null>(queryTab.id);
+		const queryAi = useQueryAiGeneration({
+			tabs,
+			activeTabId,
+			setTabs,
+			setActiveTabId,
+			generateDraft: async (_requestKey, _instruction, currentSql) => {
+				existingSql = currentSql;
+				return "CREATE TABLE events(id INTEGER);";
+			},
+			cancelGeneration: () => undefined,
+			isConfigured: true,
+		});
+		return { tabs, queryAi };
+	});
+
+	await act(async () => {
+		const tab = result.current.tabs[0];
+		if (tab?.type !== "query") throw new Error("Expected a query tab");
+		await result.current.queryAi.getEditorAiProps(tab).onGenerate();
+	});
+
+	expect(existingSql).toBe("");
+});
+
 test("cancels a generating tab without leaving state or showing a toast", async () => {
 	const queryTab = createQuery();
 	const tableTab = createTable();
