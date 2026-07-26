@@ -1,13 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { SavedViewStateV1 } from "./tauri";
 import {
 	captureSavedViewState,
 	createColumnLayout,
+	getSavedViewStatus,
+	hasUnappliedFilterDraft,
 	isSavedViewStateEqual,
 	moveColumn,
-	reorderColumn,
 	reconcileSavedViewState,
+	reorderColumn,
 } from "./savedViews";
+import type { SavedViewStateV1 } from "./tauri";
 
 describe("saved view state", () => {
 	test("captures the applied filter, sort, and normalized column layout", () => {
@@ -60,9 +62,7 @@ describe("saved view state", () => {
 				kind: "structured",
 				value: {
 					conjunction: "and",
-					conditions: [
-						{ column: "removed", operator: "equals", value: "x" },
-					],
+					conditions: [{ column: "removed", operator: "equals", value: "x" }],
 				},
 			},
 			sort: null,
@@ -114,5 +114,50 @@ describe("saved view state", () => {
 			hiddenColumns: [],
 			columnWidths: {},
 		});
+	});
+
+	test("marks only changes to the active saved snapshot as edited", () => {
+		const state = captureSavedViewState(null, null, createColumnLayout(["id"]));
+		const activeView = { id: 7, state };
+
+		expect(getSavedViewStatus(7, [activeView], state)).toEqual({
+			activeView,
+			isEdited: false,
+		});
+
+		const resized = captureSavedViewState(null, null, {
+			...createColumnLayout(["id"]),
+			columnWidths: { id: 220 },
+		});
+		expect(getSavedViewStatus(7, [activeView], resized).isEdited).toBe(true);
+	});
+
+	test("has no edited state when no saved view is selected", () => {
+		const state = captureSavedViewState(null, null, createColumnLayout(["id"]));
+		expect(getSavedViewStatus(null, [], state)).toEqual({
+			activeView: null,
+			isEdited: false,
+		});
+	});
+
+	test("ignores the empty initial filter draft but detects unapplied edits", () => {
+		expect(
+			hasUnappliedFilterDraft(
+				{ kind: "structured", value: { conjunction: "and", conditions: [] } },
+				null,
+			),
+		).toBe(false);
+		expect(
+			hasUnappliedFilterDraft(
+				{ kind: "advanced", value: "status = 'new'" },
+				null,
+			),
+		).toBe(true);
+		expect(
+			hasUnappliedFilterDraft(
+				{ kind: "advanced", value: "status = 'new'" },
+				{ kind: "advanced", value: "status = 'new'" },
+			),
+		).toBe(false);
 	});
 });

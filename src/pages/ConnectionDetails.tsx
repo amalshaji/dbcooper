@@ -38,6 +38,7 @@ import {
 	type QueryHistory,
 	type RedisKeyDetails,
 	type RedisKeyInfo,
+	type SavedView,
 	type TableInfo,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
@@ -145,6 +146,7 @@ import { FunctionDefinitionView } from "@/components/connection-details/Function
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
 import { ColumnLayoutPopover } from "@/components/connection-details/ColumnLayoutPopover";
+import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -156,10 +158,16 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
 import {
+	createTableFilterState,
 	createCellFilter,
 	getFilterRequest,
 } from "@/lib/resultFilters";
-import { normalizeColumnLayout } from "@/lib/savedViews";
+import {
+	captureSavedViewState,
+	hasUnappliedFilterDraft,
+	normalizeColumnLayout,
+	reconcileSavedViewState,
+} from "@/lib/savedViews";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -822,39 +830,41 @@ export function ConnectionDetails() {
 		[],
 	);
 
+	const requestTableData = useCallback(
+		async (tab: TableDataTab) => {
+			if (!uuid) throw new Error("Connection is unavailable");
+			const [schema, tableName] = tab.tableName.split(".");
+			const filterRequest = getFilterRequest(tab.filterState.applied);
+			return api.pool.getTableData(
+				uuid,
+				schema,
+				tableName,
+				tab.currentPage,
+				100,
+				filterRequest.filter,
+				filterRequest.structuredFilter,
+				tab.sort?.column,
+				tab.sort?.direction,
+			);
+		},
+		[uuid],
+	);
+
 	const fetchTableData = useCallback(
 		async (tab: TableDataTab) => {
-			if (!uuid) return;
-
 			updateTab<TableDataTab>(tab.id, { loading: true });
-
 			try {
-				const [schema, tableName] = tab.tableName.split(".");
-				const filterRequest = getFilterRequest(tab.filterState.applied);
-				const data = await api.pool.getTableData(
-					uuid,
-					schema,
-					tableName,
-					tab.currentPage,
-					100,
-					filterRequest.filter,
-					filterRequest.structuredFilter,
-					tab.sort?.column,
-					tab.sort?.direction,
-				);
-
+				const data = await requestTableData(tab);
 				updateTab<TableDataTab>(tab.id, { data, loading: false });
 			} catch (error) {
 				console.error("Failed to fetch table data:", error);
-				const errorMessage =
-					error instanceof Error ? error.message : String(error);
 				toast.error("Failed to load table data", {
-					description: errorMessage,
+					description: error instanceof Error ? error.message : String(error),
 				});
 				updateTab<TableDataTab>(tab.id, { data: null, loading: false });
 			}
 		},
-		[uuid, updateTab],
+		[requestTableData, updateTab],
 	);
 	const activeTableDataTab =
 		activeTab?.type === "table-data" ? activeTab : null;
@@ -873,6 +883,63 @@ export function ConnectionDetails() {
 		updateTab: updateTableDataTab,
 		fetchTableData,
 	});
+
+	const handleApplySavedView = useCallback(
+		async (view: SavedView) => {
+			const tab = activeTableDataTab;
+			if (!tab) return false;
+			const reconciled = reconcileSavedViewState(
+				view.state,
+				tab.columns.map((column) => column.name),
+			);
+			if (!reconciled.state) {
+				toast.error("Couldn’t apply saved view", {
+					description: reconciled.error,
+				});
+				return false;
+			}
+
+			const filterState = reconciled.state.filter
+				? {
+						draft: reconciled.state.filter,
+						applied: reconciled.state.filter,
+					}
+				: createTableFilterState();
+			const nextTab: TableDataTab = {
+				...tab,
+				currentPage: 1,
+				filterState,
+				sort: reconciled.state.sort,
+				columnLayout: reconciled.layout,
+			};
+
+			updateTab<TableDataTab>(tab.id, { loading: true });
+			try {
+				const data = await requestTableData(nextTab);
+				updateTab<TableDataTab>(tab.id, {
+					data,
+					currentPage: 1,
+					filterState,
+					sort: reconciled.state.sort,
+					columnLayout: reconciled.layout,
+					loading: false,
+				});
+				if (reconciled.warning) {
+					toast.warning("Saved view adjusted", {
+						description: reconciled.warning,
+					});
+				}
+				return true;
+			} catch (error) {
+				toast.error("Couldn’t apply saved view", {
+					description: error instanceof Error ? error.message : String(error),
+				});
+				updateTab<TableDataTab>(tab.id, { loading: false });
+				return false;
+			}
+		},
+		[activeTableDataTab, requestTableData, updateTab],
+	);
 
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
@@ -2563,6 +2630,25 @@ export function ConnectionDetails() {
 							</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
+							<SavedViewsMenu
+								connectionUuid={uuid ?? ""}
+								tableName={tab.tableName}
+								currentState={captureSavedViewState(
+									tab.filterState.applied,
+									tab.sort,
+									tab.columnLayout,
+								)}
+								activeViewId={tab.savedViewId}
+								loading={tab.loading}
+								hasUnappliedFilterDraft={hasUnappliedFilterDraft(
+									tab.filterState.draft,
+									tab.filterState.applied,
+								)}
+								onActiveViewChange={(savedViewId) =>
+									updateTab<TableDataTab>(tab.id, { savedViewId })
+								}
+								onApply={handleApplySavedView}
+							/>
 							<ColumnLayoutPopover
 								columns={tab.columns.map((column) => column.name)}
 								layout={tab.columnLayout}

@@ -55,7 +55,10 @@ export function normalizeColumnLayout(
 			)
 			.map(([column, width]) => [
 				column,
-				Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(width))),
+				Math.min(
+					MAX_COLUMN_WIDTH,
+					Math.max(MIN_COLUMN_WIDTH, Math.round(width)),
+				),
 			]),
 	);
 
@@ -142,7 +145,33 @@ export function isSavedViewStateEqual(
 		),
 	});
 
-	return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+	return (
+		JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+	);
+}
+
+export function getSavedViewStatus<
+	T extends { id: number; state: SavedViewStateV1 },
+>(activeViewId: number | null, views: T[], currentState: SavedViewStateV1) {
+	const activeView = views.find((view) => view.id === activeViewId) ?? null;
+	return {
+		activeView,
+		isEdited: activeView
+			? !isSavedViewStateEqual(activeView.state, currentState)
+			: false,
+	};
+}
+
+export function hasUnappliedFilterDraft(
+	draft: TableFilter,
+	applied: TableFilter | null,
+): boolean {
+	if (!applied) {
+		return draft.kind === "advanced"
+			? Boolean(draft.value.trim())
+			: draft.value.conditions.length > 0;
+	}
+	return JSON.stringify(draft) !== JSON.stringify(applied);
 }
 
 export function moveColumn(

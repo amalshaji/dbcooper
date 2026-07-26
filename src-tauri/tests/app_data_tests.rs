@@ -21,6 +21,11 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
         .await
         .expect("Failed to create pool");
 
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     // Create schema
     sqlx::query(
         r#"
@@ -79,6 +84,7 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
             state_json TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (connection_uuid) REFERENCES connections(uuid) ON DELETE CASCADE,
             UNIQUE (connection_uuid, table_name, name)
         )
         "#,
@@ -100,6 +106,16 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
     .unwrap();
 
     (pool, temp_file)
+}
+
+async fn insert_test_connection(pool: &sqlx::SqlitePool, connection_uuid: &str) {
+    sqlx::query(
+        "INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type) VALUES (?, 'postgres', 'Test', 'localhost', 5432, 'db', 'user', 'pass', 'postgres')",
+    )
+    .bind(connection_uuid)
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 // ============================================================================
@@ -413,6 +429,7 @@ async fn test_delete_saved_query() {
 async fn test_saved_view_round_trip_preserves_versioned_state() {
     let (pool, _temp_file) = create_test_pool().await;
     let connection_uuid = uuid::Uuid::new_v4().to_string();
+    insert_test_connection(&pool, &connection_uuid).await;
     let state = serde_json::json!({
         "version": 1,
         "filter": null,
@@ -448,6 +465,7 @@ async fn test_saved_view_round_trip_preserves_versioned_state() {
 async fn test_saved_view_names_are_unique_per_connection_and_table() {
     let (pool, _temp_file) = create_test_pool().await;
     let connection_uuid = uuid::Uuid::new_v4().to_string();
+    insert_test_connection(&pool, &connection_uuid).await;
     let state = r#"{"version":1,"filter":null,"sort":null,"column_order":[],"hidden_columns":[],"column_widths":{}}"#;
 
     sqlx::query(
@@ -484,6 +502,33 @@ async fn test_saved_view_names_are_unique_per_connection_and_table() {
     .await;
 
     assert!(other_table.is_ok());
+}
+
+#[tokio::test]
+async fn test_saved_views_are_deleted_with_their_connection() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let connection_uuid = uuid::Uuid::new_v4().to_string();
+    insert_test_connection(&pool, &connection_uuid).await;
+    sqlx::query(
+        "INSERT INTO saved_views (connection_uuid, table_name, name, state_json) VALUES (?, 'public.events', 'Recent', ?)",
+    )
+    .bind(&connection_uuid)
+    .bind(r#"{"version":1,"filter":null,"sort":null,"column_order":[],"hidden_columns":[],"column_widths":{}}"#)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query("DELETE FROM connections WHERE uuid = ?")
+        .bind(&connection_uuid)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM saved_views")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
 }
 
 // ============================================================================
