@@ -48,6 +48,7 @@ pub fn sql_prompts(
     let schema_description = build_schema_description(tables);
     let (db_name, syntax_note) = match db_type.to_lowercase().as_str() {
         "sqlite" | "sqlite3" => ("SQLite", "Use SQLite syntax"),
+        "duckdb" => ("DuckDB", "Use DuckDB SQL syntax"),
         "mysql" => ("MySQL", "Use MySQL syntax"),
         "redis" => ("Redis", "Generate Redis commands"),
         "clickhouse" => ("ClickHouse", "Use ClickHouse syntax"),

@@ -85,6 +85,31 @@
       ]
     }
   },
+  "duckdb": {
+    "label": "DuckDB",
+    "defaultSchema": "main",
+    "createTableTypes": [],
+    "literalKinds": {
+      "BOOLEAN": "boolean",
+      "TINYINT": "number",
+      "SMALLINT": "number",
+      "INTEGER": "number",
+      "BIGINT": "number",
+      "HUGEINT": "number",
+      "REAL": "number",
+      "DOUBLE": "number",
+      "DECIMAL": "number"
+    },
+    "expressionsByType": {
+      "BOOLEAN": ["TRUE", "FALSE"],
+      "BOOL": ["TRUE", "FALSE"],
+      "DATE": ["current_date", "today()"],
+      "TIME": ["current_time", "localtime"],
+      "TIMESTAMP": ["current_timestamp", "now()", "localtimestamp"],
+      "TIMESTAMPTZ": ["current_timestamp", "now()"],
+      "UUID": ["uuid()"]
+    }
+  },
   "clickhouse": {
     "label": "ClickHouse",
     "defaultSchema": "default",

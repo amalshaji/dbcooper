@@ -7,6 +7,7 @@ import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { Connection } from "@/lib/tauri";
@@ -45,6 +46,12 @@ function dbTypeConfig(type: string) {
 				icon: SqliteIcon,
 				iconClass: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
 				accentClass: "bg-cyan-500",
+			};
+		case "duckdb":
+			return {
+				icon: DuckdbIcon,
+				iconClass: "bg-yellow-300/20 text-yellow-700 dark:text-yellow-300",
+				accentClass: "bg-yellow-400",
 			};
 		case "redis":
 			return {
@@ -140,7 +147,7 @@ export function ConnectionCard({
 								)}
 							</div>
 							<p className="mt-0.5 truncate text-xs text-muted-foreground">
-								{connection.type === "sqlite"
+								{connection.type === "sqlite" || connection.type === "duckdb"
 									? connection.file_path?.split("/").pop() || "Local file"
 									: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>

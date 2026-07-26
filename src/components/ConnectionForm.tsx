@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { ConnectionType } from "@/types/connection";
 import { api, ConnectionFormData, Connection } from "@/lib/tauri";
 import {
@@ -24,10 +24,12 @@ import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { isFileDatabase } from "@/lib/databaseCapabilities";
 
 interface ConnectionFormProps {
 	onSubmit: (data: ConnectionFormData) => Promise<void>;
@@ -55,6 +57,12 @@ const databaseTypes: {
 		icon: <SqliteIcon className="w-4 h-4" />,
 	},
 	{
+		value: "duckdb",
+		label: "DuckDB",
+		disabled: false,
+		icon: <DuckdbIcon className="w-4 h-4" />,
+	},
+	{
 		value: "redis",
 		label: "Redis",
 		disabled: false,
@@ -71,6 +79,7 @@ const databaseTypes: {
 const defaultPorts: Record<ConnectionType, number> = {
 	postgres: 5432,
 	sqlite: 0,
+	duckdb: 0,
 	redis: 6379,
 	clickhouse: 9000,
 };
@@ -108,6 +117,7 @@ export function ConnectionForm({
 	const [showSshPassword, setShowSshPassword] = useState(false);
 
 	const isEditMode = !!initialData;
+	const usesFile = isFileDatabase(formData.type);
 
 	useEffect(() => {
 		if (initialData) {
@@ -151,6 +161,7 @@ export function ConnectionForm({
 			const result =
 				formData.type === "redis" ||
 				formData.type === "sqlite" ||
+				formData.type === "duckdb" ||
 				formData.type === "clickhouse"
 					? await api.database.testConnection({
 							id: 0,
@@ -288,8 +299,7 @@ export function ConnectionForm({
 							/>
 						</Field>
 
-						{/* SQLite-specific fields */}
-						{formData.type === "sqlite" && (
+						{usesFile && (
 							<Field>
 								<FieldLabel htmlFor="connection-file-path">
 									Database File
@@ -303,7 +313,11 @@ export function ConnectionForm({
 										onChange={(e) =>
 											setFormData({ ...formData, file_path: e.target.value })
 										}
-										placeholder="/path/to/database.db"
+										placeholder={
+											formData.type === "duckdb"
+												? "/path/to/analytics.duckdb"
+												: "/path/to/database.db"
+										}
 										className="flex-1"
 									/>
 									<Button
@@ -314,8 +328,14 @@ export function ConnectionForm({
 												multiple: false,
 												filters: [
 													{
-														name: "SQLite Database",
-														extensions: ["db", "sqlite", "sqlite3"],
+														name:
+															formData.type === "duckdb"
+																? "DuckDB Database"
+																: "SQLite Database",
+														extensions:
+															formData.type === "duckdb"
+																? ["duckdb", "db"]
+																: ["db", "sqlite", "sqlite3"],
 													},
 												],
 											});
@@ -327,14 +347,35 @@ export function ConnectionForm({
 											}
 										}}
 									>
-										Browse
+										{formData.type === "duckdb" ? "Open existing" : "Browse"}
 									</Button>
+									{formData.type === "duckdb" && (
+										<Button
+											type="button"
+											variant="outline"
+											onClick={async () => {
+												const selected = await save({
+													defaultPath: "analytics.duckdb",
+													filters: [
+														{
+															name: "DuckDB Database",
+															extensions: ["duckdb"],
+														},
+													],
+												});
+												if (selected) {
+													setFormData({ ...formData, file_path: selected });
+												}
+											}}
+										>
+											Create new
+										</Button>
+									)}
 								</div>
 							</Field>
 						)}
 
-						{/* Postgres/Server-based connection fields */}
-						{formData.type !== "sqlite" && (
+						{!usesFile && (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<Field>
@@ -641,7 +682,7 @@ export function ConnectionForm({
 						<Button variant="outline" type="button" onClick={onCancel}>
 							Cancel
 						</Button>
-						{formData.type !== "sqlite" && (
+						{!usesFile && (
 							<Button
 								variant="secondary"
 								type="button"

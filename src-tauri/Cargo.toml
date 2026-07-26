@@ -39,6 +39,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 thiserror = "2"
 hex = "0.4"
+duckdb = { version = "1.10505.0", features = ["bundled", "chrono", "serde_json", "uuid"] }
 async-ssh2-lite = { version = "0.5", features = ["tokio"] }
 ssh2 = { version = "0.9.5", features = ["vendored-openssl"] }
 redis = { version = "0.27", features = [

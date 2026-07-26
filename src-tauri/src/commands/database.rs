@@ -1,9 +1,10 @@
 //! Unified database commands that dispatch to the correct driver based on db_type.
 //!
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
-//! SQLite, Redis, and ClickHouse databases by dispatching to the appropriate driver.
+//! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
 use crate::database::clickhouse::ClickhouseDriver;
+use crate::database::duckdb::DuckDbDriver;
 use crate::database::postgres::PostgresDriver;
 use crate::database::redis::{RedisDriver, RedisKeyDetails, RedisKeyListResponse};
 use crate::database::sql_policy::{
@@ -11,7 +12,8 @@ use crate::database::sql_policy::{
 };
 use crate::database::sqlite::SqliteDriver;
 use crate::database::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
+    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, DuckDbConfig, PostgresConfig,
+    RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
     Connection, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
@@ -29,6 +31,15 @@ pub struct RedisScanProgressPayload {
     pub max_iterations: u32,
     pub keys_found: usize,
     pub keys: Vec<String>,
+}
+
+fn ensure_structured_mutations_supported(db_type: &str) -> Result<(), String> {
+    if db_type == "duckdb" {
+        return Err(
+            "Structured row editing is not supported for DuckDB; use the SQL editor".to_string(),
+        );
+    }
+    Ok(())
 }
 
 /// Creates the appropriate database driver based on the db_type, with optional SSH tunnel
@@ -117,6 +128,10 @@ async fn create_driver_with_ssh(
             let config = SqliteConfig { file_path: path };
             Box::new(SqliteDriver::new(config))
         }
+        "duckdb" => {
+            let path = file_path.ok_or("File path is required for DuckDB connections")?;
+            Box::new(DuckDbDriver::new(DuckDbConfig { file_path: path }))
+        }
         "redis" => {
             let config = RedisConfig {
                 host: effective_host,
@@ -173,6 +188,12 @@ fn create_driver(
             let path = file_path.ok_or("File path is required for SQLite connections")?;
             let config = SqliteConfig { file_path: path };
             Ok(Box::new(SqliteDriver::new(config)))
+        }
+        "duckdb" => {
+            let path = file_path.ok_or("File path is required for DuckDB connections")?;
+            Ok(Box::new(DuckDbDriver::new(DuckDbConfig {
+                file_path: path,
+            })))
         }
         "redis" => {
             let config = RedisConfig {
@@ -382,6 +403,7 @@ pub async fn update_table_row(
     primary_key_values: Vec<serde_json::Value>,
     updates: serde_json::Map<String, serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -451,6 +473,7 @@ pub async fn update_table_row_with_raw_sql(
     primary_key_values: Vec<serde_json::Value>,
     updates: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -551,6 +574,7 @@ pub async fn delete_table_row(
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -601,6 +625,7 @@ pub async fn insert_table_row(
     table: String,
     values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if values.is_empty() {
         return Err("No values provided".to_string());
     }

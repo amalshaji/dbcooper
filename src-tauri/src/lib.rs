@@ -95,7 +95,7 @@ pub fn run() {
                 website: Some("https://dbcooper.amal.sh".into()),
                 website_label: Some("Visit Website".into()),
                 credits: Some(
-                    "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse."
+                    "A modern database client for PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse."
                         .into(),
                 ),
                 ..Default::default()

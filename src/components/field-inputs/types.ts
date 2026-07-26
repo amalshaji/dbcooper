@@ -1,6 +1,6 @@
 import type { TableColumn } from "@/types/tabTypes";
 
-export type DbType = "postgres" | "sqlite" | "clickhouse";
+export type DbType = "postgres" | "sqlite" | "duckdb" | "clickhouse";
 
 export interface FieldInputProps {
 	column: TableColumn;

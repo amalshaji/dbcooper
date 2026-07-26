@@ -45,6 +45,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { Button } from "@/components/ui/button";
@@ -164,6 +165,10 @@ import {
 	hasUnappliedFilterDraft,
 	normalizeColumnLayout,
 } from "@/lib/savedViews";
+import {
+	getSqlFormatterLanguage,
+	supportsStructuredRowMutations,
+} from "@/lib/databaseCapabilities";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -211,7 +216,11 @@ function isWrappableQuery(query: string): boolean {
 	return (
 		sql.startsWith("SELECT") ||
 		sql.startsWith("WITH") ||
-		sql.startsWith("VALUES")
+		sql.startsWith("VALUES") ||
+		sql.startsWith("FROM") ||
+		sql.startsWith("SUMMARIZE") ||
+		sql.startsWith("PIVOT") ||
+		sql.startsWith("UNPIVOT")
 	);
 }
 
@@ -2363,7 +2372,8 @@ export function ConnectionDetails() {
 						!!columnInfo &&
 						!columnInfo.primary_key &&
 						hasPrimaryKey &&
-						dbType !== "clickhouse";
+						!!dbType &&
+						supportsStructuredRowMutations(dbType);
 
 					const content =
 						cellContent ??
@@ -2456,6 +2466,8 @@ export function ConnectionDetails() {
 				return <PostgresqlIcon className="size-8" />;
 			case "sqlite":
 				return <SqliteIcon className="size-8" />;
+			case "duckdb":
+				return <DuckdbIcon className="size-8" />;
 			case "redis":
 				return <RedisIcon className="size-8" />;
 			case "clickhouse":
@@ -2616,15 +2628,18 @@ export function ConnectionDetails() {
 									updateTab<TableDataTab>(tab.id, { columnLayout })
 								}
 							/>
-							<Button
-								variant="default"
-								size="sm"
-								onClick={() => setRowInsertSheetOpen(true)}
-								disabled={tab.loading}
-							>
-								<Plus className="w-4 h-4" />
-								Add Row
-							</Button>
+							{connection &&
+								supportsStructuredRowMutations(connection.db_type) && (
+									<Button
+										variant="default"
+										size="sm"
+										onClick={() => setRowInsertSheetOpen(true)}
+										disabled={tab.loading}
+									>
+										<Plus className="w-4 h-4" />
+										Add Row
+									</Button>
+								)}
 							<Button
 								variant="outline"
 								size="sm"
@@ -3020,14 +3035,9 @@ export function ConnectionDetails() {
 										onClick={() => {
 											try {
 												const formatted = formatSQL(tab.query, {
-													language:
-														connection?.db_type === "sqlite"
-															? "sqlite"
-															: connection?.db_type === "clickhouse"
-																? "sql"
-																: connection?.db_type === "postgres"
-																	? "postgresql"
-																	: "postgresql",
+													language: getSqlFormatterLanguage(
+														connection?.db_type || "postgres",
+													),
 													tabWidth: 2,
 													keywordCase: "upper",
 												});
@@ -4036,7 +4046,9 @@ export function ConnectionDetails() {
 						</div>
 					</div>
 					<div className="text-xs text-muted-foreground mt-1">
-						{connection.database}
+						{connection.db_type === "duckdb"
+							? connection.file_path
+							: connection.database}
 					</div>
 				</SidebarHeader>
 				<SidebarContent className="overflow-hidden p-2">
@@ -4295,6 +4307,7 @@ export function ConnectionDetails() {
 						(connection.db_type || "postgres") as
 							| "postgres"
 							| "sqlite"
+							| "duckdb"
 							| "clickhouse"
 					}
 					onSave={handleSaveRow}
@@ -4317,6 +4330,7 @@ export function ConnectionDetails() {
 						(connection.db_type || "postgres") as
 							| "postgres"
 							| "sqlite"
+							| "duckdb"
 							| "clickhouse"
 					}
 					onInsert={handleInsertRow}

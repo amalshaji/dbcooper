@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 pub mod clickhouse;
 pub mod create_table;
+pub mod duckdb;
 pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
@@ -253,6 +254,11 @@ pub struct SqliteConfig {
     pub file_path: String,
 }
 
+#[derive(Clone)]
+pub struct DuckDbConfig {
+    pub file_path: String,
+}
+
 /// Configuration for Redis connections
 #[derive(Clone)]
 pub struct RedisConfig {
@@ -273,6 +279,7 @@ pub use clickhouse::{ClickhouseConfig, ClickhouseProtocol};
 pub enum DatabaseType {
     Postgres,
     Sqlite,
+    DuckDb,
     Redis,
     Clickhouse,
 }
@@ -283,6 +290,7 @@ impl DatabaseType {
         match s.to_lowercase().as_str() {
             "postgres" | "postgresql" => Some(DatabaseType::Postgres),
             "sqlite" | "sqlite3" => Some(DatabaseType::Sqlite),
+            "duckdb" => Some(DatabaseType::DuckDb),
             "redis" => Some(DatabaseType::Redis),
             "clickhouse" => Some(DatabaseType::Clickhouse),
             _ => None,

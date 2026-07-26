@@ -677,6 +677,30 @@ async fn test_sqlite_connection_with_file_path() {
     assert_eq!(conn.file_path, Some("/path/to/db.sqlite".to_string()));
 }
 
+#[tokio::test]
+async fn test_duckdb_connection_with_file_path() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let uuid = uuid::Uuid::new_v4().to_string();
+
+    let conn: Connection = sqlx::query_as(
+        r#"
+        INSERT INTO connections (uuid, type, name, host, port, database, username, password, db_type, file_path)
+        VALUES (?, 'duckdb', 'Analytics', '', 0, '', '', '', 'duckdb', '/path/to/analytics.duckdb')
+        RETURNING *
+        "#,
+    )
+    .bind(&uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(conn.db_type, "duckdb");
+    assert_eq!(
+        conn.file_path,
+        Some("/path/to/analytics.duckdb".to_string())
+    );
+}
+
 // ============================================================================
 // Export/Import Tests
 // ============================================================================

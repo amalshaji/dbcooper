@@ -313,6 +313,15 @@ use crate::database::sql_policy::{
     escape_sql_identifier, format_sql_value, validate_raw_sql_value,
 };
 
+fn ensure_structured_mutations_supported(db_type: &str) -> Result<(), String> {
+    if db_type == "duckdb" {
+        return Err(
+            "Structured row editing is not supported for DuckDB; use the SQL editor".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// Update a row in a table using the pooled connection
 #[tauri::command]
 pub async fn pool_update_table_row(
@@ -342,6 +351,7 @@ pub async fn pool_update_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the UPDATE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
@@ -445,6 +455,7 @@ pub async fn pool_delete_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the DELETE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
@@ -508,6 +519,7 @@ pub async fn pool_insert_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the INSERT query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {

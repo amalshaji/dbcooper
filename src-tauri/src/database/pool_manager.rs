@@ -9,11 +9,13 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
 use super::clickhouse::ClickhouseDriver;
+use super::duckdb::DuckDbDriver;
 use super::postgres::PostgresDriver;
 use super::redis::RedisDriver;
 use super::sqlite::SqliteDriver;
 use super::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
+    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, DuckDbConfig, PostgresConfig,
+    RedisConfig, SqliteConfig,
 };
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
@@ -165,6 +167,16 @@ impl PoolManager {
                     .ok_or("File path is required for SQLite connections")?;
                 let sqlite_config = SqliteConfig { file_path: path };
                 Ok((Box::new(SqliteDriver::new(sqlite_config)), None))
+            }
+            "duckdb" => {
+                let path = config
+                    .file_path
+                    .clone()
+                    .ok_or("File path is required for DuckDB connections")?;
+                Ok((
+                    Box::new(DuckDbDriver::new(DuckDbConfig { file_path: path })),
+                    None,
+                ))
             }
             "redis" => {
                 let redis_config = RedisConfig {
