@@ -1,4 +1,4 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -28,35 +28,17 @@ pub enum DbError {
 
 pub type DbResult<T> = Result<T, DbError>;
 
-fn is_explicit_database_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            ["db", "sqlite", "sqlite3"]
-                .iter()
-                .any(|candidate| extension.eq_ignore_ascii_case(candidate))
-        })
-}
-
 fn resolve_db_path(
     custom_store: Option<OsString>,
     data_local_dir: Option<PathBuf>,
 ) -> DbResult<PathBuf> {
-    match custom_store {
+    let store_dir = match custom_store {
         Some(path) if path.is_empty() => Err(DbError::InvalidLocalStore),
-        Some(path) => {
-            let path = PathBuf::from(path);
-            if is_explicit_database_file(&path) {
-                Ok(path)
-            } else {
-                Ok(path.join("db.sqlite3"))
-            }
-        }
-        None => Ok(data_local_dir
-            .ok_or(DbError::DataDir)?
-            .join("dbcooper")
-            .join("db.sqlite3")),
-    }
+        Some(path) => Ok(PathBuf::from(path)),
+        None => Ok(data_local_dir.ok_or(DbError::DataDir)?.join("dbcooper")),
+    }?;
+
+    Ok(store_dir.join("db.sqlite3"))
 }
 
 fn prepare_db_path(db_path: &Path) -> DbResult<()> {
@@ -73,14 +55,14 @@ fn prepare_db_path(db_path: &Path) -> DbResult<()> {
 }
 
 fn get_db_path() -> DbResult<PathBuf> {
-    let db_path = resolve_db_path(std::env::var_os(LOCAL_STORE_ENV), dirs::data_local_dir())?;
-    prepare_db_path(&db_path)?;
-    Ok(db_path)
+    resolve_db_path(std::env::var_os(LOCAL_STORE_ENV), dirs::data_local_dir())
 }
 
-pub async fn init_pool() -> DbResult<SqlitePool> {
-    let db_path = get_db_path()?;
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+async fn init_pool_at(db_path: &Path) -> DbResult<SqlitePool> {
+    prepare_db_path(db_path)?;
+    let options = SqliteConnectOptions::new()
+        .filename(db_path)
+        .create_if_missing(true);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -101,7 +83,7 @@ pub async fn init_pool() -> DbResult<SqlitePool> {
                 Ok(())
             })
         })
-        .connect(&db_url)
+        .connect_with(options)
         .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
@@ -109,9 +91,14 @@ pub async fn init_pool() -> DbResult<SqlitePool> {
     Ok(pool)
 }
 
+pub async fn init_pool() -> DbResult<SqlitePool> {
+    let db_path = get_db_path()?;
+    init_pool_at(&db_path).await
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{prepare_db_path, resolve_db_path, DbError};
+    use super::{init_pool_at, prepare_db_path, resolve_db_path, DbError};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
@@ -134,20 +121,15 @@ mod tests {
     }
 
     #[test]
-    fn preserves_explicit_sqlite_database_filenames() {
-        for path in [
-            "custom_path/branch.db",
-            "custom_path/branch.sqlite",
-            "custom_path/branch.sqlite3",
-            "custom_path/branch.SQLITE3",
-        ] {
+    fn treats_custom_stores_as_directories_regardless_of_extension() {
+        for path in ["custom_path/branch", "custom_path/branch.sqlite3"] {
             let resolved = resolve_db_path(
                 Some(OsString::from(path)),
                 Some(PathBuf::from("/application-data")),
             )
             .unwrap();
 
-            assert_eq!(resolved, PathBuf::from(path));
+            assert_eq!(resolved, PathBuf::from(path).join("db.sqlite3"));
         }
     }
 
@@ -182,5 +164,20 @@ mod tests {
         let error = prepare_db_path(&db_path).unwrap_err();
 
         assert!(matches!(error, DbError::LocalStore { .. }));
+    }
+
+    #[tokio::test]
+    async fn opens_database_at_a_store_path_with_url_special_characters() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir
+            .path()
+            .join("branch%2Fname?draft")
+            .join("db.sqlite3");
+
+        let pool = init_pool_at(&db_path).await.unwrap();
+        pool.close().await;
+
+        assert!(db_path.is_file());
+        assert!(!temp_dir.path().join("branch/name").exists());
     }
 }

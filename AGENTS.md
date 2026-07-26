@@ -6,7 +6,7 @@
 - Run JavaScript commands from the repository root unless a command explicitly targets another directory.
 - SQLite is DBcooper's internal application-state store. The app connects to PostgreSQL, SQLite, Redis, and ClickHouse databases.
 - SQLx provides the internal SQLite store plus PostgreSQL and SQLite connections. Redis and ClickHouse use their dedicated drivers; do not describe SQLx as a query builder or universal database driver.
-- The default application database is `<data_local_dir>/dbcooper/db.sqlite3`. `DBCOOPER_LOCAL_STORE` accepts a store directory or an exact path ending in `.db`, `.sqlite`, or `.sqlite3`.
+- The default application database is `<data_local_dir>/dbcooper/db.sqlite3`. `DBCOOPER_LOCAL_STORE` overrides the store directory; DBcooper creates `db.sqlite3` inside it.
 
 ## UI conventions
 
@@ -26,7 +26,7 @@
 ## Local data and migrations
 
 - SQLx migrations are embedded into the binary. A database whose migration ledger is newer than the running binary will fail during startup.
-- When testing a custom branch or worktree, always launch it with a unique branch-specific store, for example `DBCOOPER_LOCAL_STORE=custom_path bun run tauri dev`. Never share a custom store between concurrently tested branches or point them at the real application database.
+- When testing a custom branch or worktree, always launch it with a unique branch-specific store outside the checkout, for example `DBCOOPER_LOCAL_STORE=/private/tmp/dbcooper-feature-name bun run tauri dev` after replacing `feature-name` with the branch name. Never share a custom store between concurrently tested branches or point them at the real application database.
 - Never remove tables or `_sqlx_migrations` rows from the real database without explicit user approval. Inventory affected rows, create and verify a recoverable full backup, make the rollback transactionally, and finish with `PRAGMA integrity_check` plus a ledger check.
 
 ## Releases
