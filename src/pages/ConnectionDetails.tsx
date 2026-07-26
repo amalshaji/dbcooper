@@ -111,10 +111,11 @@ import {
 	DotsThreeVertical,
 	FloppyDisk,
 	ArrowsClockwise,
+	ArrowClockwise,
 	Database,
 	CaretDown,
 	DownloadSimple,
-	Graph,
+	TreeStructure,
 	X,
 	PlayCircle,
 	Check,
@@ -3944,9 +3945,10 @@ export function ConnectionDetails() {
 									size="icon-sm"
 									onClick={handleOpenSchemaVisualizer}
 									title="Open Schema Visualizer"
+									aria-label="Open Schema Visualizer"
 									className="h-7 w-7"
 								>
-									<Graph className="w-4 h-4" />
+									<TreeStructure className="w-4 h-4" />
 								</Button>
 							)}
 							<Button
@@ -3954,12 +3956,13 @@ export function ConnectionDetails() {
 								size="icon-sm"
 								onClick={handleRefreshTables}
 								disabled={refreshingTables || loadingSchemaOverview}
-								title="Refresh objects"
+								title="Refresh schema"
+								aria-label="Refresh schema"
 							>
 								{refreshingTables || loadingSchemaOverview ? (
 									<Spinner />
 								) : (
-									<ArrowsClockwise className="w-4 h-4" />
+									<ArrowClockwise className="w-4 h-4" />
 								)}
 							</Button>
 						</div>
