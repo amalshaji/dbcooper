@@ -43,11 +43,33 @@ export interface AiGenerationSession {
 	cancel: (error: Error) => void;
 }
 
+export type AiGenerationCancellationReason = "cancelled" | "replaced";
+
+export class AiGenerationCancellationError extends Error {
+	readonly reason: AiGenerationCancellationReason;
+
+	constructor(reason: AiGenerationCancellationReason) {
+		super(
+			reason === "replaced"
+				? "A newer AI request replaced this one"
+				: "AI generation was cancelled",
+		);
+		this.name = "AiGenerationCancellationError";
+		this.reason = reason;
+	}
+}
+
+export function isAiGenerationCancellation(
+	error: unknown,
+): error is AiGenerationCancellationError {
+	return error instanceof AiGenerationCancellationError;
+}
+
 export class AiGenerationSessionRegistry {
 	private readonly sessions = new Map<string, AiGenerationSession>();
 
 	replace(key: string, session: AiGenerationSession): void {
-		this.cancel(key, new Error("A newer AI request replaced this one"));
+		this.cancel(key, new AiGenerationCancellationError("replaced"));
 		this.sessions.set(key, session);
 	}
 
@@ -61,7 +83,7 @@ export class AiGenerationSessionRegistry {
 
 	cancel(
 		key: string,
-		error: Error = new Error("AI generation was cancelled"),
+		error: Error = new AiGenerationCancellationError("cancelled"),
 	): void {
 		const session = this.sessions.get(key);
 		if (!session) return;

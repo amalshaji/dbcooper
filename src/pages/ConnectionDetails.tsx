@@ -167,7 +167,10 @@ import {
 	queryAiStateReducer,
 	type QueryAiStateAction,
 } from "@/lib/aiDraftState";
-import { shouldNotifyAiTabCompletion } from "@/lib/aiGenerationSession";
+import {
+	isAiGenerationCancellation,
+	shouldNotifyAiTabCompletion,
+} from "@/lib/aiGenerationSession";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -272,14 +275,6 @@ function formatQuerySuccessDetail(affectedRows: number | null): string {
 	if (affectedRows === null) return "No rows returned";
 
 	return `${affectedRows} row${affectedRows !== 1 ? "s" : ""} affected`;
-}
-
-function isAiGenerationCancellation(error: unknown): boolean {
-	return (
-		error instanceof Error &&
-		(error.message === "AI generation was cancelled" ||
-			error.message === "A newer AI request replaced this one")
-	);
 }
 
 // Header component that uses useSidebar for conditional padding

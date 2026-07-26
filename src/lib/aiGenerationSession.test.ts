@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
 	type AiGenerationEvent,
 	type AiGenerationListener,
+	AiGenerationCancellationError,
 	AiGenerationSessionRegistry,
+	isAiGenerationCancellation,
 	shouldNotifyAiTabCompletion,
 	startAiGenerationSession,
 } from "./aiGenerationSession";
@@ -35,6 +37,30 @@ describe("AiGenerationSessionRegistry", () => {
 		registry.cancel("query-2");
 		expect(cancellations).toEqual(["first-tab-old", "second-tab"]);
 		expect(registry.isCurrent("query-1", replacement)).toBe(true);
+	});
+
+	test("uses typed reasons when requests are replaced or cancelled", () => {
+		const registry = new AiGenerationSessionRegistry();
+		const cancellations: unknown[] = [];
+		const session = () => ({
+			promise: Promise.resolve(),
+			cancel: (error: Error) => cancellations.push(error),
+		});
+
+		registry.replace("query-1", session());
+		registry.replace("query-1", session());
+		registry.replace("query-2", session());
+		registry.cancel("query-2");
+
+		expect(cancellations).toHaveLength(2);
+		expect(cancellations[0]).toBeInstanceOf(AiGenerationCancellationError);
+		expect(cancellations[1]).toBeInstanceOf(AiGenerationCancellationError);
+		expect(isAiGenerationCancellation(cancellations[0])).toBe(true);
+		expect(isAiGenerationCancellation(cancellations[1])).toBe(true);
+		if (!(cancellations[0] instanceof AiGenerationCancellationError)) return;
+		if (!(cancellations[1] instanceof AiGenerationCancellationError)) return;
+		expect(cancellations[0].reason).toBe("replaced");
+		expect(cancellations[1].reason).toBe("cancelled");
 	});
 });
 
