@@ -1,4 +1,5 @@
 import type { TableDataResponse } from "./tableData";
+import { createQueryAiState, type QueryAiState } from "@/lib/aiDraftState";
 import {
 	createTableFilterState,
 	type TableFilterState,
@@ -74,6 +75,7 @@ export interface TableStructureTab extends BaseTab {
 export interface QueryTab extends BaseTab {
 	type: "query";
 	query: string;
+	ai: QueryAiState;
 	savedQueryId: number | null;
 	savedQueryName: string | null;
 	results: Record<string, unknown>[] | null;
@@ -169,6 +171,7 @@ export function createQueryTab(
 		type: "query",
 		title: savedQueryName || "New Query",
 		query,
+		ai: createQueryAiState(),
 		savedQueryId,
 		savedQueryName,
 		results: null,

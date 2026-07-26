@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { aiDraftReducer, initialAiDraftState } from "./aiDraftState";
+import {
+	aiDraftReducer,
+	createQueryAiState,
+	initialAiDraftState,
+	queryAiStateReducer,
+} from "./aiDraftState";
 
 describe("aiDraftReducer", () => {
 	test("moves a streamed request from loading to a ready draft", () => {
@@ -58,5 +63,37 @@ describe("aiDraftReducer", () => {
 		expect(
 			aiDraftReducer({ status: "ready", sql: "SELECT 1" }, { type: "discard" }),
 		).toEqual(initialAiDraftState);
+	});
+});
+
+describe("queryAiStateReducer", () => {
+	test("keeps each query tab's prompt and draft independent", () => {
+		let first = createQueryAiState();
+		const second = createQueryAiState();
+
+		first = queryAiStateReducer(first, {
+			type: "set-instruction",
+			instruction: "List active users",
+		});
+		first = queryAiStateReducer(first, {
+			type: "update-draft",
+			action: { type: "start" },
+		});
+		first = queryAiStateReducer(first, {
+			type: "update-draft",
+			action: {
+				type: "complete",
+				sql: "SELECT * FROM users WHERE active = true",
+			},
+		});
+
+		expect(first).toEqual({
+			instruction: "List active users",
+			draft: {
+				status: "ready",
+				sql: "SELECT * FROM users WHERE active = true",
+			},
+		});
+		expect(second).toEqual({ instruction: "", draft: initialAiDraftState });
 	});
 });

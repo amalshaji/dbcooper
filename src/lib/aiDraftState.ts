@@ -11,7 +11,31 @@ export type AiDraftAction =
 	| { type: "fail"; message: string }
 	| { type: "discard" };
 
+export interface QueryAiState {
+	instruction: string;
+	draft: AiDraftState;
+}
+
+export type QueryAiStateAction =
+	| { type: "set-instruction"; instruction: string }
+	| { type: "update-draft"; action: AiDraftAction };
+
 export const initialAiDraftState: AiDraftState = { status: "idle" };
+
+export function createQueryAiState(): QueryAiState {
+	return { instruction: "", draft: initialAiDraftState };
+}
+
+export function queryAiStateReducer(
+	state: QueryAiState,
+	action: QueryAiStateAction,
+): QueryAiState {
+	if (action.type === "set-instruction") {
+		return { ...state, instruction: action.instruction };
+	}
+
+	return { ...state, draft: aiDraftReducer(state.draft, action.action) };
+}
 
 export function aiDraftReducer(
 	state: AiDraftState,
