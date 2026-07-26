@@ -2,8 +2,57 @@ import { describe, expect, test } from "bun:test";
 import {
 	type AiGenerationEvent,
 	type AiGenerationListener,
+	AiGenerationSessionRegistry,
+	shouldNotifyAiTabCompletion,
 	startAiGenerationSession,
 } from "./aiGenerationSession";
+
+describe("AiGenerationSessionRegistry", () => {
+	test("replaces requests only within the same query tab", () => {
+		const registry = new AiGenerationSessionRegistry();
+		const cancellations: string[] = [];
+		const firstTabRequest = {
+			promise: Promise.resolve(),
+			cancel: () => cancellations.push("first-tab-old"),
+		};
+		const secondTabRequest = {
+			promise: Promise.resolve(),
+			cancel: () => cancellations.push("second-tab"),
+		};
+		const replacement = {
+			promise: Promise.resolve(),
+			cancel: () => cancellations.push("first-tab-new"),
+		};
+
+		registry.replace("query-1", firstTabRequest);
+		registry.replace("query-2", secondTabRequest);
+		registry.replace("query-1", replacement);
+
+		expect(cancellations).toEqual(["first-tab-old"]);
+		expect(registry.isCurrent("query-1", replacement)).toBe(true);
+		expect(registry.isCurrent("query-2", secondTabRequest)).toBe(true);
+
+		registry.cancel("query-2");
+		expect(cancellations).toEqual(["first-tab-old", "second-tab"]);
+		expect(registry.isCurrent("query-1", replacement)).toBe(true);
+	});
+});
+
+describe("shouldNotifyAiTabCompletion", () => {
+	test("notifies only for an existing background tab", () => {
+		const tabs = [{ id: "query-1" }, { id: "query-2" }];
+
+		expect(shouldNotifyAiTabCompletion(tabs, "query-2", "query-1")).toBe(
+			true,
+		);
+		expect(shouldNotifyAiTabCompletion(tabs, "query-1", "query-1")).toBe(
+			false,
+		);
+		expect(shouldNotifyAiTabCompletion(tabs, "query-2", "closed")).toBe(
+			false,
+		);
+	});
+});
 
 describe("startAiGenerationSession", () => {
 	test("streams only matching events and cleans up every listener", async () => {

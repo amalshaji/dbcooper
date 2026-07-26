@@ -163,6 +163,11 @@ import {
 	hasUnappliedFilterDraft,
 	normalizeColumnLayout,
 } from "@/lib/savedViews";
+import {
+	queryAiStateReducer,
+	type QueryAiStateAction,
+} from "@/lib/aiDraftState";
+import { shouldNotifyAiTabCompletion } from "@/lib/aiGenerationSession";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -267,6 +272,14 @@ function formatQuerySuccessDetail(affectedRows: number | null): string {
 	if (affectedRows === null) return "No rows returned";
 
 	return `${affectedRows} row${affectedRows !== 1 ? "s" : ""} affected`;
+}
+
+function isAiGenerationCancellation(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		(error.message === "AI generation was cancelled" ||
+			error.message === "A newer AI request replaced this one")
+	);
 }
 
 // Header component that uses useSidebar for conditional padding
@@ -447,6 +460,10 @@ export function ConnectionDetails() {
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
+	const tabsRef = useRef(tabs);
+	const activeTabIdRef = useRef(activeTabId);
+	tabsRef.current = tabs;
+	activeTabIdRef.current = activeTabId;
 
 	// Redis-specific state (no tabs for Redis)
 	const [redisPattern, setRedisPattern] = useState("*");
@@ -548,13 +565,71 @@ export function ConnectionDetails() {
 	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
 
 	// AI generation
-	const { generateDraft, isConfigured: aiConfigured } =
+	const {
+		generateDraft,
+		cancelGeneration,
+		isConfigured: aiConfigured,
+	} =
 		useContextualSqlGeneration({
 			dbType: connection?.db_type,
 			tables,
 			tableColumns,
 			schemaOverview,
 		});
+
+	const generateDraftForTab = useCallback(
+		async (
+			tabId: string,
+			tabTitle: string,
+			instruction: string,
+			existingSQL: string,
+			onPreview: (sql: string) => void,
+		) => {
+			const viewQuery = () => {
+				if (tabsRef.current.some((tab) => tab.id === tabId)) {
+					setActiveTabId(tabId);
+				}
+			};
+
+			try {
+				const sql = await generateDraft(
+					tabId,
+					instruction,
+					existingSQL,
+					onPreview,
+				);
+				if (
+					shouldNotifyAiTabCompletion(
+						tabsRef.current,
+						activeTabIdRef.current,
+						tabId,
+					)
+				) {
+					toast.success("AI query ready", {
+						description: `Generated SQL is ready in ${tabTitle}.`,
+						action: { label: "View query", onClick: viewQuery },
+					});
+				}
+				return sql;
+			} catch (error) {
+				if (
+					!isAiGenerationCancellation(error) &&
+					shouldNotifyAiTabCompletion(
+						tabsRef.current,
+						activeTabIdRef.current,
+						tabId,
+					)
+				) {
+					toast.error("AI query generation failed", {
+						description: error instanceof Error ? error.message : String(error),
+						action: { label: "View query", onClick: viewQuery },
+					});
+				}
+				throw error;
+			}
+		},
+		[generateDraft],
+	);
 
 	// Row edit state
 	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
@@ -820,6 +895,19 @@ export function ConnectionDetails() {
 		<T extends Tab>(tabId: string, updates: Partial<T>) => {
 			setTabs((prev) =>
 				prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
+			);
+		},
+		[],
+	);
+
+	const updateQueryAiState = useCallback(
+		(tabId: string, action: QueryAiStateAction) => {
+			setTabs((prev) =>
+				prev.map((tab) =>
+					tab.id === tabId && tab.type === "query"
+						? { ...tab, ai: queryAiStateReducer(tab.ai, action) }
+						: tab,
+				),
 			);
 		},
 		[],
@@ -1184,6 +1272,7 @@ export function ConnectionDetails() {
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
+			cancelGeneration(tabId);
 			setTabs((prev) => {
 				const newTabs = prev.filter((t) => t.id !== tabId);
 
@@ -1199,7 +1288,7 @@ export function ConnectionDetails() {
 				return newTabs;
 			});
 		},
-		[activeTabId],
+		[activeTabId, cancelGeneration],
 	);
 
 	const handleTabSelect = useCallback((tabId: string) => {
@@ -3097,7 +3186,17 @@ export function ConnectionDetails() {
 							name: t.name,
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
-						onGenerateSQL={generateDraft}
+						aiState={tab.ai}
+						onAiStateChange={(action) => updateQueryAiState(tab.id, action)}
+						onGenerateSQL={(instruction, existingSQL, onPreview) =>
+							generateDraftForTab(
+								tab.id,
+								tab.title,
+								instruction,
+								existingSQL,
+								onPreview,
+							)
+						}
 						aiConfigured={aiConfigured}
 						onCursorActivity={(line, char) => {
 							setCursorLine(line);

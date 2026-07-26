@@ -3,7 +3,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { barf, rosePineDawn } from "thememirror";
 import { SqlAIPreview } from "@/components/SqlAIPreview";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { aiDraftReducer, initialAiDraftState } from "@/lib/aiDraftState";
+import type { QueryAiState, QueryAiStateAction } from "@/lib/aiDraftState";
+
+const emptyAiState: QueryAiState = {
+	instruction: "",
+	draft: { status: "idle" },
+};
 
 interface TableSchema {
 	schema: string;
@@ -38,6 +43,8 @@ interface SqlEditorProps {
 		existingSQL: string,
 		onPreview: (sql: string) => void,
 	) => Promise<string>;
+	aiState?: QueryAiState;
+	onAiStateChange?: (action: QueryAiStateAction) => void;
 	aiConfigured?: boolean | null;
 	onCursorActivity?: (line: number, char: number) => void;
 	cursorWarning?: string | null;
@@ -50,6 +57,8 @@ export function SqlEditor({
 	height = "300px",
 	tables = [],
 	onGenerateSQL,
+	aiState = emptyAiState,
+	onAiStateChange,
 	aiConfigured = null,
 	onCursorActivity,
 	cursorWarning = null,
@@ -57,12 +66,8 @@ export function SqlEditor({
 }: SqlEditorProps) {
 	const [isDark, setIsDark] = useState(false);
 	const [containerWidth, setContainerWidth] = useState<number | null>(null);
-	const [instruction, setInstruction] = useState("");
-	const [aiDraft, dispatchAiDraft] = useReducer(
-		aiDraftReducer,
-		initialAiDraftState,
-	);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const { instruction, draft: aiDraft } = aiState;
 	const generating = aiDraft.status === "generating";
 
 	useEffect(() => {
@@ -173,16 +178,28 @@ export function SqlEditor({
 
 	const handleGenerate = async () => {
 		if (instruction.trim() && onGenerateSQL) {
-			dispatchAiDraft({ type: "start" });
+			onAiStateChange?.({
+				type: "update-draft",
+				action: { type: "start" },
+			});
 			try {
 				const generatedSQL = await onGenerateSQL(instruction, value, (sql) =>
-					dispatchAiDraft({ type: "preview", sql }),
+					onAiStateChange?.({
+						type: "update-draft",
+						action: { type: "preview", sql },
+					}),
 				);
-				dispatchAiDraft({ type: "complete", sql: generatedSQL });
+				onAiStateChange?.({
+					type: "update-draft",
+					action: { type: "complete", sql: generatedSQL },
+				});
 			} catch (error) {
-				dispatchAiDraft({
-					type: "fail",
-					message: error instanceof Error ? error.message : String(error),
+				onAiStateChange?.({
+					type: "update-draft",
+					action: {
+						type: "fail",
+						message: error instanceof Error ? error.message : String(error),
+					},
 				});
 			}
 		}
@@ -204,7 +221,12 @@ export function SqlEditor({
 									: "Ask for a query or change…"
 							}
 							value={instruction}
-							onChange={(event) => setInstruction(event.target.value)}
+							onChange={(event) =>
+								onAiStateChange?.({
+									type: "set-instruction",
+									instruction: event.target.value,
+								})
+							}
 							onKeyDown={(event) => {
 								if (
 									event.key === "Enter" &&
@@ -248,7 +270,12 @@ export function SqlEditor({
 										variant="ghost"
 										size="sm"
 										className="h-6 px-2 text-[11px]"
-										onClick={() => setInstruction(prompt)}
+										onClick={() =>
+											onAiStateChange?.({
+												type: "set-instruction",
+												instruction: prompt,
+											})
+										}
 										disabled={generating}
 									>
 										{prompt}
@@ -263,16 +290,27 @@ export function SqlEditor({
 				<SqlAIPreview
 					draft={aiDraft}
 					hasExistingSql={Boolean(value.trim())}
-					onDiscard={() => dispatchAiDraft({ type: "discard" })}
+					onDiscard={() =>
+						onAiStateChange?.({
+							type: "update-draft",
+							action: { type: "discard" },
+						})
+					}
 					onAppend={() => {
 						if (aiDraft.status !== "ready") return;
 						onChange(`${value.trimEnd()}\n\n${aiDraft.sql}`);
-						dispatchAiDraft({ type: "discard" });
+						onAiStateChange?.({
+							type: "update-draft",
+							action: { type: "discard" },
+						});
 					}}
 					onReplace={() => {
 						if (aiDraft.status !== "ready") return;
 						onChange(aiDraft.sql);
-						dispatchAiDraft({ type: "discard" });
+						onAiStateChange?.({
+							type: "update-draft",
+							action: { type: "discard" },
+						});
 					}}
 				/>
 			)}

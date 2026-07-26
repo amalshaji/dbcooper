@@ -38,9 +38,51 @@ interface StartAiGenerationSessionOptions {
 	onComplete: (sql: string) => void;
 }
 
-interface AiGenerationSession {
+export interface AiGenerationSession {
 	promise: Promise<void>;
 	cancel: (error: Error) => void;
+}
+
+export class AiGenerationSessionRegistry {
+	private readonly sessions = new Map<string, AiGenerationSession>();
+
+	replace(key: string, session: AiGenerationSession): void {
+		this.cancel(key, new Error("A newer AI request replaced this one"));
+		this.sessions.set(key, session);
+	}
+
+	isCurrent(key: string, session: AiGenerationSession): boolean {
+		return this.sessions.get(key) === session;
+	}
+
+	deleteIfCurrent(key: string, session: AiGenerationSession): void {
+		if (this.isCurrent(key, session)) this.sessions.delete(key);
+	}
+
+	cancel(
+		key: string,
+		error: Error = new Error("AI generation was cancelled"),
+	): void {
+		const session = this.sessions.get(key);
+		if (!session) return;
+		this.sessions.delete(key);
+		session.cancel(error);
+	}
+
+	cancelAll(): void {
+		for (const key of this.sessions.keys()) this.cancel(key);
+	}
+}
+
+export function shouldNotifyAiTabCompletion(
+	tabs: ReadonlyArray<{ id: string }>,
+	activeTabId: string | null,
+	completedTabId: string,
+): boolean {
+	return (
+		activeTabId !== completedTabId &&
+		tabs.some((tab) => tab.id === completedTabId)
+	);
 }
 
 export function startAiGenerationSession({
