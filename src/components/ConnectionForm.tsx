@@ -23,12 +23,14 @@ import {
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { Database, Eye, EyeSlash } from "@phosphor-icons/react";
+import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
 import {
 	prepareDuckDbRuntime,
@@ -59,13 +61,13 @@ const databaseTypes: {
 		value: "mysql",
 		label: "MySQL",
 		disabled: false,
-		icon: <Database className="w-4 h-4 text-sky-600" weight="duotone" />,
+		icon: <MysqlIcon className="w-4 h-4" />,
 	},
 	{
 		value: "mariadb",
 		label: "MariaDB",
 		disabled: false,
-		icon: <Database className="w-4 h-4 text-amber-700" weight="duotone" />,
+		icon: <MariadbIcon className="w-4 h-4" />,
 	},
 	{
 		value: "sqlite",

@@ -4,6 +4,8 @@ import {
 	ConnectionActionsDropdown,
 } from "@/components/connections/ConnectionActions";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
@@ -37,13 +39,13 @@ function dbTypeConfig(type: string) {
 			};
 		case "mysql":
 			return {
-				icon: Database,
+				icon: MysqlIcon,
 				iconClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
 				accentClass: "bg-orange-500",
 			};
 		case "mariadb":
 			return {
-				icon: Database,
+				icon: MariadbIcon,
 				iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
 				accentClass: "bg-amber-500",
 			};

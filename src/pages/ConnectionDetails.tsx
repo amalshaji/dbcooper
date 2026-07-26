@@ -48,6 +48,8 @@ import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -2488,9 +2490,9 @@ export function ConnectionDetails() {
 			case "postgres":
 				return <PostgresqlIcon className="size-8" />;
 			case "mysql":
-				return <Database className="size-8 text-sky-600" weight="duotone" />;
+				return <MysqlIcon className="size-8" />;
 			case "mariadb":
-				return <Database className="size-8 text-amber-700" weight="duotone" />;
+				return <MariadbIcon className="size-8" />;
 			case "sqlite":
 				return <SqliteIcon className="size-8" />;
 			case "duckdb":
