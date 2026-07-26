@@ -1,4 +1,4 @@
-import { Database, Graph, Plus } from "@phosphor-icons/react";
+import { Plus, TreeStructure } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import type { Connection } from "@/lib/tauri";
 
@@ -26,7 +26,7 @@ export function ConnectionWelcome({
 		<div className="flex h-full items-center justify-center p-4">
 			<div className="workspace-panel w-full max-w-lg rounded-xl border px-8 py-9 text-center shadow-sm">
 				<div className="mx-auto mb-5 flex size-12 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
-					<Database className="size-5" />
+					<TreeStructure className="size-5" />
 				</div>
 				<h2 className="text-lg font-semibold tracking-tight">
 					Welcome to {connection.name}
@@ -61,7 +61,7 @@ export function ConnectionWelcome({
 							variant="outline"
 							size="sm"
 						>
-							<Graph className="size-4" />
+							<TreeStructure className="size-4" />
 							Schema
 						</Button>
 					)}

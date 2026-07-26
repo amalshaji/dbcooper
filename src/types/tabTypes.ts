@@ -3,6 +3,10 @@ import {
 	createTableFilterState,
 	type TableFilterState,
 } from "@/lib/resultFilters";
+import {
+	createColumnLayout,
+	type TableColumnLayout,
+} from "@/lib/savedViews";
 import type {
 	ColumnInfo,
 	ForeignKeyInfo,
@@ -56,6 +60,8 @@ export interface TableDataTab extends BaseTab {
 	foreignKeys: ForeignKeyInfo[];
 	columns: TableColumn[];
 	sort: SortConfig | null;
+	columnLayout: TableColumnLayout;
+	savedViewId: number | null;
 }
 
 export interface TableStructureTab extends BaseTab {
@@ -137,6 +143,8 @@ export function createTableDataTab(tableName: string): TableDataTab {
 		foreignKeys: [],
 		columns: [],
 		sort: null,
+		columnLayout: createColumnLayout([]),
+		savedViewId: null,
 	};
 }
 

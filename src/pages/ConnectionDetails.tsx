@@ -135,6 +135,7 @@ import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useTableDataFilters } from "@/hooks/useTableDataFilters";
+import { useSavedViewApplication } from "@/hooks/useSavedViewApplication";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { InlineEditableCell } from "@/components/InlineEditableCell";
@@ -144,6 +145,8 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
+import { ColumnLayoutPopover } from "@/components/connection-details/ColumnLayoutPopover";
+import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -154,10 +157,12 @@ import {
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
+import { createCellFilter, getFilterRequest } from "@/lib/resultFilters";
 import {
-	createCellFilter,
-	getFilterRequest,
-} from "@/lib/resultFilters";
+	captureSavedViewState,
+	hasUnappliedFilterDraft,
+	normalizeColumnLayout,
+} from "@/lib/savedViews";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -820,39 +825,41 @@ export function ConnectionDetails() {
 		[],
 	);
 
+	const requestTableData = useCallback(
+		async (tab: TableDataTab) => {
+			if (!uuid) throw new Error("Connection is unavailable");
+			const [schema, tableName] = tab.tableName.split(".");
+			const filterRequest = getFilterRequest(tab.filterState.applied);
+			return api.pool.getTableData(
+				uuid,
+				schema,
+				tableName,
+				tab.currentPage,
+				100,
+				filterRequest.filter,
+				filterRequest.structuredFilter,
+				tab.sort?.column,
+				tab.sort?.direction,
+			);
+		},
+		[uuid],
+	);
+
 	const fetchTableData = useCallback(
 		async (tab: TableDataTab) => {
-			if (!uuid) return;
-
 			updateTab<TableDataTab>(tab.id, { loading: true });
-
 			try {
-				const [schema, tableName] = tab.tableName.split(".");
-				const filterRequest = getFilterRequest(tab.filterState.applied);
-				const data = await api.pool.getTableData(
-					uuid,
-					schema,
-					tableName,
-					tab.currentPage,
-					100,
-					filterRequest.filter,
-					filterRequest.structuredFilter,
-					tab.sort?.column,
-					tab.sort?.direction,
-				);
-
+				const data = await requestTableData(tab);
 				updateTab<TableDataTab>(tab.id, { data, loading: false });
 			} catch (error) {
 				console.error("Failed to fetch table data:", error);
-				const errorMessage =
-					error instanceof Error ? error.message : String(error);
 				toast.error("Failed to load table data", {
-					description: errorMessage,
+					description: error instanceof Error ? error.message : String(error),
 				});
 				updateTab<TableDataTab>(tab.id, { data: null, loading: false });
 			}
 		},
-		[uuid, updateTab],
+		[requestTableData, updateTab],
 	);
 	const activeTableDataTab =
 		activeTab?.type === "table-data" ? activeTab : null;
@@ -870,6 +877,12 @@ export function ConnectionDetails() {
 		tab: activeTableDataTab,
 		updateTab: updateTableDataTab,
 		fetchTableData,
+	});
+
+	const handleApplySavedView = useSavedViewApplication({
+		tab: activeTableDataTab,
+		requestTableData,
+		updateTab: updateTableDataTab,
 	});
 
 	const fetchTableStructure = useCallback(
@@ -967,18 +980,28 @@ export function ConnectionDetails() {
 					);
 
 					if (tableData) {
+						const columns = tableData.columns || [];
 						updateTab<TableDataTab>(tab.id, {
 							foreignKeys: tableData.foreign_keys || [],
-							columns: tableData.columns || [],
+							columns,
+							columnLayout: normalizeColumnLayout(
+								tab.columnLayout,
+								columns.map((column) => column.name),
+							),
 						});
 						return;
 					}
 				}
 
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
+				const columns = (data.columns as TableColumn[]) || [];
 				updateTab<TableDataTab>(tab.id, {
 					foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
-					columns: (data.columns as TableColumn[]) || [],
+					columns,
+					columnLayout: normalizeColumnLayout(
+						tab.columnLayout,
+						columns.map((column) => column.name),
+					),
 				});
 			} catch (error) {
 				console.error("Failed to fetch foreign keys:", error);
@@ -2551,6 +2574,32 @@ export function ConnectionDetails() {
 							</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
+							<SavedViewsMenu
+								connectionUuid={uuid ?? ""}
+								tableName={tab.tableName}
+								currentState={captureSavedViewState(
+									tab.filterState.applied,
+									tab.sort,
+									tab.columnLayout,
+								)}
+								activeViewId={tab.savedViewId}
+								loading={tab.loading}
+								hasUnappliedFilterDraft={hasUnappliedFilterDraft(
+									tab.filterState.draft,
+									tab.filterState.applied,
+								)}
+								onActiveViewChange={(savedViewId) =>
+									updateTab<TableDataTab>(tab.id, { savedViewId })
+								}
+								onApply={handleApplySavedView}
+							/>
+							<ColumnLayoutPopover
+								columns={tab.columns.map((column) => column.name)}
+								layout={tab.columnLayout}
+								onChange={(columnLayout) =>
+									updateTab<TableDataTab>(tab.id, { columnLayout })
+								}
+							/>
 							<Button
 								variant="default"
 								size="sm"
@@ -2648,6 +2697,10 @@ export function ConnectionDetails() {
 									highlightedTableRow?.tableName === tab.tableName &&
 									getPrimaryKeyRowKey(row, tab.columns) ===
 										highlightedTableRow.rowKey
+								}
+								columnLayout={tab.columnLayout}
+								onColumnLayoutChange={(columnLayout) =>
+									updateTab<TableDataTab>(tab.id, { columnLayout })
 								}
 							/>
 						</div>

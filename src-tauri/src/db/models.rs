@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Connection {
@@ -270,6 +271,60 @@ impl TableFilter {
             (None, None) => Ok(None),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SavedViewSortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedViewSort {
+    pub column: String,
+    pub direction: SavedViewSortDirection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedViewState {
+    pub version: u8,
+    pub filter: Option<TableFilter>,
+    pub sort: Option<SavedViewSort>,
+    pub column_order: Vec<String>,
+    pub hidden_columns: Vec<String>,
+    pub column_widths: HashMap<String, u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SavedViewStatePayload {
+    Current { state: SavedViewState },
+    Unsupported { version: u64 },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedView {
+    pub id: i64,
+    pub connection_uuid: String,
+    pub table_name: String,
+    pub name: String,
+    pub state: SavedViewStatePayload,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedViewFormData {
+    pub table_name: String,
+    pub name: String,
+    pub state: SavedViewState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedViewUpdateData {
+    pub name: String,
+    pub state: SavedViewState,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

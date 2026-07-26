@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/databaseCatalog";
-import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
+import type {
+	FilterColumnKind,
+	FilterExpression,
+	TableFilter,
+} from "@/lib/resultFilters";
 import type { Connection, ConnectionFormData } from "@/types/connection";
 import type {
 	DeleteConnectionResult,
@@ -134,6 +138,40 @@ export interface SavedQuery {
 export interface SavedQueryFormData {
 	name: string;
 	query: string;
+}
+
+export interface SavedViewStateV1 {
+	version: 1;
+	filter: TableFilter | null;
+	sort: { column: string; direction: "asc" | "desc" } | null;
+	column_order: string[];
+	hidden_columns: string[];
+	column_widths: Record<string, number>;
+}
+
+export type SavedViewStatePayload =
+	| { status: "current"; state: SavedViewStateV1 }
+	| { status: "unsupported"; version: number };
+
+export interface SavedView {
+	id: number;
+	connection_uuid: string;
+	table_name: string;
+	name: string;
+	state: SavedViewStatePayload;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface SavedViewFormData {
+	table_name: string;
+	name: string;
+	state: SavedViewStateV1;
+}
+
+export interface SavedViewUpdateData {
+	name: string;
+	state: SavedViewStateV1;
 }
 
 export interface QueryHistory {
@@ -708,6 +746,19 @@ export const api = {
 
 		clearHistory: (connectionUuid: string) =>
 			invoke<boolean>("clear_query_history", { connectionUuid }),
+	},
+
+	savedViews: {
+		list: (connectionUuid: string, tableName: string) =>
+			invoke<SavedView[]>("get_saved_views", { connectionUuid, tableName }),
+
+		create: (connectionUuid: string, data: SavedViewFormData) =>
+			invoke<SavedView>("create_saved_view", { connectionUuid, data }),
+
+		update: (id: number, data: SavedViewUpdateData) =>
+			invoke<SavedView>("update_saved_view", { id, data }),
+
+		delete: (id: number) => invoke<boolean>("delete_saved_view", { id }),
 	},
 
 	settings: {

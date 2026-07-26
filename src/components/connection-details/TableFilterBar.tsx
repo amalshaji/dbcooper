@@ -80,7 +80,7 @@ export function TableFilterBar({
 				);
 
 	return (
-		<div className="mx-6 mb-3 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
+		<div className="mx-4 mb-3 overflow-hidden rounded-xl border bg-muted/20 shadow-sm">
 			<div className="space-y-4 p-4">
 				<div className="flex flex-wrap items-center gap-2">
 					<fieldset className="flex rounded-lg bg-muted p-0.5">

@@ -6,12 +6,13 @@ import {
 } from "@phosphor-icons/react";
 import {
 	type ColumnDef,
+	functionalUpdate,
 	flexRender,
 	getCoreRowModel,
 	useReactTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
 	ContextMenu,
@@ -19,6 +20,13 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+	DEFAULT_COLUMN_WIDTH,
+	MAX_COLUMN_WIDTH,
+	MIN_COLUMN_WIDTH,
+	type TableColumnLayout,
+} from "../lib/savedViews";
+import { ColumnResizeHandle } from "./data-table/ColumnResizeHandle";
 
 export interface SortState {
 	column: string;
@@ -40,12 +48,11 @@ interface DataTableProps<TData> {
 	onSortChange?: (sort: SortState | null) => void;
 	isRowHighlighted?: (row: TData) => boolean;
 	onCellFilter?: (column: string, value: unknown, exclude: boolean) => void;
+	columnLayout?: TableColumnLayout;
+	onColumnLayoutChange?: (layout: TableColumnLayout) => void;
 }
 
-const COLUMN_WIDTH = 150;
 const VISIBLE_ROW_CAPACITY = 30;
-const MIN_COLUMN_WIDTH = 80;
-const MAX_COLUMN_WIDTH = 300;
 
 export function DataTable<TData>({
 	data,
@@ -62,12 +69,21 @@ export function DataTable<TData>({
 	onSortChange,
 	isRowHighlighted,
 	onCellFilter,
+	columnLayout,
+	onColumnLayoutChange,
 }: DataTableProps<TData>) {
 	const containerRef = useRef<HTMLDivElement>(null);
 	const [contextCell, setContextCell] = useState<{
 		column: string;
 		value: unknown;
 	} | null>(null);
+	const columnVisibility = useMemo(
+		() =>
+			Object.fromEntries(
+				(columnLayout?.hiddenColumns ?? []).map((column) => [column, false]),
+			),
+		[columnLayout?.hiddenColumns],
+	);
 
 	// TanStack Table returns functions that cannot be safely memoized by React Compiler.
 	// eslint-disable-next-line react-hooks/incompatible-library
@@ -77,6 +93,25 @@ export function DataTable<TData>({
 		getCoreRowModel: getCoreRowModel(),
 		manualPagination: true,
 		pageCount,
+		defaultColumn: {
+			size: DEFAULT_COLUMN_WIDTH,
+			minSize: MIN_COLUMN_WIDTH,
+			maxSize: MAX_COLUMN_WIDTH,
+		},
+		columnResizeMode: "onChange",
+		state: {
+			columnOrder: columnLayout?.columnOrder,
+			columnVisibility,
+			columnSizing: columnLayout?.columnWidths,
+		},
+		onColumnSizingChange: (updater) => {
+			if (!columnLayout || !onColumnLayoutChange) return;
+			const columnWidths = functionalUpdate(
+				updater,
+				columnLayout.columnWidths,
+			);
+			onColumnLayoutChange({ ...columnLayout, columnWidths });
+		},
 	});
 
 	const { rows } = table.getRowModel();
@@ -98,10 +133,15 @@ export function DataTable<TData>({
 		horizontal: true,
 		count: visibleColumns.length,
 		getScrollElement: () => containerRef.current,
-		estimateSize: () => COLUMN_WIDTH,
+		estimateSize: (index) =>
+			visibleColumns[index]?.column.getSize() ?? DEFAULT_COLUMN_WIDTH,
 		overscan: 4,
 		enabled: shouldVirtualizeColumns,
 	});
+
+	useEffect(() => {
+		columnVirtualizer.measure();
+	}, [columnVirtualizer, columnLayout]);
 
 	const virtualRows = shouldVirtualizeRows
 		? rowVirtualizer.getVirtualItems()
@@ -113,15 +153,15 @@ export function DataTable<TData>({
 				key: index,
 			}));
 
+	let staticColumnOffset = 0;
 	const virtualColumns = shouldVirtualizeColumns
 		? columnVirtualizer.getVirtualItems()
-		: visibleColumns.map((_, index) => ({
-				index,
-				start: index * COLUMN_WIDTH,
-				end: (index + 1) * COLUMN_WIDTH,
-				size: COLUMN_WIDTH,
-				key: index,
-			}));
+		: visibleColumns.map((header, index) => {
+				const size = header.column.getSize();
+				const start = staticColumnOffset;
+				staticColumnOffset += size;
+				return { index, start, end: start + size, size, key: index };
+			});
 
 	const totalRowHeight = shouldVirtualizeRows
 		? rowVirtualizer.getTotalSize()
@@ -129,7 +169,10 @@ export function DataTable<TData>({
 
 	const totalColumnWidth = shouldVirtualizeColumns
 		? columnVirtualizer.getTotalSize()
-		: visibleColumns.length * COLUMN_WIDTH;
+		: visibleColumns.reduce(
+				(total, header) => total + header.column.getSize(),
+				0,
+			);
 
 	const paddingTop =
 		shouldVirtualizeRows && virtualRows.length > 0
@@ -182,12 +225,13 @@ export function DataTable<TData>({
 		(row: (typeof rows)[number], columnIndex: number) => {
 			const cell = row.getVisibleCells()[columnIndex];
 			if (!cell) return null;
+			const columnWidth = cell.column.getSize();
 
 			const cellProps = {
 				style: {
-					width: COLUMN_WIDTH,
-					minWidth: MIN_COLUMN_WIDTH,
-					maxWidth: MAX_COLUMN_WIDTH,
+					width: columnWidth,
+					minWidth: columnWidth,
+					maxWidth: columnWidth,
 				},
 				className:
 					"h-10 px-3 align-middle whitespace-nowrap overflow-hidden text-ellipsis box-border",
@@ -285,8 +329,25 @@ export function DataTable<TData>({
 		if (shouldVirtualizeColumns) {
 			return totalColumnWidth;
 		}
-		return Math.max(visibleColumns.length * COLUMN_WIDTH, 100);
-	}, [shouldVirtualizeColumns, totalColumnWidth, visibleColumns.length]);
+		return Math.max(totalColumnWidth, 100);
+	}, [shouldVirtualizeColumns, totalColumnWidth]);
+
+	const updateColumnWidth = useCallback(
+		(column: string, width: number) => {
+			if (!columnLayout || !onColumnLayoutChange) return;
+			onColumnLayoutChange({
+				...columnLayout,
+				columnWidths: {
+					...columnLayout.columnWidths,
+					[column]: Math.min(
+						MAX_COLUMN_WIDTH,
+						Math.max(MIN_COLUMN_WIDTH, Math.round(width)),
+					),
+				},
+			});
+		},
+		[columnLayout, onColumnLayoutChange],
+	);
 
 	const getSortIcon = (columnId: string) => {
 		if (!sortable) return null;
@@ -338,15 +399,20 @@ export function DataTable<TData>({
 											typeof columnDef.accessorKey === "string"
 												? columnDef.accessorKey
 												: header.id;
+										const columnWidth = header.column.getSize();
+										const columnLabel =
+											typeof header.column.columnDef.header === "string"
+												? header.column.columnDef.header
+												: columnId;
 										return (
 											<th
 												key={header.id}
 												style={{
-													width: COLUMN_WIDTH,
-													minWidth: MIN_COLUMN_WIDTH,
-													maxWidth: MAX_COLUMN_WIDTH,
+													width: columnWidth,
+													minWidth: columnWidth,
+													maxWidth: columnWidth,
 												}}
-												className={`h-10 overflow-hidden text-ellipsis whitespace-nowrap bg-transparent px-3 text-left align-middle font-medium text-foreground box-border ${
+												className={`group/header relative h-10 overflow-hidden text-ellipsis whitespace-nowrap bg-transparent px-3 text-left align-middle font-medium text-foreground box-border ${
 													sortable
 														? "cursor-pointer hover:bg-muted/50 select-none"
 														: ""
@@ -364,6 +430,17 @@ export function DataTable<TData>({
 													</span>
 													{getSortIcon(columnId)}
 												</div>
+											{onColumnLayoutChange && (
+													<ColumnResizeHandle
+														columnLabel={columnLabel}
+														width={columnWidth}
+														isResizing={header.column.getIsResizing()}
+														onResizeStart={header.getResizeHandler()}
+														onWidthChange={(width) =>
+															updateColumnWidth(columnId, width)
+														}
+													/>
+												)}
 											</th>
 										);
 									})}

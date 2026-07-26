@@ -32,6 +32,9 @@ use commands::queries::{
     clear_query_history, create_saved_query, delete_saved_query, get_query_history,
     get_saved_queries, record_query_history, update_saved_query,
 };
+use commands::saved_views::{
+    create_saved_view, delete_saved_view, get_saved_views, update_saved_view,
+};
 use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
 #[cfg(desktop)]
 use commands::updates::check_for_update;
@@ -269,6 +272,10 @@ pub fn run() {
             record_query_history,
             get_query_history,
             clear_query_history,
+            get_saved_views,
+            create_saved_view,
+            update_saved_view,
+            delete_saved_view,
             get_setting,
             set_setting,
             set_settings,
