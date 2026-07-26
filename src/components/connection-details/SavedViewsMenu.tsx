@@ -39,7 +39,16 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export function SavedViewsMenu({
+export function SavedViewsMenu(props: SavedViewsMenuProps) {
+	return (
+		<SavedViewsMenuContent
+			key={`${props.connectionUuid}:${props.tableName}`}
+			{...props}
+		/>
+	);
+}
+
+function SavedViewsMenuContent({
 	connectionUuid,
 	tableName,
 	currentState,
