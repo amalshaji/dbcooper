@@ -22,41 +22,40 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { SavedView } from "@/lib/tauri";
 
+export type SavedViewDialogAction =
+	| { type: "create"; name: string }
+	| { type: "rename"; view: SavedView; name: string }
+	| { type: "delete"; view: SavedView }
+	| { type: "switch"; view: SavedView }
+	| null;
+
 interface SavedViewDialogsProps {
-	nameDialog: "create" | "rename" | null;
-	name: string;
+	action: SavedViewDialogAction;
 	busy: boolean;
 	hasUnappliedFilterDraft: boolean;
-	deleteTarget: SavedView | null;
 	activeView: SavedView | null;
-	switchTarget: SavedView | null;
-	onNameChange: (name: string) => void;
-	onNameDialogOpenChange: (open: boolean) => void;
+	onActionChange: (action: SavedViewDialogAction) => void;
 	onNameSubmit: () => void;
-	onDeleteDialogOpenChange: (open: boolean) => void;
 	onDelete: () => void;
-	onSwitchDialogOpenChange: (open: boolean) => void;
 	onDiscardAndSwitch: () => void;
 	onSaveAndSwitch: () => void;
 }
 
 export function SavedViewDialogs({
-	nameDialog,
-	name,
+	action,
 	busy,
 	hasUnappliedFilterDraft,
-	deleteTarget,
 	activeView,
-	switchTarget,
-	onNameChange,
-	onNameDialogOpenChange,
+	onActionChange,
 	onNameSubmit,
-	onDeleteDialogOpenChange,
 	onDelete,
-	onSwitchDialogOpenChange,
 	onDiscardAndSwitch,
 	onSaveAndSwitch,
 }: SavedViewDialogsProps) {
+	const nameAction =
+		action?.type === "create" || action?.type === "rename" ? action : null;
+	const deleteTarget = action?.type === "delete" ? action.view : null;
+	const switchTarget = action?.type === "switch" ? action.view : null;
 	const submitName = (event: FormEvent) => {
 		event.preventDefault();
 		onNameSubmit();
@@ -64,15 +63,18 @@ export function SavedViewDialogs({
 
 	return (
 		<>
-			<Dialog open={nameDialog !== null} onOpenChange={onNameDialogOpenChange}>
+			<Dialog
+				open={nameAction !== null}
+				onOpenChange={(open) => !open && onActionChange(null)}
+			>
 				<DialogContent className="max-w-sm">
 					<form onSubmit={submitName}>
 						<DialogHeader>
 							<DialogTitle>
-								{nameDialog === "create" ? "Save view" : "Rename view"}
+								{nameAction?.type === "create" ? "Save view" : "Rename view"}
 							</DialogTitle>
 							<DialogDescription>
-								{nameDialog === "create"
+								{nameAction?.type === "create"
 									? "Save the applied filter, sort, and column layout for this table."
 									: "Choose a clear name for this table view."}
 							</DialogDescription>
@@ -85,11 +87,14 @@ export function SavedViewDialogs({
 								id="saved-view-name"
 								autoFocus
 								maxLength={80}
-								value={name}
-								onChange={(event) => onNameChange(event.target.value)}
+								value={nameAction?.name ?? ""}
+								onChange={(event) =>
+									nameAction &&
+									onActionChange({ ...nameAction, name: event.target.value })
+								}
 								placeholder="Recent activity"
 							/>
-							{nameDialog === "create" && hasUnappliedFilterDraft && (
+							{nameAction?.type === "create" && hasUnappliedFilterDraft && (
 								<p className="text-[11px] text-amber-700 dark:text-amber-300">
 									Unapplied filter edits won’t be included.
 								</p>
@@ -99,13 +104,13 @@ export function SavedViewDialogs({
 							<Button
 								type="button"
 								variant="outline"
-								onClick={() => onNameDialogOpenChange(false)}
+								onClick={() => onActionChange(null)}
 							>
 								Cancel
 							</Button>
-							<Button type="submit" disabled={busy || !name.trim()}>
+							<Button type="submit" disabled={busy || !nameAction?.name.trim()}>
 								{busy && <Spinner />}
-								{nameDialog === "create" ? "Save view" : "Rename view"}
+								{nameAction?.type === "create" ? "Save view" : "Rename view"}
 							</Button>
 						</DialogFooter>
 					</form>
@@ -114,7 +119,7 @@ export function SavedViewDialogs({
 
 			<AlertDialog
 				open={deleteTarget !== null}
-				onOpenChange={onDeleteDialogOpenChange}
+				onOpenChange={(open) => !open && onActionChange(null)}
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
@@ -138,7 +143,7 @@ export function SavedViewDialogs({
 
 			<Dialog
 				open={switchTarget !== null}
-				onOpenChange={onSwitchDialogOpenChange}
+				onOpenChange={(open) => !open && onActionChange(null)}
 			>
 				<DialogContent className="max-w-sm">
 					<DialogHeader>
@@ -149,10 +154,7 @@ export function SavedViewDialogs({
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter className="sm:grid sm:grid-cols-[auto_1fr_1fr]">
-						<Button
-							variant="ghost"
-							onClick={() => onSwitchDialogOpenChange(false)}
-						>
+						<Button variant="ghost" onClick={() => onActionChange(null)}>
 							Cancel
 						</Button>
 						<Button

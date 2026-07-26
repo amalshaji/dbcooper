@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { getSavedViewStatus } from "@/lib/savedViews";
 import { api, type SavedView, type SavedViewStateV1 } from "@/lib/tauri";
-import { SavedViewDialogs } from "./SavedViewDialogs";
+import {
+	SavedViewDialogs,
+	type SavedViewDialogAction,
+} from "./SavedViewDialogs";
 
 interface SavedViewsMenuProps {
 	connectionUuid: string;
@@ -32,8 +35,6 @@ interface SavedViewsMenuProps {
 	onActiveViewChange: (id: number | null) => void;
 	onApply: (view: SavedView) => Promise<boolean>;
 }
-
-type NameDialogMode = "create" | "rename" | null;
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -61,11 +62,7 @@ function SavedViewsMenuContent({
 	const [views, setViews] = useState<SavedView[]>([]);
 	const [loadingViews, setLoadingViews] = useState(true);
 	const [busy, setBusy] = useState(false);
-	const [nameDialog, setNameDialog] = useState<NameDialogMode>(null);
-	const [name, setName] = useState("");
-	const [renameTarget, setRenameTarget] = useState<SavedView | null>(null);
-	const [deleteTarget, setDeleteTarget] = useState<SavedView | null>(null);
-	const [switchTarget, setSwitchTarget] = useState<SavedView | null>(null);
+	const [dialogAction, setDialogAction] = useState<SavedViewDialogAction>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -118,7 +115,7 @@ function SavedViewsMenuContent({
 		(view: SavedView) => {
 			if (view.id === activeViewId) return;
 			if (activeView && isEdited) {
-				setSwitchTarget(view);
+				setDialogAction({ type: "switch", view });
 				return;
 			}
 			void applyView(view);
@@ -127,18 +124,17 @@ function SavedViewsMenuContent({
 	);
 
 	const createView = async () => {
-		if (!name.trim()) return;
+		if (dialogAction?.type !== "create" || !dialogAction.name.trim()) return;
 		setBusy(true);
 		try {
 			const created = await api.savedViews.create(connectionUuid, {
 				table_name: tableName,
-				name,
+				name: dialogAction.name,
 				state: currentState,
 			});
 			replaceView(created);
 			onActiveViewChange(created.id);
-			setNameDialog(null);
-			setName("");
+			setDialogAction(null);
 			toast.success(`Saved “${created.name}”`);
 		} catch (error) {
 			toast.error("Failed to save view", { description: errorMessage(error) });
@@ -169,17 +165,15 @@ function SavedViewsMenuContent({
 	}, [activeView, currentState, replaceView]);
 
 	const renameView = async () => {
-		if (!renameTarget || !name.trim()) return;
+		if (dialogAction?.type !== "rename" || !dialogAction.name.trim()) return;
 		setBusy(true);
 		try {
-			const updated = await api.savedViews.update(renameTarget.id, {
-				name,
-				state: renameTarget.state,
+			const updated = await api.savedViews.update(dialogAction.view.id, {
+				name: dialogAction.name,
+				state: dialogAction.view.state,
 			});
 			replaceView(updated);
-			setNameDialog(null);
-			setRenameTarget(null);
-			setName("");
+			setDialogAction(null);
 		} catch (error) {
 			toast.error("Failed to rename view", {
 				description: errorMessage(error),
@@ -190,16 +184,15 @@ function SavedViewsMenuContent({
 	};
 
 	const deleteView = async () => {
-		if (!deleteTarget) return;
+		if (dialogAction?.type !== "delete") return;
+		const target = dialogAction.view;
 		setBusy(true);
 		try {
-			await api.savedViews.delete(deleteTarget.id);
-			setViews((current) =>
-				current.filter((view) => view.id !== deleteTarget.id),
-			);
-			if (deleteTarget.id === activeViewId) onActiveViewChange(null);
-			setDeleteTarget(null);
-			toast.success(`Deleted “${deleteTarget.name}”`);
+			await api.savedViews.delete(target.id);
+			setViews((current) => current.filter((view) => view.id !== target.id));
+			if (target.id === activeViewId) onActiveViewChange(null);
+			setDialogAction(null);
+			toast.success(`Deleted “${target.name}”`);
 		} catch (error) {
 			toast.error("Failed to delete view", {
 				description: errorMessage(error),
@@ -210,25 +203,19 @@ function SavedViewsMenuContent({
 	};
 
 	const saveAndSwitch = async () => {
-		if (!switchTarget) return;
-		const target = switchTarget;
+		if (dialogAction?.type !== "switch") return;
+		const target = dialogAction.view;
 		if (await updateActiveView()) {
-			setSwitchTarget(null);
+			setDialogAction(null);
 			await applyView(target);
 		}
 	};
 
-	const closeNameDialog = (open: boolean) => {
-		if (!open) {
-			setNameDialog(null);
-			setRenameTarget(null);
-		}
-	};
-
 	const discardAndSwitch = () => {
-		const target = switchTarget;
-		setSwitchTarget(null);
-		if (target) void applyView(target);
+		if (dialogAction?.type !== "switch") return;
+		const target = dialogAction.view;
+		setDialogAction(null);
+		void applyView(target);
 	};
 
 	const disabled = loading || loadingViews || busy;
@@ -268,10 +255,7 @@ function SavedViewsMenuContent({
 					)}
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
-						onClick={() => {
-							setName("");
-							setNameDialog("create");
-						}}
+						onClick={() => setDialogAction({ type: "create", name: "" })}
 					>
 						<FloppyDisk /> Save current view…
 					</DropdownMenuItem>
@@ -291,9 +275,11 @@ function SavedViewsMenuContent({
 										<DropdownMenuItem
 											key={view.id}
 											onClick={() => {
-												setRenameTarget(view);
-												setName(view.name);
-												setNameDialog("rename");
+												setDialogAction({
+													type: "rename",
+													view,
+													name: view.name,
+												});
 											}}
 										>
 											<span className="truncate">{view.name}</span>
@@ -310,7 +296,7 @@ function SavedViewsMenuContent({
 										<DropdownMenuItem
 											key={view.id}
 											variant="destructive"
-											onClick={() => setDeleteTarget(view)}
+											onClick={() => setDialogAction({ type: "delete", view })}
 										>
 											<span className="truncate">{view.name}</span>
 										</DropdownMenuItem>
@@ -323,21 +309,15 @@ function SavedViewsMenuContent({
 			</DropdownMenu>
 
 			<SavedViewDialogs
-				nameDialog={nameDialog}
-				name={name}
+				action={dialogAction}
 				busy={busy}
 				hasUnappliedFilterDraft={hasUnappliedFilterDraft}
-				deleteTarget={deleteTarget}
 				activeView={activeView}
-				switchTarget={switchTarget}
-				onNameChange={setName}
-				onNameDialogOpenChange={closeNameDialog}
+				onActionChange={setDialogAction}
 				onNameSubmit={() =>
-					void (nameDialog === "create" ? createView() : renameView())
+					void (dialogAction?.type === "create" ? createView() : renameView())
 				}
-				onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
 				onDelete={() => void deleteView()}
-				onSwitchDialogOpenChange={(open) => !open && setSwitchTarget(null)}
 				onDiscardAndSwitch={discardAndSwitch}
 				onSaveAndSwitch={() => void saveAndSwitch()}
 			/>
