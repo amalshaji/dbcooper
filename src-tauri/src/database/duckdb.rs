@@ -7,13 +7,14 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, Weak};
 use std::time::Instant;
-use tokio::sync::Mutex;
 
 use super::filter::{
     build_where_clause, classify_column_type, compile_filter, structured_expression,
     CompiledFilter, FilterDialect, FilterValue,
 };
-use super::{query_returns_rows, DatabaseDriver, DuckDbConfig, MAX_QUERY_RESULT_ROWS};
+use super::{
+    query_returns_rows_with_keywords, DatabaseDriver, DuckDbConfig, MAX_QUERY_RESULT_ROWS,
+};
 use crate::db::models::{
     ColumnInfo, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview, TableDataResponse,
     TableFilter, TableInfo, TableStructure, TableWithStructure, TestConnectionResult,
@@ -21,7 +22,7 @@ use crate::db::models::{
 
 const MAX_SAFE_JSON_INTEGER: i128 = 9_007_199_254_740_991;
 
-static FILE_LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+static FILE_LOCKS: OnceLock<StdMutex<HashMap<PathBuf, Weak<StdMutex<()>>>>> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 enum ConnectionMode {
@@ -31,7 +32,7 @@ enum ConnectionMode {
 
 pub struct DuckDbDriver {
     config: DuckDbConfig,
-    file_lock: Arc<Mutex<()>>,
+    file_lock: Arc<StdMutex<()>>,
     interactive_connection: Arc<StdMutex<Option<Connection>>>,
 }
 
@@ -41,7 +42,7 @@ impl DuckDbDriver {
         let locks = FILE_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
         let mut locks = locks.lock().expect("DuckDB file lock registry poisoned");
         let file_lock = locks.get(&key).and_then(Weak::upgrade).unwrap_or_else(|| {
-            let lock = Arc::new(Mutex::new(()));
+            let lock = Arc::new(StdMutex::new(()));
             locks.insert(key, Arc::downgrade(&lock));
             lock
         });
@@ -58,22 +59,27 @@ impl DuckDbDriver {
         T: Send + 'static,
         F: FnOnce(&Connection) -> Result<T, String> + Send + 'static,
     {
-        let _guard = self.file_lock.lock().await;
+        let file_lock = Arc::clone(&self.file_lock);
         let path = self.config.file_path.clone();
         let interactive_connection = Arc::clone(&self.interactive_connection);
-        tokio::task::spawn_blocking(move || match mode {
-            ConnectionMode::Interactive => {
-                let mut connection = interactive_connection
-                    .lock()
-                    .map_err(|_| "DuckDB connection lock poisoned".to_string())?;
-                if connection.is_none() {
-                    *connection = Some(open_connection(&path, mode)?);
+        tokio::task::spawn_blocking(move || {
+            let _guard = file_lock
+                .lock()
+                .map_err(|_| "DuckDB file lock poisoned".to_string())?;
+            match mode {
+                ConnectionMode::Interactive => {
+                    let mut connection = interactive_connection
+                        .lock()
+                        .map_err(|_| "DuckDB connection lock poisoned".to_string())?;
+                    if connection.is_none() {
+                        *connection = Some(open_connection(&path, mode)?);
+                    }
+                    operation(connection.as_ref().expect("DuckDB connection initialized"))
                 }
-                operation(connection.as_ref().expect("DuckDB connection initialized"))
-            }
-            ConnectionMode::ReadOnly => {
-                let connection = open_connection(&path, mode)?;
-                operation(&connection)
+                ConnectionMode::ReadOnly => {
+                    let connection = open_connection(&path, mode)?;
+                    operation(&connection)
+                }
             }
         })
         .await
@@ -272,7 +278,7 @@ impl DatabaseDriver for DuckDbDriver {
         let limit = limit.clamp(1, 1_000);
         let offset = (page - 1) * limit;
 
-        let order_column = if let Some(column) = sort_column {
+        let order_columns = if let Some(column) = sort_column {
             if !structure
                 .columns
                 .iter()
@@ -280,13 +286,14 @@ impl DatabaseDriver for DuckDbDriver {
             {
                 return Err(format!("Unknown sort column: {column}"));
             }
-            Some(column)
+            vec![column]
         } else {
             structure
                 .columns
                 .iter()
-                .find(|column| column.primary_key)
+                .filter(|column| column.primary_key)
                 .map(|column| column.name.clone())
+                .collect()
         };
         let order_direction = if sort_direction
             .as_deref()
@@ -296,9 +303,16 @@ impl DatabaseDriver for DuckDbDriver {
         } else {
             "ASC"
         };
-        let order_clause = order_column
-            .map(|column| format!(" ORDER BY {} {order_direction}", quote_identifier(&column)))
-            .unwrap_or_default();
+        let order_clause = if order_columns.is_empty() {
+            String::new()
+        } else {
+            let columns = order_columns
+                .iter()
+                .map(|column| format!("{} {order_direction}", quote_identifier(column)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(" ORDER BY {columns}")
+        };
         let count_sql = format!("SELECT COUNT(*) AS total FROM {table_ref}{where_clause}");
         let data_sql = format!(
             "SELECT * FROM {table_ref}{where_clause}{order_clause} LIMIT {limit} OFFSET {offset}"
@@ -439,13 +453,7 @@ fn execute_query(connection: &Connection, query: &str) -> Result<QueryResult, St
 }
 
 fn duckdb_query_returns_rows(query: &str) -> bool {
-    if query_returns_rows(query) {
-        return true;
-    }
-    let query = query.trim_start().to_ascii_lowercase();
-    ["from ", "summarize ", "pivot ", "unpivot "]
-        .iter()
-        .any(|prefix| query.starts_with(prefix))
+    query_returns_rows_with_keywords(query, &["FROM", "SUMMARIZE", "PIVOT", "UNPIVOT"])
 }
 
 fn query_rows(
@@ -481,21 +489,23 @@ fn query_statement(
             let value = row
                 .get::<_, DuckValue>(index)
                 .map_err(|error| error.to_string())?;
-            object.insert(column.clone(), duck_value_to_json(value));
+            object.insert(column.clone(), duck_value_to_json(value)?);
         }
         data.push(Value::Object(object));
     }
     Ok((data, false))
 }
 
-fn duck_value_to_json(value: DuckValue) -> Value {
-    match value {
+fn duck_value_to_json(value: DuckValue) -> Result<Value, String> {
+    let value = match value {
         DuckValue::Null => Value::Null,
         DuckValue::Boolean(value) => json!(value),
         DuckValue::TinyInt(value) => json!(value),
         DuckValue::SmallInt(value) => json!(value),
         DuckValue::Int(value) => json!(value),
-        DuckValue::BigInt(value) if i128::from(value).abs() <= MAX_SAFE_JSON_INTEGER => json!(value),
+        DuckValue::BigInt(value) if i128::from(value).abs() <= MAX_SAFE_JSON_INTEGER => {
+            json!(value)
+        }
         DuckValue::BigInt(value) => json!(value.to_string()),
         DuckValue::HugeInt(value) if value.abs() <= MAX_SAFE_JSON_INTEGER => json!(value as i64),
         DuckValue::HugeInt(value) => json!(value.to_string()),
@@ -515,30 +525,50 @@ fn duck_value_to_json(value: DuckValue) -> Value {
         DuckValue::Decimal(value) => json!(value.to_string()),
         DuckValue::Timestamp(unit, value) => json!(format_timestamp(unit, value)),
         DuckValue::Text(value) | DuckValue::Enum(value) => json!(value),
-        DuckValue::Blob(value) | DuckValue::Geometry(value) => json!(format!("\\x{}", hex::encode_upper(value))),
+        DuckValue::Blob(value) | DuckValue::Geometry(value) => {
+            json!(format!("\\x{}", hex::encode_upper(value)))
+        }
         DuckValue::Date32(days) => json!(format_date(days)),
         DuckValue::Time64(unit, value) => json!(format_time(unit, value)),
-        DuckValue::Interval { months, days, nanos } => {
-            json!(format!("P{months}M{days}DT{}S", nanos as f64 / 1_000_000_000.0))
+        DuckValue::Interval {
+            months,
+            days,
+            nanos,
+        } => {
+            json!(format!(
+                "P{months}M{days}DT{}S",
+                nanos as f64 / 1_000_000_000.0
+            ))
         }
-        DuckValue::List(values) | DuckValue::Array(values) => {
-            Value::Array(values.into_iter().map(duck_value_to_json).collect())
+        DuckValue::List(values) | DuckValue::Array(values) => Value::Array(
+            values
+                .into_iter()
+                .map(duck_value_to_json)
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        DuckValue::Struct(values) => {
+            let values = values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), duck_value_to_json(value.clone())?)))
+                .collect::<Result<Map<_, _>, String>>()?;
+            Value::Object(values)
         }
-        DuckValue::Struct(values) => Value::Object(
-            values
+        DuckValue::Map(values) => {
+            let values = values
                 .iter()
-                .map(|(key, value)| (key.clone(), duck_value_to_json(value.clone())))
-                .collect(),
-        ),
-        DuckValue::Map(values) => Value::Array(
-            values
-                .iter()
-                .map(|(key, value)| json!({ "key": duck_value_to_json(key.clone()), "value": duck_value_to_json(value.clone()) }))
-                .collect(),
-        ),
-        DuckValue::Union(value) => duck_value_to_json(*value),
-        _ => Value::Null,
-    }
+                .map(|(key, value)| {
+                    Ok(json!({
+                        "key": duck_value_to_json(key.clone())?,
+                        "value": duck_value_to_json(value.clone())?
+                    }))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Value::Array(values)
+        }
+        DuckValue::Union(value) => return duck_value_to_json(*value),
+        unsupported => return Err(format!("Unsupported DuckDB value type: {unsupported:?}")),
+    };
+    Ok(value)
 }
 
 fn format_timestamp(unit: TimeUnit, value: i64) -> String {
@@ -591,4 +621,81 @@ fn string_array(value: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{duck_value_to_json, ConnectionMode, DuckDbConfig, DuckDbDriver};
+    use duckdb::types::Value as DuckValue;
+    use serde_json::json;
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    use tempfile::tempdir;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancelled_call_keeps_file_lock_until_blocking_work_finishes() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir
+            .path()
+            .join("analytics.duckdb")
+            .to_string_lossy()
+            .to_string();
+        let first = Arc::new(DuckDbDriver::new(DuckDbConfig {
+            file_path: file_path.clone(),
+        }));
+        let second = Arc::new(DuckDbDriver::new(DuckDbConfig { file_path }));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+
+        let first_task = tokio::spawn({
+            let first = Arc::clone(&first);
+            async move {
+                first
+                    .run_blocking(ConnectionMode::Interactive, move |_| {
+                        started_tx.send(()).unwrap();
+                        release_rx.recv().unwrap();
+                        Ok(())
+                    })
+                    .await
+            }
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(2)))
+            .await
+            .unwrap()
+            .unwrap();
+
+        first_task.abort();
+        let _ = first_task.await;
+
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let second_task = tokio::spawn(async move {
+            second
+                .run_blocking(ConnectionMode::Interactive, move |_| {
+                    let _ = second_entered_tx.send(());
+                    Ok(())
+                })
+                .await
+        });
+        let entered_before_release = tokio::task::spawn_blocking(move || {
+            second_entered_rx
+                .recv_timeout(Duration::from_millis(300))
+                .is_ok()
+        })
+        .await
+        .unwrap();
+
+        release_tx.send(()).unwrap();
+        second_task.await.unwrap().unwrap();
+
+        assert!(!entered_before_release);
+    }
+
+    #[test]
+    fn converts_supported_values_through_a_fallible_boundary() {
+        assert_eq!(duck_value_to_json(DuckValue::Int(7)).unwrap(), json!(7));
+        assert_eq!(
+            duck_value_to_json(DuckValue::List(vec![DuckValue::Text("ok".to_string())])).unwrap(),
+            json!(["ok"])
+        );
+    }
 }

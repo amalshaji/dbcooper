@@ -98,6 +98,36 @@ async fn reads_pages_with_structured_filters_and_primary_key_ordering() {
 }
 
 #[tokio::test]
+async fn orders_pages_by_every_composite_primary_key_column() {
+    let temp_dir = tempdir().unwrap();
+    let driver = create_driver(&temp_dir);
+    driver
+        .execute_query(
+            "CREATE TABLE events(tenant_id INTEGER, sequence INTEGER, PRIMARY KEY (tenant_id, sequence)); \
+             INSERT INTO events VALUES (1, 2), (2, 2), (1, 1), (2, 1)",
+        )
+        .await
+        .unwrap();
+
+    let page = driver
+        .get_table_data("main", "events", 1, 10, None, None, None)
+        .await
+        .unwrap();
+    let keys = page
+        .data
+        .iter()
+        .map(|row| {
+            (
+                row["tenant_id"].as_i64().unwrap(),
+                row["sequence"].as_i64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(keys, vec![(1, 1), (1, 2), (2, 1), (2, 2)]);
+}
+
+#[tokio::test]
 async fn exposes_structure_and_complex_values_without_precision_loss() {
     let temp_dir = tempdir().unwrap();
     let driver = create_driver(&temp_dir);
@@ -176,6 +206,13 @@ async fn supports_duckdb_query_syntax_and_caps_results() {
         .unwrap();
     assert_eq!(from_result.row_count, 3);
     assert!(!from_result.truncated);
+
+    let commented_from = driver
+        .execute_query("-- generated query\nFROM range(2) t(value)")
+        .await
+        .unwrap();
+    assert!(commented_from.error.is_none());
+    assert_eq!(commented_from.row_count, 2);
 
     let capped = driver
         .execute_query("SELECT * FROM range(10001) t(value)")

@@ -154,13 +154,14 @@ pub(crate) fn sqlite_read_only_query_is_safe(sql: &str) -> bool {
         && !contains_keyword_outside_literals(sql, "DETACH")
 }
 
-pub fn query_returns_rows(query: &str) -> bool {
+pub(crate) fn query_returns_rows_with_keywords(query: &str, extra_keywords: &[&str]) -> bool {
     let sql = strip_leading_sql_comments(query);
 
     if [
         "SELECT", "WITH", "VALUES", "SHOW", "DESCRIBE", "PRAGMA", "EXPLAIN",
     ]
     .iter()
+    .chain(extra_keywords.iter())
     .any(|keyword| starts_with_keyword(sql, keyword))
     {
         return true;
@@ -170,6 +171,10 @@ pub fn query_returns_rows(query: &str) -> bool {
         .iter()
         .any(|keyword| starts_with_keyword(sql, keyword))
         && contains_keyword_outside_literals(sql, "RETURNING")
+}
+
+pub fn query_returns_rows(query: &str) -> bool {
+    query_returns_rows_with_keywords(query, &[])
 }
 
 /// Common trait for all database drivers
