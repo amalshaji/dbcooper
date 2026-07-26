@@ -4,7 +4,7 @@ CREATE TABLE docker_connections_new (
     docker_context TEXT NOT NULL,
     container_id TEXT NOT NULL,
     container_name TEXT NOT NULL,
-    engine TEXT NOT NULL,
+    engine TEXT NOT NULL CHECK (engine IN ('postgres', 'redis', 'clickhouse', 'mysql', 'mariadb')),
     image TEXT NOT NULL,
     internal_port INTEGER NOT NULL,
     compose_project TEXT,
