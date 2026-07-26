@@ -7,6 +7,7 @@ pub mod duckdb;
 pub mod filter;
 pub mod mutation;
 pub mod mysql;
+mod mysql_read_only;
 pub mod pool_manager;
 pub mod postgres;
 pub mod queries;
@@ -173,88 +174,6 @@ fn contains_keyword_outside_literals(sql: &str, keyword: &str) -> bool {
 pub(crate) fn sqlite_read_only_query_is_safe(sql: &str) -> bool {
     !contains_keyword_outside_literals(sql, "ATTACH")
         && !contains_keyword_outside_literals(sql, "DETACH")
-}
-
-pub(crate) fn mysql_read_only_query_is_safe(sql: &str) -> bool {
-    let sql = strip_leading_sql_comments(sql).trim();
-    let lower = sql.to_ascii_lowercase();
-    if lower.contains("/*!") || lower.contains("/*m!") {
-        return false;
-    }
-    if has_multiple_mysql_statements(sql) {
-        return false;
-    }
-    if !["SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"]
-        .iter()
-        .any(|keyword| starts_with_keyword(sql, keyword))
-    {
-        return false;
-    }
-
-    ![
-        "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME",
-        "GRANT", "REVOKE", "CALL", "DO", "HANDLER", "LOAD", "OUTFILE", "DUMPFILE", "LOCK",
-        "UNLOCK",
-    ]
-    .iter()
-    .any(|keyword| contains_keyword_outside_literals(sql, keyword))
-}
-
-fn has_multiple_mysql_statements(sql: &str) -> bool {
-    let mut semicolons = Vec::new();
-    let mut chars = sql.char_indices().peekable();
-    let mut quote = None;
-    let mut line_comment = false;
-    let mut block_comment = false;
-    while let Some((index, ch)) = chars.next() {
-        let next = chars.peek().map(|(_, value)| *value);
-        if line_comment {
-            if ch == '\n' {
-                line_comment = false;
-            }
-            continue;
-        }
-        if block_comment {
-            if ch == '*' && next == Some('/') {
-                chars.next();
-                block_comment = false;
-            }
-            continue;
-        }
-        if let Some(delimiter) = quote {
-            if ch == delimiter {
-                if next == Some(delimiter) {
-                    chars.next();
-                } else {
-                    quote = None;
-                }
-            }
-            continue;
-        }
-        if ch == '-' && next == Some('-') {
-            chars.next();
-            line_comment = true;
-        } else if ch == '/' && next == Some('*') {
-            chars.next();
-            block_comment = true;
-        } else if matches!(ch, '\'' | '"' | '`') {
-            quote = Some(ch);
-        } else if ch == ';' {
-            semicolons.push(index);
-        }
-    }
-    match semicolons.as_slice() {
-        [] => false,
-        [index] => *index + 1 != sql.trim_end().len(),
-        _ => true,
-    }
-}
-
-pub(crate) fn mysql_read_only_uses_text_protocol(sql: &str) -> bool {
-    let sql = strip_leading_sql_comments(sql);
-    ["SHOW", "DESCRIBE", "DESC"]
-        .iter()
-        .any(|keyword| starts_with_keyword(sql, keyword))
 }
 
 pub(crate) fn query_returns_rows_with_keywords(query: &str, extra_keywords: &[&str]) -> bool {

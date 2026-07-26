@@ -13,10 +13,8 @@ use super::filter::{
     CompiledFilter, FilterDialect, FilterValue,
 };
 use super::mutation::MutationPlan;
-use super::{
-    mysql_read_only_query_is_safe, mysql_read_only_uses_text_protocol, query_returns_rows,
-    DatabaseDriver, MysqlConfig, MysqlFlavor,
-};
+use super::mysql_read_only::{query_is_safe, uses_text_protocol};
+use super::{query_returns_rows, DatabaseDriver, MysqlConfig, MysqlFlavor};
 use crate::db::models::{
     ColumnInfo, CreateTableRequest, ForeignKeyInfo, IndexInfo, QueryResult, SchemaOverview,
     TableDataResponse, TableFilter, TableInfo, TableStructure, TableWithStructure,
@@ -471,14 +469,14 @@ impl DatabaseDriver for MysqlDriver {
 
     async fn execute_query_read_only(&self, query: &str) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
-        if !mysql_read_only_query_is_safe(query) {
+        if !query_is_safe(query) {
             return Ok(QueryResult::from_error(
                 "Read-only mode only allows a single read statement".to_string(),
                 start,
             ));
         }
         let pool = self.get_pool().await?;
-        if mysql_read_only_uses_text_protocol(query) {
+        if uses_text_protocol(query) {
             return match sqlx::raw_sql(query)
                 .fetch(&pool)
                 .take(super::MAX_QUERY_RESULT_ROWS + 1)
