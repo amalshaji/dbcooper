@@ -134,6 +134,7 @@ import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
+import { useQueryAiGeneration } from "@/hooks/useQueryAiGeneration";
 import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { useSavedViewApplication } from "@/hooks/useSavedViewApplication";
 import { RowEditSheet } from "@/components/RowEditSheet";
@@ -548,13 +549,27 @@ export function ConnectionDetails() {
 	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
 
 	// AI generation
-	const { generateDraft, isConfigured: aiConfigured } =
+	const {
+		generateDraft,
+		cancelGeneration,
+		isConfigured: aiConfigured,
+	} =
 		useContextualSqlGeneration({
 			dbType: connection?.db_type,
 			tables,
 			tableColumns,
 			schemaOverview,
 		});
+
+	const { getEditorAiProps, cancelTabGeneration } = useQueryAiGeneration({
+		tabs,
+		activeTabId,
+		setTabs,
+		setActiveTabId,
+		generateDraft,
+		cancelGeneration,
+		isConfigured: aiConfigured,
+	});
 
 	// Row edit state
 	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
@@ -1184,6 +1199,7 @@ export function ConnectionDetails() {
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
+			cancelTabGeneration(tabId);
 			setTabs((prev) => {
 				const newTabs = prev.filter((t) => t.id !== tabId);
 
@@ -1199,7 +1215,7 @@ export function ConnectionDetails() {
 				return newTabs;
 			});
 		},
-		[activeTabId],
+		[activeTabId, cancelTabGeneration],
 	);
 
 	const handleTabSelect = useCallback((tabId: string) => {
@@ -3097,8 +3113,7 @@ export function ConnectionDetails() {
 							name: t.name,
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
-						onGenerateSQL={generateDraft}
-						aiConfigured={aiConfigured}
+						ai={getEditorAiProps(tab)}
 						onCursorActivity={(line, char) => {
 							setCursorLine(line);
 							setCursorChar(char);
