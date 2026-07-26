@@ -102,7 +102,7 @@ export function DataTable<TData>({
 		state: {
 			columnOrder: columnLayout?.columnOrder,
 			columnVisibility,
-			columnSizing: columnLayout?.columnWidths,
+			columnSizing: columnLayout?.columnWidths ?? {},
 		},
 		onColumnSizingChange: (updater) => {
 			if (!columnLayout || !onColumnLayoutChange) return;

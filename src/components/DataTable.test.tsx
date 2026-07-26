@@ -43,6 +43,20 @@ const columns: ColumnDef<Row>[] = [
 ];
 
 describe("DataTable column layout", () => {
+	test("renders query results without a saved column layout", () => {
+		const markup = renderToStaticMarkup(
+			<DataTable
+				data={[{ id: 1, name: "Ada" }]}
+				columns={columns}
+				hidePagination
+			/>,
+		);
+
+		expect(markup).toContain(">ID<");
+		expect(markup).toContain(">Name<");
+		expect(markup).toContain(">Ada<");
+	});
+
 	test("renders controlled order, visibility, width, and an accessible resize handle", () => {
 		const markup = renderToStaticMarkup(
 			<DataTable
