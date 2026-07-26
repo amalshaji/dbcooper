@@ -93,7 +93,7 @@ export function CreateDatabaseDialog({
 							}}
 						>
 							<SelectTrigger id="docker-engine" className="w-full">
-								<SelectValue />
+								<SelectValue>{engine.label}</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{DOCKER_DATABASE_ENGINES.map((option) => (

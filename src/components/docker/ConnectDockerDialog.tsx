@@ -152,7 +152,11 @@ export function ConnectDockerDialog({
 								onValueChange={(value) => setSelectedEngine(value as DockerDatabaseEngine)}
 							>
 								<SelectTrigger id="docker-engine-choice" className="w-full">
-									<SelectValue />
+									<SelectValue>
+										{DOCKER_DATABASE_ENGINES.find(
+											(item) => item.value === selectedEngine,
+										)?.label || selectedEngine}
+									</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{pendingContainer.possible_engines.map((engine) => {
