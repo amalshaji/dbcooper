@@ -65,7 +65,11 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 			{...commonProps}
 			aiState={{
 				instruction: "List active users",
-				draft: { status: "generating", sql: "SELECT *" },
+				draft: {
+					status: "generating",
+					requestId: "request-1",
+					sql: "SELECT *",
+				},
 			}}
 		/>,
 	);

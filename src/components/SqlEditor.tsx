@@ -178,26 +178,28 @@ export function SqlEditor({
 
 	const handleGenerate = async () => {
 		if (instruction.trim() && onGenerateSQL) {
+			const requestId = crypto.randomUUID();
 			onAiStateChange?.({
 				type: "update-draft",
-				action: { type: "start" },
+				action: { type: "start", requestId },
 			});
 			try {
 				const generatedSQL = await onGenerateSQL(instruction, value, (sql) =>
 					onAiStateChange?.({
 						type: "update-draft",
-						action: { type: "preview", sql },
+						action: { type: "preview", requestId, sql },
 					}),
 				);
 				onAiStateChange?.({
 					type: "update-draft",
-					action: { type: "complete", sql: generatedSQL },
+					action: { type: "complete", requestId, sql: generatedSQL },
 				});
 			} catch (error) {
 				onAiStateChange?.({
 					type: "update-draft",
 					action: {
 						type: "fail",
+						requestId,
 						message: error instanceof Error ? error.message : String(error),
 					},
 				});
