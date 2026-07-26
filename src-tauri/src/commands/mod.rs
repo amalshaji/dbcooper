@@ -5,6 +5,7 @@ pub mod mcp;
 pub mod pool;
 pub mod postgres;
 pub mod queries;
+pub mod saved_views;
 pub mod settings;
 #[cfg(desktop)]
 pub mod updates;

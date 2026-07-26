@@ -71,6 +71,24 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
 
     sqlx::query(
         r#"
+        CREATE TABLE IF NOT EXISTS saved_views (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            connection_uuid TEXT NOT NULL,
+            table_name TEXT NOT NULL,
+            name TEXT NOT NULL COLLATE NOCASE,
+            state_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (connection_uuid, table_name, name)
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -385,6 +403,87 @@ async fn test_delete_saved_query() {
         .unwrap();
 
     assert_eq!(count.0, 0);
+}
+
+// ============================================================================
+// Saved View CRUD Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_saved_view_round_trip_preserves_versioned_state() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let connection_uuid = uuid::Uuid::new_v4().to_string();
+    let state = serde_json::json!({
+        "version": 1,
+        "filter": null,
+        "sort": { "column": "created_at", "direction": "desc" },
+        "column_order": ["id", "created_at"],
+        "hidden_columns": ["id"],
+        "column_widths": { "created_at": 220 }
+    })
+    .to_string();
+
+    let saved: (String, String, String, String) = sqlx::query_as(
+        r#"
+        INSERT INTO saved_views (connection_uuid, table_name, name, state_json)
+        VALUES (?, ?, ?, ?)
+        RETURNING connection_uuid, table_name, name, state_json
+        "#,
+    )
+    .bind(&connection_uuid)
+    .bind("public.events")
+    .bind("Recent events")
+    .bind(&state)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(saved.0, connection_uuid);
+    assert_eq!(saved.1, "public.events");
+    assert_eq!(saved.2, "Recent events");
+    assert_eq!(saved.3, state);
+}
+
+#[tokio::test]
+async fn test_saved_view_names_are_unique_per_connection_and_table() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let connection_uuid = uuid::Uuid::new_v4().to_string();
+    let state = r#"{"version":1,"filter":null,"sort":null,"column_order":[],"hidden_columns":[],"column_widths":{}}"#;
+
+    sqlx::query(
+        "INSERT INTO saved_views (connection_uuid, table_name, name, state_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&connection_uuid)
+    .bind("public.events")
+    .bind("Recent")
+    .bind(state)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let duplicate = sqlx::query(
+        "INSERT INTO saved_views (connection_uuid, table_name, name, state_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&connection_uuid)
+    .bind("public.events")
+    .bind("recent")
+    .bind(state)
+    .execute(&pool)
+    .await;
+
+    assert!(duplicate.is_err());
+
+    let other_table = sqlx::query(
+        "INSERT INTO saved_views (connection_uuid, table_name, name, state_json) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&connection_uuid)
+    .bind("public.audit_log")
+    .bind("Recent")
+    .bind(state)
+    .execute(&pool)
+    .await;
+
+    assert!(other_table.is_ok());
 }
 
 // ============================================================================
