@@ -92,6 +92,31 @@ describe("saved view state", () => {
 		expect(isSavedViewStateEqual(left, right)).toBe(true);
 	});
 
+	test("compares layouts by visible behavior instead of storage order", () => {
+		const saved = captureSavedViewState(null, null, {
+			columnOrder: ["id", "name", "created_at"],
+			hiddenColumns: ["name", "created_at"],
+			columnWidths: {},
+		});
+		const equivalent = captureSavedViewState(null, null, {
+			columnOrder: ["id", "name", "created_at"],
+			hiddenColumns: ["created_at", "name"],
+			columnWidths: { id: 150 },
+		});
+
+		expect(isSavedViewStateEqual(saved, equivalent)).toBe(true);
+	});
+
+	test("rejects a future state before reading version-specific fields", () => {
+		const result = reconcileSavedViewState(
+			{ version: 2 } as unknown as SavedViewStateV1,
+			["id"],
+		);
+
+		expect(result.state).toBeNull();
+		expect(result.error).toContain("newer version");
+	});
+
 	test("moves columns without mutating the source order", () => {
 		const order = ["id", "name", "created_at"];
 		expect(moveColumn(order, "created_at", -1)).toEqual([

@@ -70,20 +70,29 @@ export function captureSavedViewState(
 	sort: SortConfig | null,
 	layout: TableColumnLayout,
 ): SavedViewStateV1 {
-	return {
+	return canonicalizeSavedViewState({
 		version: 1,
 		filter,
 		sort,
 		column_order: [...layout.columnOrder],
 		hidden_columns: [...layout.hiddenColumns],
 		column_widths: { ...layout.columnWidths },
-	};
+	});
 }
 
 export function reconcileSavedViewState(
 	state: SavedViewStateV1,
 	columnNames: string[],
 ): ReconciledSavedView {
+	if ((state.version as number) !== 1) {
+		return {
+			state: null,
+			layout: createColumnLayout(columnNames),
+			warning: null,
+			error: "This view was created by a newer version of DBcooper.",
+		};
+	}
+
 	const layout = normalizeColumnLayout(
 		{
 			columnOrder: state.column_order,
@@ -92,15 +101,6 @@ export function reconcileSavedViewState(
 		},
 		columnNames,
 	);
-
-	if ((state.version as number) !== 1) {
-		return {
-			state: null,
-			layout,
-			warning: null,
-			error: "This view was created by a newer version of DBcooper.",
-		};
-	}
 
 	if (state.filter?.kind === "structured") {
 		const available = new Set(columnNames);
@@ -132,21 +132,27 @@ export function reconcileSavedViewState(
 	};
 }
 
+export function canonicalizeSavedViewState(
+	state: SavedViewStateV1,
+): SavedViewStateV1 {
+	return {
+		...state,
+		hidden_columns: [...new Set(state.hidden_columns)].sort(),
+		column_widths: Object.fromEntries(
+			Object.entries(state.column_widths)
+				.filter(([, width]) => width !== DEFAULT_COLUMN_WIDTH)
+				.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
+		),
+	};
+}
+
 export function isSavedViewStateEqual(
 	left: SavedViewStateV1,
 	right: SavedViewStateV1,
 ): boolean {
-	const canonicalize = (state: SavedViewStateV1) => ({
-		...state,
-		column_widths: Object.fromEntries(
-			Object.entries(state.column_widths).sort(([leftKey], [rightKey]) =>
-				leftKey.localeCompare(rightKey),
-			),
-		),
-	});
-
 	return (
-		JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+		JSON.stringify(canonicalizeSavedViewState(left)) ===
+		JSON.stringify(canonicalizeSavedViewState(right))
 	);
 }
 
