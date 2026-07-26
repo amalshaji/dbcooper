@@ -12,6 +12,7 @@ use super::filter::{
     build_where_clause, classify_column_type, compile_filter, structured_expression,
     CompiledFilter, FilterDialect, FilterValue,
 };
+use super::mutation::MutationPlan;
 use super::{
     mysql_read_only_query_is_safe, mysql_read_only_uses_text_protocol, query_returns_rows,
     DatabaseDriver, MysqlConfig, MysqlFlavor,
@@ -449,14 +450,10 @@ impl DatabaseDriver for MysqlDriver {
         }
     }
 
-    async fn execute_parameterized(
-        &self,
-        query: &str,
-        values: &[Value],
-    ) -> Result<QueryResult, String> {
+    async fn execute_mutation(&self, mutation: &MutationPlan) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
         let pool = self.get_pool().await?;
-        match Self::bind_values(sqlx::query(query), values)?
+        match Self::bind_values(sqlx::query(&mutation.sql), &mutation.values)?
             .execute(&pool)
             .await
         {

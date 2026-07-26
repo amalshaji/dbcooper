@@ -10,6 +10,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use super::driver_factory::create_driver_with_ssh;
 pub use super::driver_factory::DriverConfig as ConnectionConfig;
+use super::mutation::MutationPlan;
 use super::DatabaseDriver;
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
@@ -309,17 +310,16 @@ impl PoolManager {
         driver.execute_query(query).await
     }
 
-    pub async fn execute_parameterized(
+    pub async fn execute_mutation(
         &self,
         uuid: &str,
-        query: &str,
-        values: &[serde_json::Value],
+        mutation: &MutationPlan,
     ) -> Result<QueryResult, String> {
         let driver = self
             .get_cached(uuid)
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
-        driver.execute_parameterized(query, values).await
+        driver.execute_mutation(mutation).await
     }
 
     /// Execute a query with read-only enforcement (engine-enforced where possible).

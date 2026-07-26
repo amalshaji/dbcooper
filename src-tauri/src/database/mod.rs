@@ -5,6 +5,7 @@ pub mod create_table;
 pub mod driver_factory;
 pub mod duckdb;
 pub mod filter;
+pub mod mutation;
 pub mod mysql;
 pub mod pool_manager;
 pub mod postgres;
@@ -19,6 +20,7 @@ use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, SchemaOverview, TableDataResponse,
     TableFilter, TableInfo, TableStructure, TestConnectionResult,
 };
+use mutation::MutationPlan;
 
 pub const MAX_QUERY_RESULT_ROWS: usize = 10_000;
 
@@ -319,12 +321,11 @@ pub trait DatabaseDriver: Send + Sync {
     /// Execute a raw SQL query
     async fn execute_query(&self, query: &str) -> Result<QueryResult, String>;
 
-    async fn execute_parameterized(
-        &self,
-        _query: &str,
-        _values: &[serde_json::Value],
-    ) -> Result<QueryResult, String> {
-        Err("Parameterized mutations are not supported for this database".to_string())
+    async fn execute_mutation(&self, mutation: &MutationPlan) -> Result<QueryResult, String> {
+        if !mutation.values.is_empty() {
+            return Err("Bound mutations are not supported for this database".to_string());
+        }
+        self.execute_query(&mutation.sql).await
     }
 
     /// Execute a query under read-only enforcement.
@@ -411,6 +412,18 @@ pub enum DatabaseType {
 }
 
 impl DatabaseType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Postgres => "postgres",
+            Self::Mysql => "mysql",
+            Self::Mariadb => "mariadb",
+            Self::Sqlite => "sqlite",
+            Self::DuckDb => "duckdb",
+            Self::Redis => "redis",
+            Self::Clickhouse => "clickhouse",
+        }
+    }
+
     pub fn default_port(self) -> i64 {
         match self {
             Self::Postgres | Self::Sqlite | Self::DuckDb => 5432,
