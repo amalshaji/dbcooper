@@ -64,6 +64,19 @@ function renderFilterBar(state: TableFilterState): string {
 }
 
 describe("TableFilterBar", () => {
+	test("uses the same horizontal inset as card content", () => {
+		const markup = renderFilterBar({
+			draft: {
+				kind: "structured",
+				value: { conjunction: "and", conditions: [] },
+			},
+			applied: null,
+		});
+
+		expect(markup).toContain("mx-4");
+		expect(markup).not.toContain("mx-6");
+	});
+
 	test("keeps the editor rendered when an active filter returns no rows", () => {
 		const filter = {
 			kind: "structured" as const,
