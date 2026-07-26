@@ -96,17 +96,6 @@ export class AiGenerationSessionRegistry {
 	}
 }
 
-export function shouldNotifyAiTabCompletion(
-	tabs: ReadonlyArray<{ id: string }>,
-	activeTabId: string | null,
-	completedTabId: string,
-): boolean {
-	return (
-		activeTabId !== completedTabId &&
-		tabs.some((tab) => tab.id === completedTabId)
-	);
-}
-
 export function startAiGenerationSession({
 	sessionId,
 	listen,

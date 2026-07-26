@@ -57,18 +57,25 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 		value: "SELECT * FROM users",
 		onChange: () => {},
 		tables: [{ schema: "public", name: "users" }],
-		onGenerateSQL: async () => "SELECT * FROM users",
-		onAiStateChange: () => {},
+	};
+	const aiHandlers = {
+		configured: true,
+		onInstructionChange: () => {},
+		onGenerate: async () => {},
+		onDiscard: () => {},
 	};
 	const { rerender } = render(
 		<SqlEditor
 			{...commonProps}
-			aiState={{
-				instruction: "List active users",
-				draft: {
-					status: "generating",
-					requestId: "request-1",
-					sql: "SELECT *",
+			ai={{
+				...aiHandlers,
+				state: {
+					instruction: "List active users",
+					draft: {
+						status: "generating",
+						requestId: "request-1",
+						sql: "SELECT *",
+					},
 				},
 			}}
 		/>,
@@ -83,7 +90,10 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	rerender(
 		<SqlEditor
 			{...commonProps}
-			aiState={{ instruction: "", draft: { status: "idle" } }}
+			ai={{
+				...aiHandlers,
+				state: { instruction: "", draft: { status: "idle" } },
+			}}
 		/>,
 	);
 	expect(screen.queryByTestId("ai-draft")).toBeNull();
@@ -91,11 +101,14 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	rerender(
 		<SqlEditor
 			{...commonProps}
-			aiState={{
-				instruction: "List active users",
-				draft: {
-					status: "ready",
-					sql: "SELECT * FROM users WHERE active = true",
+			ai={{
+				...aiHandlers,
+				state: {
+					instruction: "List active users",
+					draft: {
+						status: "ready",
+						sql: "SELECT * FROM users WHERE active = true",
+					},
 				},
 			}}
 		/>,

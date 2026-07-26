@@ -14,7 +14,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { QueryAiState, QueryAiStateAction } from "@/lib/aiDraftState";
+import type { QueryAiState } from "@/lib/aiDraftState";
 
 const emptyAiState: QueryAiState = {
 	instruction: "",
@@ -31,6 +31,14 @@ interface TableSchema {
 	}>;
 }
 
+interface SqlEditorAiProps {
+	state: QueryAiState;
+	configured: boolean | null;
+	onInstructionChange: (instruction: string) => void;
+	onGenerate: () => Promise<void>;
+	onDiscard: () => void;
+}
+
 interface SqlEditorProps {
 	value: string;
 	onChange: (value: string) => void;
@@ -38,14 +46,7 @@ interface SqlEditorProps {
 	disabled?: boolean;
 	height?: string;
 	tables?: TableSchema[];
-	onGenerateSQL?: (
-		instruction: string,
-		existingSQL: string,
-		onPreview: (sql: string) => void,
-	) => Promise<string>;
-	aiState?: QueryAiState;
-	onAiStateChange?: (action: QueryAiStateAction) => void;
-	aiConfigured?: boolean | null;
+	ai?: SqlEditorAiProps;
 	onCursorActivity?: (line: number, char: number) => void;
 	cursorWarning?: string | null;
 }
@@ -56,10 +57,7 @@ export function SqlEditor({
 	onRunQuery,
 	height = "300px",
 	tables = [],
-	onGenerateSQL,
-	aiState = emptyAiState,
-	onAiStateChange,
-	aiConfigured = null,
+	ai,
 	onCursorActivity,
 	cursorWarning = null,
 	disabled = false,
@@ -67,7 +65,7 @@ export function SqlEditor({
 	const [isDark, setIsDark] = useState(false);
 	const [containerWidth, setContainerWidth] = useState<number | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
-	const { instruction, draft: aiDraft } = aiState;
+	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
 
 	useEffect(() => {
@@ -177,67 +175,35 @@ export function SqlEditor({
 	);
 
 	const handleGenerate = async () => {
-		if (instruction.trim() && onGenerateSQL) {
-			const requestId = crypto.randomUUID();
-			onAiStateChange?.({
-				type: "update-draft",
-				action: { type: "start", requestId },
-			});
-			try {
-				const generatedSQL = await onGenerateSQL(instruction, value, (sql) =>
-					onAiStateChange?.({
-						type: "update-draft",
-						action: { type: "preview", requestId, sql },
-					}),
-				);
-				onAiStateChange?.({
-					type: "update-draft",
-					action: { type: "complete", requestId, sql: generatedSQL },
-				});
-			} catch (error) {
-				onAiStateChange?.({
-					type: "update-draft",
-					action: {
-						type: "fail",
-						requestId,
-						message: error instanceof Error ? error.message : String(error),
-					},
-				});
-			}
-		}
+		if (instruction.trim() && ai) await ai.onGenerate();
 	};
 
 	const isButtonDisabled =
-		!instruction.trim() || generating || aiConfigured === false;
+		!instruction.trim() || generating || ai?.configured === false;
 
 	return (
 		<div className="space-y-2">
-			{onGenerateSQL && tables.length > 0 && (
+			{ai && tables.length > 0 && (
 				<div className="space-y-2">
 					<div className="flex gap-1 rounded-xl border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
 						<Sparkle className="ml-2 mt-2 size-4 shrink-0 text-primary" />
 						<Input
 							placeholder={
-								aiConfigured === false
+								ai.configured === false
 									? "Configure AI in Settings to enable generation"
 									: "Ask for a query or change…"
 							}
 							value={instruction}
-							onChange={(event) =>
-								onAiStateChange?.({
-									type: "set-instruction",
-									instruction: event.target.value,
-								})
-							}
+							onChange={(event) => ai.onInstructionChange(event.target.value)}
 							onKeyDown={(event) => {
 								if (
 									event.key === "Enter" &&
 									!generating &&
-									aiConfigured !== false
+									ai.configured !== false
 								)
 									void handleGenerate();
 							}}
-							disabled={generating || aiConfigured === false}
+							disabled={generating || ai.configured === false}
 							className="h-8 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
 						/>
 						<Tooltip>
@@ -253,7 +219,7 @@ export function SqlEditor({
 								{generating ? <Spinner /> : <Sparkle />}
 								Generate draft
 							</TooltipTrigger>
-							{aiConfigured === false && (
+							{ai.configured === false && (
 								<TooltipContent>
 									Configure an AI provider in Settings
 								</TooltipContent>
@@ -272,12 +238,7 @@ export function SqlEditor({
 										variant="ghost"
 										size="sm"
 										className="h-6 px-2 text-[11px]"
-										onClick={() =>
-											onAiStateChange?.({
-												type: "set-instruction",
-												instruction: prompt,
-											})
-										}
+										onClick={() => ai.onInstructionChange(prompt)}
 										disabled={generating}
 									>
 										{prompt}
@@ -288,31 +249,20 @@ export function SqlEditor({
 					</div>
 				</div>
 			)}
-			{aiDraft.status !== "idle" && (
+			{ai && aiDraft.status !== "idle" && (
 				<SqlAIPreview
 					draft={aiDraft}
 					hasExistingSql={Boolean(value.trim())}
-					onDiscard={() =>
-						onAiStateChange?.({
-							type: "update-draft",
-							action: { type: "discard" },
-						})
-					}
+					onDiscard={ai.onDiscard}
 					onAppend={() => {
 						if (aiDraft.status !== "ready") return;
 						onChange(`${value.trimEnd()}\n\n${aiDraft.sql}`);
-						onAiStateChange?.({
-							type: "update-draft",
-							action: { type: "discard" },
-						});
+						ai.onDiscard();
 					}}
 					onReplace={() => {
 						if (aiDraft.status !== "ready") return;
 						onChange(aiDraft.sql);
-						onAiStateChange?.({
-							type: "update-draft",
-							action: { type: "discard" },
-						});
+						ai.onDiscard();
 					}}
 				/>
 			)}

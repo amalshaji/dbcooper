@@ -5,7 +5,6 @@ import {
 	AiGenerationCancellationError,
 	AiGenerationSessionRegistry,
 	isAiGenerationCancellation,
-	shouldNotifyAiTabCompletion,
 	startAiGenerationSession,
 } from "./aiGenerationSession";
 
@@ -61,22 +60,6 @@ describe("AiGenerationSessionRegistry", () => {
 		if (!(cancellations[1] instanceof AiGenerationCancellationError)) return;
 		expect(cancellations[0].reason).toBe("replaced");
 		expect(cancellations[1].reason).toBe("cancelled");
-	});
-});
-
-describe("shouldNotifyAiTabCompletion", () => {
-	test("notifies only for an existing background tab", () => {
-		const tabs = [{ id: "query-1" }, { id: "query-2" }];
-
-		expect(shouldNotifyAiTabCompletion(tabs, "query-2", "query-1")).toBe(
-			true,
-		);
-		expect(shouldNotifyAiTabCompletion(tabs, "query-1", "query-1")).toBe(
-			false,
-		);
-		expect(shouldNotifyAiTabCompletion(tabs, "query-2", "closed")).toBe(
-			false,
-		);
 	});
 });
 
