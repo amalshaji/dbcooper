@@ -144,6 +144,7 @@ import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
+import { ColumnLayoutPopover } from "@/components/connection-details/ColumnLayoutPopover";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -158,6 +159,7 @@ import {
 	createCellFilter,
 	getFilterRequest,
 } from "@/lib/resultFilters";
+import { normalizeColumnLayout } from "@/lib/savedViews";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -967,18 +969,28 @@ export function ConnectionDetails() {
 					);
 
 					if (tableData) {
+						const columns = tableData.columns || [];
 						updateTab<TableDataTab>(tab.id, {
 							foreignKeys: tableData.foreign_keys || [],
-							columns: tableData.columns || [],
+							columns,
+							columnLayout: normalizeColumnLayout(
+								tab.columnLayout,
+								columns.map((column) => column.name),
+							),
 						});
 						return;
 					}
 				}
 
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
+				const columns = (data.columns as TableColumn[]) || [];
 				updateTab<TableDataTab>(tab.id, {
 					foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
-					columns: (data.columns as TableColumn[]) || [],
+					columns,
+					columnLayout: normalizeColumnLayout(
+						tab.columnLayout,
+						columns.map((column) => column.name),
+					),
 				});
 			} catch (error) {
 				console.error("Failed to fetch foreign keys:", error);
@@ -2551,6 +2563,13 @@ export function ConnectionDetails() {
 							</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
+							<ColumnLayoutPopover
+								columns={tab.columns.map((column) => column.name)}
+								layout={tab.columnLayout}
+								onChange={(columnLayout) =>
+									updateTab<TableDataTab>(tab.id, { columnLayout })
+								}
+							/>
 							<Button
 								variant="default"
 								size="sm"
@@ -2648,6 +2667,10 @@ export function ConnectionDetails() {
 									highlightedTableRow?.tableName === tab.tableName &&
 									getPrimaryKeyRowKey(row, tab.columns) ===
 										highlightedTableRow.rowKey
+								}
+								columnLayout={tab.columnLayout}
+								onColumnLayoutChange={(columnLayout) =>
+									updateTab<TableDataTab>(tab.id, { columnLayout })
 								}
 							/>
 						</div>
