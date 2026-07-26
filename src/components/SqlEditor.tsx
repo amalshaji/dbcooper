@@ -185,7 +185,7 @@ export function SqlEditor({
 		<div className="space-y-2">
 			{ai && (
 				<div className="space-y-2">
-					<div className="flex gap-1 rounded-xl border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
+					<div className="flex gap-1 rounded-lg border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
 						<Sparkle className="ml-2 mt-2 size-4 shrink-0 text-primary" />
 						<Input
 							placeholder={

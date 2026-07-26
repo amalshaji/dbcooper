@@ -134,5 +134,6 @@ test("offers AI generation for an empty database", () => {
 		/>,
 	);
 
-	expect(screen.getByPlaceholderText("Ask for a query or change…")).not.toBeNull();
+	const prompt = screen.getByPlaceholderText("Ask for a query or change…");
+	expect(prompt.parentElement?.className).toContain("rounded-lg");
 });

@@ -32,7 +32,7 @@ export function SqlAIPreview({
 				: "Checking intent";
 
 	return (
-		<section className="overflow-hidden rounded-xl border border-primary/20 bg-primary/[0.035] shadow-sm">
+		<section className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.035] shadow-sm">
 			<header className="flex items-center justify-between border-b border-primary/10 px-3 py-2">
 				<div className="flex items-center gap-1.5 text-xs font-medium">
 					{generating ? (
