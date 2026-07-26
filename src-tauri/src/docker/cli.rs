@@ -325,7 +325,11 @@ fn readiness_args(
         DockerDatabaseEngine::Mysql | DockerDatabaseEngine::Mariadb => vec![
             "exec".into(),
             container_id.into(),
-            "mysqladmin".into(),
+            match engine {
+                DockerDatabaseEngine::Mariadb => "mariadb-admin",
+                _ => "mysqladmin",
+            }
+            .into(),
             "ping".into(),
             "--host=127.0.0.1".into(),
             "--user".into(),
@@ -477,6 +481,29 @@ mod tests {
                 "exec",
                 "container-id",
                 "mysqladmin",
+                "ping",
+                "--host=127.0.0.1",
+                "--user",
+                "dbcooper",
+                "--password=secret",
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_mariadb_readiness_command() {
+        assert_eq!(
+            readiness_args(
+                "container-id",
+                DockerDatabaseEngine::Mariadb,
+                "dbcooper",
+                "secret",
+                "dbcooper",
+            ),
+            vec![
+                "exec",
+                "container-id",
+                "mariadb-admin",
                 "ping",
                 "--host=127.0.0.1",
                 "--user",
