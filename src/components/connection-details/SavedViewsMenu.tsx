@@ -7,25 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -36,10 +18,9 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import { getSavedViewStatus } from "@/lib/savedViews";
 import { api, type SavedView, type SavedViewStateV1 } from "@/lib/tauri";
+import { SavedViewDialogs } from "./SavedViewDialogs";
 
 interface SavedViewsMenuProps {
 	connectionUuid: string;
@@ -228,6 +209,19 @@ export function SavedViewsMenu({
 		}
 	};
 
+	const closeNameDialog = (open: boolean) => {
+		if (!open) {
+			setNameDialog(null);
+			setRenameTarget(null);
+		}
+	};
+
+	const discardAndSwitch = () => {
+		const target = switchTarget;
+		setSwitchTarget(null);
+		if (target) void applyView(target);
+	};
+
 	const disabled = loading || loadingViews || busy;
 
 	return (
@@ -273,11 +267,9 @@ export function SavedViewsMenu({
 						<FloppyDisk /> Save current view…
 					</DropdownMenuItem>
 					{activeView && (
-						<>
-							<DropdownMenuItem onClick={() => void updateActiveView()}>
-								<FloppyDisk /> Update “{activeView.name}”
-							</DropdownMenuItem>
-						</>
+						<DropdownMenuItem onClick={() => void updateActiveView()}>
+							<FloppyDisk /> Update “{activeView.name}”
+						</DropdownMenuItem>
 					)}
 					{views.length > 0 && (
 						<>
@@ -321,129 +313,25 @@ export function SavedViewsMenu({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<Dialog
-				open={nameDialog !== null}
-				onOpenChange={(open) => {
-					if (!open) {
-						setNameDialog(null);
-						setRenameTarget(null);
-					}
-				}}
-			>
-				<DialogContent className="max-w-sm">
-					<form
-						onSubmit={(event) => {
-							event.preventDefault();
-							void (nameDialog === "create"
-								? createView()
-								: renameView());
-						}}
-					>
-						<DialogHeader>
-							<DialogTitle>
-								{nameDialog === "create" ? "Save view" : "Rename view"}
-							</DialogTitle>
-							<DialogDescription>
-								{nameDialog === "create"
-									? "Save the applied filter, sort, and column layout for this table."
-									: "Choose a clear name for this table view."}
-							</DialogDescription>
-						</DialogHeader>
-						<div className="my-4 space-y-2">
-							<label htmlFor="saved-view-name" className="text-xs font-medium">
-								Name
-							</label>
-							<Input
-								id="saved-view-name"
-								autoFocus
-								maxLength={80}
-								value={name}
-								onChange={(event) => setName(event.target.value)}
-								placeholder="Recent activity"
-							/>
-							{nameDialog === "create" && hasUnappliedFilterDraft && (
-								<p className="text-[11px] text-amber-700 dark:text-amber-300">
-									Unapplied filter edits won’t be included.
-								</p>
-							)}
-						</div>
-						<DialogFooter>
-							<Button
-								type="button"
-								variant="outline"
-								onClick={() => {
-									setNameDialog(null);
-									setRenameTarget(null);
-								}}
-							>
-								Cancel
-							</Button>
-							<Button type="submit" disabled={busy || !name.trim()}>
-								{busy && <Spinner />}
-								{nameDialog === "create" ? "Save view" : "Rename view"}
-							</Button>
-						</DialogFooter>
-					</form>
-				</DialogContent>
-			</Dialog>
-
-			<AlertDialog
-				open={deleteTarget !== null}
-				onOpenChange={(open) => !open && setDeleteTarget(null)}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Delete “{deleteTarget?.name}”?</AlertDialogTitle>
-						<AlertDialogDescription>
-							Your current table layout and filter will stay in place.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							variant="destructive"
-							onClick={() => void deleteView()}
-							disabled={busy}
-						>
-							{busy && <Spinner />} Delete view
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-
-			<Dialog
-				open={switchTarget !== null}
-				onOpenChange={(open) => !open && setSwitchTarget(null)}
-			>
-				<DialogContent className="max-w-sm">
-					<DialogHeader>
-						<DialogTitle>Save changes to “{activeView?.name}”?</DialogTitle>
-						<DialogDescription>
-							You edited this view. Save those changes before switching to “
-							{switchTarget?.name}”.
-						</DialogDescription>
-					</DialogHeader>
-					<DialogFooter className="sm:grid sm:grid-cols-[auto_1fr_1fr]">
-						<Button variant="ghost" onClick={() => setSwitchTarget(null)}>
-							Cancel
-						</Button>
-						<Button
-							variant="outline"
-							onClick={() => {
-								const target = switchTarget;
-								setSwitchTarget(null);
-								if (target) void applyView(target);
-							}}
-							disabled={busy}
-						>
-							Discard and switch
-						</Button>
-						<Button onClick={() => void saveAndSwitch()} disabled={busy}>
-							{busy && <Spinner />} Save and switch
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<SavedViewDialogs
+				nameDialog={nameDialog}
+				name={name}
+				busy={busy}
+				hasUnappliedFilterDraft={hasUnappliedFilterDraft}
+				deleteTarget={deleteTarget}
+				activeView={activeView}
+				switchTarget={switchTarget}
+				onNameChange={setName}
+				onNameDialogOpenChange={closeNameDialog}
+				onNameSubmit={() =>
+					void (nameDialog === "create" ? createView() : renameView())
+				}
+				onDeleteDialogOpenChange={(open) => !open && setDeleteTarget(null)}
+				onDelete={() => void deleteView()}
+				onSwitchDialogOpenChange={(open) => !open && setSwitchTarget(null)}
+				onDiscardAndSwitch={discardAndSwitch}
+				onSaveAndSwitch={() => void saveAndSwitch()}
+			/>
 		</>
 	);
 }
