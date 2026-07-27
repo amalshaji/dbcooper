@@ -129,6 +129,7 @@ import {
 	ClockCounterClockwise,
 	WarningCircle,
 	Trash,
+	Cloud,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -2501,6 +2502,8 @@ export function ConnectionDetails() {
 				return <RedisIcon className="size-8" />;
 			case "clickhouse":
 				return <ClickhouseIcon className="size-8" />;
+			case "d1":
+				return <Cloud className="size-8" weight="duotone" />;
 			default:
 				return <Database className="size-8" />;
 		}
@@ -4358,6 +4361,7 @@ export function ConnectionDetails() {
 							| "sqlite"
 							| "duckdb"
 							| "clickhouse"
+							| "d1"
 					}
 					onSave={handleSaveRow}
 					onDelete={handleDeleteRow}
@@ -4381,6 +4385,7 @@ export function ConnectionDetails() {
 							| "sqlite"
 							| "duckdb"
 							| "clickhouse"
+							| "d1"
 					}
 					onInsert={handleInsertRow}
 					inserting={insertingRow}

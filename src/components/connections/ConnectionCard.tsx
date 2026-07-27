@@ -1,4 +1,4 @@
-import { Database, Lock } from "@phosphor-icons/react";
+import { Cloud, Database, Lock } from "@phosphor-icons/react";
 import {
 	ConnectionActionsContext,
 	ConnectionActionsDropdown,
@@ -72,6 +72,12 @@ function dbTypeConfig(type: string) {
 				icon: ClickhouseIcon,
 				iconClass: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
 				accentClass: "bg-yellow-500",
+			};
+		case "d1":
+			return {
+				icon: Cloud,
+				iconClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+				accentClass: "bg-orange-500",
 			};
 		default:
 			return {
@@ -157,7 +163,9 @@ export function ConnectionCard({
 							<p className="mt-0.5 truncate text-xs text-muted-foreground">
 								{connection.type === "sqlite" || connection.type === "duckdb"
 									? connection.file_path?.split("/").pop() || "Local file"
-									: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+									: connection.type === "d1"
+										? `Cloudflare • ${connection.database}`
+										: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>
 						</div>
 						<ConnectionActionsDropdown {...actionProps} />

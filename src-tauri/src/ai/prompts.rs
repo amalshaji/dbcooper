@@ -49,6 +49,7 @@ pub fn sql_prompts(
     let (db_name, syntax_note) = match db_type.to_lowercase().as_str() {
         "sqlite" | "sqlite3" => ("SQLite", "Use SQLite syntax"),
         "duckdb" => ("DuckDB", "Use DuckDB SQL syntax"),
+        "d1" | "cloudflare-d1" => ("Cloudflare D1", "Use Cloudflare D1's SQLite syntax"),
         "mysql" => ("MySQL", "Use MySQL syntax"),
         "mariadb" => ("MariaDB", "Use MariaDB syntax"),
         "redis" => ("Redis", "Generate Redis commands"),
@@ -119,5 +120,13 @@ mod tests {
         assert!(system_prompt.contains("explicit requests to create, alter, or drop"));
         assert!(system_prompt.contains("user instruction is authoritative"));
         assert_eq!(user_prompt, "Generate SQL query: Create two related tables");
+    }
+
+    #[test]
+    fn identifies_cloudflare_d1_as_sqlite_compatible() {
+        let (system, _) = sql_prompts("d1", "list users", "", &[]);
+
+        assert!(system.contains("Cloudflare D1 SQL expert"));
+        assert!(system.contains("Use Cloudflare D1's SQLite syntax"));
     }
 }

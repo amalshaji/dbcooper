@@ -14,6 +14,7 @@ describe("database catalog", () => {
 		expect(getCreateTableDbType("sqlite")).toBe("sqlite");
 		expect(getCreateTableDbType("mysql")).toBe("mysql");
 		expect(getCreateTableDbType("mariadb")).toBe("mariadb");
+		expect(getCreateTableDbType("d1")).toBe("d1");
 		expect(getCreateTableDbType("clickhouse")).toBeNull();
 		expect(getCreateTableDbType("duckdb")).toBeNull();
 		expect(getCreateTableDbType("redis")).toBeNull();

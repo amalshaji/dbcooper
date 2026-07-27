@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { ConnectionType } from "@/types/connection";
-import { api, ConnectionFormData, Connection } from "@/lib/tauri";
+import type { ConnectionType } from "@/types/connection";
+import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
 import {
 	AlertDialog,
 	AlertDialogContent,
@@ -27,10 +27,11 @@ import { MariadbIcon } from "@/components/icons/mariadb";
 import { MysqlIcon } from "@/components/icons/mysql";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { Cloud, Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
 import {
 	prepareDuckDbRuntime,
@@ -93,6 +94,12 @@ const databaseTypes: {
 		disabled: false,
 		icon: <ClickhouseIcon className="w-4 h-4" />,
 	},
+	{
+		value: "d1",
+		label: "Cloudflare D1",
+		disabled: false,
+		icon: <Cloud className="size-4" weight="duotone" />,
+	},
 ];
 
 const defaultPorts: Record<ConnectionType, number> = {
@@ -103,6 +110,7 @@ const defaultPorts: Record<ConnectionType, number> = {
 	duckdb: 0,
 	redis: 6379,
 	clickhouse: 9000,
+	d1: 443,
 };
 
 const defaultFormData: ConnectionFormData = {
@@ -177,6 +185,14 @@ export function ConnectionForm({
 			type,
 			db_type: type,
 			port: defaultPorts[type],
+			host:
+				type === "d1"
+					? "api.cloudflare.com"
+					: formData.type === "d1"
+						? "localhost"
+						: formData.host,
+			ssl: type === "d1" ? true : formData.type === "d1" ? false : formData.ssl,
+			ssh_enabled: type === "d1" ? false : formData.ssh_enabled,
 		});
 	};
 
@@ -191,7 +207,8 @@ export function ConnectionForm({
 				formData.type === "mariadb" ||
 				formData.type === "sqlite" ||
 				formData.type === "duckdb" ||
-				formData.type === "clickhouse"
+				formData.type === "clickhouse" ||
+				formData.type === "d1"
 					? await api.database.testConnection({
 							id: 0,
 							uuid: "",
@@ -418,7 +435,25 @@ export function ConnectionForm({
 							</Field>
 						)}
 
-						{!usesFile && (
+						{formData.type === "d1" && (
+							<D1ConnectionFields
+								accountId={formData.username}
+								apiToken={formData.password}
+								databaseId={formData.database}
+								onChange={(values) =>
+									setFormData({
+										...formData,
+										username: values.accountId ?? formData.username,
+										password: values.apiToken ?? formData.password,
+										database: values.databaseId ?? formData.database,
+									})
+								}
+								listDatabases={api.d1.listDatabases}
+							/>
+						)}
+
+						{/* Postgres/Server-based connection fields */}
+						{!usesFile && formData.type !== "d1" && (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<Field>
