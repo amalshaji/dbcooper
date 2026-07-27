@@ -2,6 +2,9 @@
   "postgres": {
     "label": "PostgreSQL",
     "defaultSchema": "public",
+    "fileDatabase": false,
+    "structuredRowMutations": true,
+    "formatterLanguage": "postgresql",
     "createTableTypes": [
       "SMALLINT",
       "INTEGER",
@@ -51,6 +54,9 @@
   "sqlite": {
     "label": "SQLite",
     "defaultSchema": "main",
+    "fileDatabase": true,
+    "structuredRowMutations": true,
+    "formatterLanguage": "sqlite",
     "createTableTypes": [
       "INTEGER",
       "REAL",
@@ -85,9 +91,40 @@
       ]
     }
   },
+  "duckdb": {
+    "label": "DuckDB",
+    "defaultSchema": "main",
+    "fileDatabase": true,
+    "structuredRowMutations": false,
+    "formatterLanguage": "duckdb",
+    "createTableTypes": [],
+    "literalKinds": {
+      "BOOLEAN": "boolean",
+      "TINYINT": "number",
+      "SMALLINT": "number",
+      "INTEGER": "number",
+      "BIGINT": "number",
+      "HUGEINT": "number",
+      "REAL": "number",
+      "DOUBLE": "number",
+      "DECIMAL": "number"
+    },
+    "expressionsByType": {
+      "BOOLEAN": ["TRUE", "FALSE"],
+      "BOOL": ["TRUE", "FALSE"],
+      "DATE": ["current_date", "today()"],
+      "TIME": ["current_time", "localtime"],
+      "TIMESTAMP": ["current_timestamp", "now()", "localtimestamp"],
+      "TIMESTAMPTZ": ["current_timestamp", "now()"],
+      "UUID": ["uuid()"]
+    }
+  },
   "clickhouse": {
     "label": "ClickHouse",
     "defaultSchema": "default",
+    "fileDatabase": false,
+    "structuredRowMutations": false,
+    "formatterLanguage": "sql",
     "createTableTypes": [],
     "literalKinds": {
       "BOOL": "boolean"
@@ -101,5 +138,15 @@
       "UUID": ["generateUUIDv4()"],
       "JSON": ["'{}'"]
     }
+  },
+  "redis": {
+    "label": "Redis",
+    "defaultSchema": "",
+    "fileDatabase": false,
+    "structuredRowMutations": false,
+    "formatterLanguage": "sql",
+    "createTableTypes": [],
+    "literalKinds": {},
+    "expressionsByType": {}
   }
 }

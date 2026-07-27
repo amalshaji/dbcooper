@@ -8,13 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
-use super::clickhouse::ClickhouseDriver;
-use super::postgres::PostgresDriver;
-use super::redis::RedisDriver;
-use super::sqlite::SqliteDriver;
-use super::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
-};
+use super::driver_factory::{create_driver as create_database_driver, DriverConfig};
+use super::sql_policy::is_file_database;
+use super::DatabaseDriver;
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
@@ -102,7 +98,8 @@ impl PoolManager {
         config: &ConnectionConfig,
     ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
         // Handle SSH tunnel if enabled
-        let (effective_host, effective_port, ssh_tunnel) = if config.ssh_enabled {
+        let ssh_enabled = config.ssh_enabled && !is_file_database(&config.db_type)?;
+        let (effective_host, effective_port, ssh_tunnel) = if ssh_enabled {
             let ssh_host = config.ssh_host.as_ref().ok_or("SSH host is required")?;
             let ssh_port = config.ssh_port.unwrap_or(22) as u16;
             let ssh_user = config.ssh_user.as_ref().ok_or("SSH user is required")?;
@@ -146,60 +143,17 @@ impl PoolManager {
             )
         };
 
-        match config.db_type.as_str() {
-            "postgres" | "postgresql" => {
-                let pg_config = PostgresConfig {
-                    host: effective_host,
-                    port: effective_port,
-                    database: config.database.clone().unwrap_or_default(),
-                    username: config.username.clone().unwrap_or_default(),
-                    password: config.password.clone().unwrap_or_default(),
-                    ssl: config.ssl.unwrap_or(false),
-                };
-                Ok((Box::new(PostgresDriver::new(pg_config)), ssh_tunnel))
-            }
-            "sqlite" | "sqlite3" => {
-                let path = config
-                    .file_path
-                    .clone()
-                    .ok_or("File path is required for SQLite connections")?;
-                let sqlite_config = SqliteConfig { file_path: path };
-                Ok((Box::new(SqliteDriver::new(sqlite_config)), None))
-            }
-            "redis" => {
-                let redis_config = RedisConfig {
-                    host: effective_host,
-                    port: effective_port,
-                    username: config
-                        .username
-                        .clone()
-                        .filter(|username| !username.is_empty()),
-                    password: config.password.clone(),
-                    db: config.database.clone().and_then(|d| d.parse().ok()),
-                    tls: config.ssl.unwrap_or(false),
-                };
-                Ok((Box::new(RedisDriver::new(redis_config)), ssh_tunnel))
-            }
-            "clickhouse" => {
-                let ch_config = ClickhouseConfig {
-                    host: effective_host,
-                    port: effective_port,
-                    database: config
-                        .database
-                        .clone()
-                        .unwrap_or_else(|| "default".to_string()),
-                    username: config
-                        .username
-                        .clone()
-                        .unwrap_or_else(|| "default".to_string()),
-                    password: config.password.clone().unwrap_or_default(),
-                    protocol: ClickhouseProtocol::Http,
-                    ssl: config.ssl.unwrap_or(false),
-                };
-                Ok((Box::new(ClickhouseDriver::new(ch_config)), ssh_tunnel))
-            }
-            _ => Err(format!("Unsupported database type: {}", config.db_type)),
-        }
+        let driver = create_database_driver(DriverConfig {
+            db_type: config.db_type.clone(),
+            host: Some(effective_host),
+            port: Some(effective_port),
+            database: config.database.clone(),
+            username: config.username.clone(),
+            password: config.password.clone(),
+            ssl: config.ssl,
+            file_path: config.file_path.clone(),
+        })?;
+        Ok((driver, ssh_tunnel))
     }
 
     /// Ensure a connection exists in the pool, connecting if needed.

@@ -2,6 +2,8 @@ use async_trait::async_trait;
 
 pub mod clickhouse;
 pub mod create_table;
+pub mod driver_factory;
+pub mod duckdb;
 pub mod filter;
 pub mod pool_manager;
 pub mod postgres;
@@ -153,13 +155,14 @@ pub(crate) fn sqlite_read_only_query_is_safe(sql: &str) -> bool {
         && !contains_keyword_outside_literals(sql, "DETACH")
 }
 
-pub fn query_returns_rows(query: &str) -> bool {
+pub(crate) fn query_returns_rows_with_keywords(query: &str, extra_keywords: &[&str]) -> bool {
     let sql = strip_leading_sql_comments(query);
 
     if [
         "SELECT", "WITH", "VALUES", "SHOW", "DESCRIBE", "PRAGMA", "EXPLAIN",
     ]
     .iter()
+    .chain(extra_keywords.iter())
     .any(|keyword| starts_with_keyword(sql, keyword))
     {
         return true;
@@ -169,6 +172,10 @@ pub fn query_returns_rows(query: &str) -> bool {
         .iter()
         .any(|keyword| starts_with_keyword(sql, keyword))
         && contains_keyword_outside_literals(sql, "RETURNING")
+}
+
+pub fn query_returns_rows(query: &str) -> bool {
+    query_returns_rows_with_keywords(query, &[])
 }
 
 /// Common trait for all database drivers
@@ -253,6 +260,11 @@ pub struct SqliteConfig {
     pub file_path: String,
 }
 
+#[derive(Clone)]
+pub struct DuckDbConfig {
+    pub file_path: String,
+}
+
 /// Configuration for Redis connections
 #[derive(Clone)]
 pub struct RedisConfig {
@@ -267,22 +279,21 @@ pub struct RedisConfig {
 // Re-export ClickHouse config from its module
 pub use clickhouse::{ClickhouseConfig, ClickhouseProtocol};
 
-/// Database type enum for dispatching
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DatabaseType {
     Postgres,
     Sqlite,
+    DuckDb,
     Redis,
     Clickhouse,
 }
 
 impl DatabaseType {
-    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "postgres" | "postgresql" => Some(DatabaseType::Postgres),
             "sqlite" | "sqlite3" => Some(DatabaseType::Sqlite),
+            "duckdb" => Some(DatabaseType::DuckDb),
             "redis" => Some(DatabaseType::Redis),
             "clickhouse" => Some(DatabaseType::Clickhouse),
             _ => None,

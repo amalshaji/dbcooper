@@ -4,7 +4,7 @@
 
 # DBcooper
 
-A database client for PostgreSQL, SQLite, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
+A database client for PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
 
 ![dbcooper](./docs/public/images/dbcooper.png)
 ![aggregation](./docs/public/images/aggregate.png)
@@ -60,7 +60,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: Rust + Tauri v2
-- **Database**: SQLite (local storage) + PostgreSQL, Redis, and ClickHouse connections
+- **Database**: SQLite app storage; PostgreSQL, SQLite, DuckDB, Redis, and ClickHouse connections
 - **UI**: shadcn/ui components
 - **Package Manager**: Bun
 

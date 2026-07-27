@@ -310,7 +310,8 @@ pub async fn pool_get_function_definition(
 // ============================================================================
 
 use crate::database::sql_policy::{
-    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+    ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
+    validate_raw_sql_value,
 };
 
 /// Update a row in a table using the pooled connection
@@ -342,6 +343,7 @@ pub async fn pool_update_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the UPDATE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
@@ -445,6 +447,7 @@ pub async fn pool_delete_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the DELETE query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
@@ -508,6 +511,7 @@ pub async fn pool_insert_table_row(
             .map_err(|e| format!("Failed to get connection: {}", e))?;
 
     let db_type = &conn.db_type;
+    ensure_structured_mutations_supported(db_type)?;
 
     // Build the INSERT query
     let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {

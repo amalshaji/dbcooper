@@ -10,6 +10,7 @@ const MAX_IN_VALUES: usize = 100;
 pub enum FilterDialect {
     Postgres,
     Sqlite,
+    DuckDb,
     Clickhouse,
 }
 
@@ -82,6 +83,44 @@ pub fn classify_column_type(data_type: &str, dialect: FilterDialect) -> FilterCo
                 FilterColumnKind::Other
             } else {
                 FilterColumnKind::Decimal
+            }
+        }
+        FilterDialect::DuckDb => {
+            if normalized == "boolean" || normalized == "bool" {
+                FilterColumnKind::Boolean
+            } else if normalized == "uuid" {
+                FilterColumnKind::Uuid
+            } else if normalized.starts_with("timestamp")
+                || normalized.starts_with("time")
+                || normalized == "date"
+                || normalized == "interval"
+            {
+                FilterColumnKind::Temporal
+            } else if normalized.starts_with("tinyint")
+                || normalized.starts_with("smallint")
+                || normalized.starts_with("integer")
+                || normalized.starts_with("bigint")
+                || normalized.starts_with("hugeint")
+                || normalized.starts_with("utinyint")
+                || normalized.starts_with("usmallint")
+                || normalized.starts_with("uinteger")
+                || normalized.starts_with("ubigint")
+                || normalized.starts_with("uhugeint")
+            {
+                FilterColumnKind::Integer
+            } else if normalized.starts_with("decimal")
+                || normalized.starts_with("numeric")
+                || matches!(normalized.as_str(), "real" | "float" | "double")
+            {
+                FilterColumnKind::Decimal
+            } else if normalized.starts_with("varchar")
+                || normalized.starts_with("char")
+                || normalized == "text"
+                || normalized.starts_with("enum")
+            {
+                FilterColumnKind::Text
+            } else {
+                FilterColumnKind::Other
             }
         }
         FilterDialect::Clickhouse => {
@@ -251,7 +290,7 @@ pub fn compile_filter(
 
 fn quote_identifier(identifier: &str, dialect: FilterDialect) -> String {
     match dialect {
-        FilterDialect::Postgres | FilterDialect::Sqlite => {
+        FilterDialect::Postgres | FilterDialect::Sqlite | FilterDialect::DuckDb => {
             format!("\"{}\"", identifier.replace('"', "\"\""))
         }
         FilterDialect::Clickhouse => format!("`{}`", identifier.replace('`', "``")),
@@ -292,16 +331,20 @@ fn tagged_number(
     }
 
     let parsed = match (dialect, expected_kind) {
-        (FilterDialect::Postgres | FilterDialect::Sqlite, FilterColumnKind::Integer) => value
+        (
+            FilterDialect::Postgres | FilterDialect::Sqlite | FilterDialect::DuckDb,
+            FilterColumnKind::Integer,
+        ) => value
             .parse::<i64>()
             .map(FilterValue::Integer)
             .map_err(|_| "Integer filter value is out of range".to_string())?,
-        (FilterDialect::Postgres | FilterDialect::Sqlite, FilterColumnKind::Decimal) => {
-            FilterValue::ExactNumber {
-                value: value.to_string(),
-                data_type: "numeric".to_string(),
-            }
-        }
+        (
+            FilterDialect::Postgres | FilterDialect::Sqlite | FilterDialect::DuckDb,
+            FilterColumnKind::Decimal,
+        ) => FilterValue::ExactNumber {
+            value: value.to_string(),
+            data_type: "numeric".to_string(),
+        },
         (FilterDialect::Clickhouse, _) => {
             let data_type = normalize_clickhouse_type(&column.data_type);
             if !data_type.chars().all(|character| {
@@ -365,7 +408,7 @@ fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> Str
             }
             _ => format!("${}", index + 1),
         },
-        FilterDialect::Sqlite => "?".to_string(),
+        FilterDialect::Sqlite | FilterDialect::DuckDb => "?".to_string(),
         FilterDialect::Clickhouse => {
             let value_type = match value {
                 FilterValue::Text(_) => "String",
@@ -432,6 +475,34 @@ mod tests {
             classify_column_type("timestamp with time zone", FilterDialect::Postgres),
             FilterColumnKind::Temporal
         );
+        assert_eq!(
+            classify_column_type("UBIGINT", FilterDialect::DuckDb),
+            FilterColumnKind::Integer
+        );
+        assert_eq!(
+            classify_column_type("DECIMAL(38,4)", FilterDialect::DuckDb),
+            FilterColumnKind::Decimal
+        );
+        assert_eq!(
+            classify_column_type("TIMESTAMP_NS", FilterDialect::DuckDb),
+            FilterColumnKind::Temporal
+        );
+    }
+
+    #[test]
+    fn compiles_duckdb_values_as_question_mark_parameters() {
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "amount".to_string(),
+                operator: FilterOperator::GreaterThan,
+                value: Some(json!(10.5)),
+            }),
+            &[column("amount", "DECIMAL(18,2)", FilterDialect::DuckDb)],
+            FilterDialect::DuckDb,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.sql, "\"amount\" > ?");
     }
 
     #[test]

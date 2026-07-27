@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	getCreateTableDbType,
 	getCreateTableTypes,
+	getDatabaseLabel,
+	getSuggestedFunctions,
 	isSqlFunction,
 } from "./databaseCatalog";
 
@@ -10,9 +12,18 @@ describe("database catalog", () => {
 		expect(getCreateTableDbType("postgres")).toBe("postgres");
 		expect(getCreateTableDbType("sqlite")).toBe("sqlite");
 		expect(getCreateTableDbType("clickhouse")).toBeNull();
+		expect(getCreateTableDbType("duckdb")).toBeNull();
 		expect(getCreateTableDbType("redis")).toBeNull();
 		expect(getCreateTableTypes("postgres")).toContain("JSONB");
 		expect(getCreateTableTypes("sqlite")).not.toContain("JSONB");
+	});
+
+	test("provides DuckDB query expressions without enabling table creation", () => {
+		expect(getDatabaseLabel("duckdb")).toBe("DuckDB");
+		expect(getSuggestedFunctions("duckdb", "TIMESTAMP")).toContain(
+			"current_timestamp",
+		);
+		expect(isSqlFunction("uuid()", "duckdb")).toBe(true);
 	});
 
 	test("does not accept another dialect's raw SQL functions", () => {

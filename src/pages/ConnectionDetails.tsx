@@ -45,6 +45,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { Button } from "@/components/ui/button";
@@ -151,6 +152,7 @@ import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { CommandPalette } from "@/components/CommandPalette";
+import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
@@ -164,6 +166,14 @@ import {
 	hasUnappliedFilterDraft,
 	normalizeColumnLayout,
 } from "@/lib/savedViews";
+import {
+	getSqlFormatterLanguage,
+	supportsStructuredRowMutations,
+} from "@/lib/databaseCapabilities";
+import {
+	prepareDuckDbRuntime,
+	type DuckDbHelperProgress as DuckDbHelperProgressValue,
+} from "@/lib/duckdbHelper";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -173,6 +183,7 @@ const SchemaVisualizer = lazy(() =>
 
 type LoadingPhase =
 	| "fetching-config"
+	| "preparing-duckdb"
 	| "establishing-ssh"
 	| "connecting"
 	| "loading-schema"
@@ -211,7 +222,11 @@ function isWrappableQuery(query: string): boolean {
 	return (
 		sql.startsWith("SELECT") ||
 		sql.startsWith("WITH") ||
-		sql.startsWith("VALUES")
+		sql.startsWith("VALUES") ||
+		sql.startsWith("FROM") ||
+		sql.startsWith("SUMMARIZE") ||
+		sql.startsWith("PIVOT") ||
+		sql.startsWith("UNPIVOT")
 	);
 }
 
@@ -408,6 +423,8 @@ export function ConnectionDetails() {
 	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
+	const [duckDbHelperProgress, setDuckDbHelperProgress] =
+		useState<DuckDbHelperProgressValue | null>(null);
 	const [refreshingTables, setRefreshingTables] = useState(false);
 	const [sidebarTab, setSidebarTab] = useState<
 		"objects" | "queries" | "history"
@@ -636,6 +653,24 @@ export function ConnectionDetails() {
 			try {
 				const data = await api.connections.getByUuid(uuid);
 				setConnection(data);
+				if (data.type === "duckdb") {
+					setLoadingPhase("preparing-duckdb");
+					try {
+						await prepareDuckDbRuntime(
+							data.type,
+							setDuckDbHelperProgress,
+						);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						markDisconnected(message);
+						setLoadingPhase("complete");
+						toast.error("Could not prepare DuckDB support", {
+							description: message,
+						});
+						return;
+					}
+				}
 				// For SSH connections, show the SSH tunnel phase first
 				if (data.ssh_enabled) {
 					setLoadingPhase("establishing-ssh");
@@ -651,7 +686,7 @@ export function ConnectionDetails() {
 		if (uuid) {
 			fetchConnection();
 		}
-	}, [uuid, navigate]);
+	}, [uuid, navigate, markDisconnected]);
 
 	// Tear down the pooled driver (and any SSH tunnel) when leaving this
 	// connection so connections/tunnels don't leak for the app's lifetime.
@@ -2363,7 +2398,8 @@ export function ConnectionDetails() {
 						!!columnInfo &&
 						!columnInfo.primary_key &&
 						hasPrimaryKey &&
-						dbType !== "clickhouse";
+						!!dbType &&
+						supportsStructuredRowMutations(dbType);
 
 					const content =
 						cellContent ??
@@ -2456,6 +2492,8 @@ export function ConnectionDetails() {
 				return <PostgresqlIcon className="size-8" />;
 			case "sqlite":
 				return <SqliteIcon className="size-8" />;
+			case "duckdb":
+				return <DuckdbIcon className="size-8" />;
 			case "redis":
 				return <RedisIcon className="size-8" />;
 			case "clickhouse":
@@ -2467,6 +2505,14 @@ export function ConnectionDetails() {
 
 	const loadingPhases: Array<{ phase: LoadingPhase; label: string }> = [
 		{ phase: "fetching-config", label: "Fetching connection details" },
+		...(connection?.type === "duckdb"
+			? [
+					{
+						phase: "preparing-duckdb" as LoadingPhase,
+						label: "Preparing DuckDB support",
+					},
+				]
+			: []),
 		...(connection?.ssh_enabled
 			? [
 					{
@@ -2528,7 +2574,8 @@ export function ConnectionDetails() {
 								connectionStatus !== "connected";
 
 							return (
-								<div key={phaseInfo.phase} className="flex items-center gap-3">
+								<div key={phaseInfo.phase}>
+								<div className="flex items-center gap-3">
 									<div className="flex size-5 shrink-0 items-center justify-center">
 										{status === "complete" ? (
 											<Check className="size-4 text-emerald-600" />
@@ -2559,6 +2606,16 @@ export function ConnectionDetails() {
 											? "Connection failed"
 											: phaseInfo.label}
 									</span>
+								</div>
+								{phaseInfo.phase === "preparing-duckdb" &&
+									status === "active" &&
+									duckDbHelperProgress && (
+										<div className="ml-8 mt-2">
+											<DuckDbHelperProgress
+												progress={duckDbHelperProgress}
+											/>
+										</div>
+									)}
 								</div>
 							);
 						})}
@@ -2616,15 +2673,18 @@ export function ConnectionDetails() {
 									updateTab<TableDataTab>(tab.id, { columnLayout })
 								}
 							/>
-							<Button
-								variant="default"
-								size="sm"
-								onClick={() => setRowInsertSheetOpen(true)}
-								disabled={tab.loading}
-							>
-								<Plus className="w-4 h-4" />
-								Add Row
-							</Button>
+							{connection &&
+								supportsStructuredRowMutations(connection.db_type) && (
+									<Button
+										variant="default"
+										size="sm"
+										onClick={() => setRowInsertSheetOpen(true)}
+										disabled={tab.loading}
+									>
+										<Plus className="w-4 h-4" />
+										Add Row
+									</Button>
+								)}
 							<Button
 								variant="outline"
 								size="sm"
@@ -3020,14 +3080,9 @@ export function ConnectionDetails() {
 										onClick={() => {
 											try {
 												const formatted = formatSQL(tab.query, {
-													language:
-														connection?.db_type === "sqlite"
-															? "sqlite"
-															: connection?.db_type === "clickhouse"
-																? "sql"
-																: connection?.db_type === "postgres"
-																	? "postgresql"
-																	: "postgresql",
+													language: getSqlFormatterLanguage(
+														connection?.db_type || "postgres",
+													),
 													tabWidth: 2,
 													keywordCase: "upper",
 												});
@@ -4036,7 +4091,9 @@ export function ConnectionDetails() {
 						</div>
 					</div>
 					<div className="text-xs text-muted-foreground mt-1">
-						{connection.database}
+						{connection.db_type === "duckdb"
+							? connection.file_path
+							: connection.database}
 					</div>
 				</SidebarHeader>
 				<SidebarContent className="overflow-hidden p-2">
@@ -4295,6 +4352,7 @@ export function ConnectionDetails() {
 						(connection.db_type || "postgres") as
 							| "postgres"
 							| "sqlite"
+							| "duckdb"
 							| "clickhouse"
 					}
 					onSave={handleSaveRow}
@@ -4317,6 +4375,7 @@ export function ConnectionDetails() {
 						(connection.db_type || "postgres") as
 							| "postgres"
 							| "sqlite"
+							| "duckdb"
 							| "clickhouse"
 					}
 					onInsert={handleInsertRow}

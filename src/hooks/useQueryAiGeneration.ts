@@ -20,6 +20,10 @@ type GenerateDraft = (
 	onPreview: (sql: string) => void,
 ) => Promise<string>;
 
+function getExistingSqlForAi(query: string): string {
+	return query.trim().toUpperCase() === "SELECT * FROM" ? "" : query;
+}
+
 interface UseQueryAiGenerationOptions {
 	tabs: Tab[];
 	activeTabId: string | null;
@@ -128,7 +132,12 @@ export function useQueryAiGeneration({
 			configured: isConfigured,
 			onInstructionChange: (instruction: string) =>
 				updateAiState(tab.id, { type: "set-instruction", instruction }),
-			onGenerate: () => generateForTab(tab.id, tab.ai.instruction, tab.query),
+			onGenerate: () =>
+				generateForTab(
+					tab.id,
+					tab.ai.instruction,
+					getExistingSqlForAi(tab.query),
+				),
 			onDiscard: () =>
 				updateAiState(tab.id, {
 					type: "update-draft",

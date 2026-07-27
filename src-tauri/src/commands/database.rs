@@ -1,18 +1,15 @@
 //! Unified database commands that dispatch to the correct driver based on db_type.
 //!
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
-//! SQLite, Redis, and ClickHouse databases by dispatching to the appropriate driver.
+//! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
-use crate::database::clickhouse::ClickhouseDriver;
-use crate::database::postgres::PostgresDriver;
+use crate::database::driver_factory::{create_driver as create_database_driver, DriverConfig};
 use crate::database::redis::{RedisDriver, RedisKeyDetails, RedisKeyListResponse};
 use crate::database::sql_policy::{
-    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+    ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
+    is_file_database, validate_raw_sql_value,
 };
-use crate::database::sqlite::SqliteDriver;
-use crate::database::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
-};
+use crate::database::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
     Connection, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
     TestConnectionResult,
@@ -49,7 +46,8 @@ async fn create_driver_with_ssh(
     ssh_key_path: Option<String>,
     ssh_use_key: Option<bool>,
 ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
-    let (effective_host, effective_port, tunnel) = if ssh_enabled.unwrap_or(false) {
+    let ssh_enabled = ssh_enabled.unwrap_or(false) && !is_file_database(db_type)?;
+    let (effective_host, effective_port, tunnel) = if ssh_enabled {
         let ssh_host_val = ssh_host.unwrap_or_default();
         let ssh_port_val = ssh_port.unwrap_or(22) as u16;
         let ssh_user_val = ssh_user.unwrap_or_default();
@@ -100,48 +98,16 @@ async fn create_driver_with_ssh(
         (host.clone().unwrap_or_default(), port.unwrap_or(5432), None)
     };
 
-    let driver: Box<dyn DatabaseDriver> = match db_type {
-        "postgres" | "postgresql" => {
-            let config = PostgresConfig {
-                host: effective_host,
-                port: effective_port,
-                database: database.unwrap_or_default(),
-                username: username.unwrap_or_default(),
-                password: password.unwrap_or_default(),
-                ssl: ssl.unwrap_or(false),
-            };
-            Box::new(PostgresDriver::new(config))
-        }
-        "sqlite" | "sqlite3" => {
-            let path = file_path.ok_or("File path is required for SQLite connections")?;
-            let config = SqliteConfig { file_path: path };
-            Box::new(SqliteDriver::new(config))
-        }
-        "redis" => {
-            let config = RedisConfig {
-                host: effective_host,
-                port: effective_port,
-                username: username.filter(|username| !username.is_empty()),
-                password,
-                db: database.and_then(|d| d.parse().ok()),
-                tls: ssl.unwrap_or(false),
-            };
-            Box::new(RedisDriver::new(config))
-        }
-        "clickhouse" => {
-            let config = ClickhouseConfig {
-                host: effective_host,
-                port: effective_port,
-                database: database.unwrap_or_else(|| "default".to_string()),
-                username: username.unwrap_or_else(|| "default".to_string()),
-                password: password.unwrap_or_default(),
-                protocol: ClickhouseProtocol::Http,
-                ssl: ssl.unwrap_or(false),
-            };
-            Box::new(ClickhouseDriver::new(config))
-        }
-        _ => return Err(format!("Unsupported database type: {}", db_type)),
-    };
+    let driver = create_database_driver(DriverConfig {
+        db_type: db_type.to_string(),
+        host: Some(effective_host),
+        port: Some(effective_port),
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+    })?;
 
     Ok((driver, tunnel))
 }
@@ -157,48 +123,16 @@ fn create_driver(
     ssl: Option<bool>,
     file_path: Option<String>,
 ) -> Result<Box<dyn DatabaseDriver>, String> {
-    match db_type {
-        "postgres" | "postgresql" => {
-            let config = PostgresConfig {
-                host: host.unwrap_or_default(),
-                port: port.unwrap_or(5432),
-                database: database.unwrap_or_default(),
-                username: username.unwrap_or_default(),
-                password: password.unwrap_or_default(),
-                ssl: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(PostgresDriver::new(config)))
-        }
-        "sqlite" | "sqlite3" => {
-            let path = file_path.ok_or("File path is required for SQLite connections")?;
-            let config = SqliteConfig { file_path: path };
-            Ok(Box::new(SqliteDriver::new(config)))
-        }
-        "redis" => {
-            let config = RedisConfig {
-                host: host.unwrap_or_default(),
-                port: port.unwrap_or(6379),
-                username: username.filter(|username| !username.is_empty()),
-                password,
-                db: database.and_then(|d| d.parse().ok()),
-                tls: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(RedisDriver::new(config)))
-        }
-        "clickhouse" => {
-            let config = ClickhouseConfig {
-                host: host.unwrap_or_else(|| "localhost".to_string()),
-                port: port.unwrap_or(8123),
-                database: database.unwrap_or_else(|| "default".to_string()),
-                username: username.unwrap_or_else(|| "default".to_string()),
-                password: password.unwrap_or_default(),
-                protocol: ClickhouseProtocol::Http,
-                ssl: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(ClickhouseDriver::new(config)))
-        }
-        _ => Err(format!("Unsupported database type: {}", db_type)),
-    }
+    create_database_driver(DriverConfig {
+        db_type: db_type.to_string(),
+        host,
+        port,
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+    })
 }
 
 #[tauri::command]
@@ -382,6 +316,7 @@ pub async fn update_table_row(
     primary_key_values: Vec<serde_json::Value>,
     updates: serde_json::Map<String, serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -451,6 +386,7 @@ pub async fn update_table_row_with_raw_sql(
     primary_key_values: Vec<serde_json::Value>,
     updates: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -551,6 +487,7 @@ pub async fn delete_table_row(
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -601,6 +538,7 @@ pub async fn insert_table_row(
     table: String,
     values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if values.is_empty() {
         return Err("No values provided".to_string());
     }

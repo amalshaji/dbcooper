@@ -117,3 +117,23 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 		"WHERE active = true",
 	);
 });
+
+test("offers AI generation for an empty database", () => {
+	render(
+		<SqlEditor
+			value=""
+			onChange={() => {}}
+			tables={[]}
+			ai={{
+				configured: true,
+				state: { instruction: "", draft: { status: "idle" } },
+				onInstructionChange: () => {},
+				onGenerate: async () => {},
+				onDiscard: () => {},
+			}}
+		/>,
+	);
+
+	const prompt = screen.getByPlaceholderText("Ask for a query or change…");
+	expect(prompt.parentElement?.className).toContain("rounded-lg");
+});

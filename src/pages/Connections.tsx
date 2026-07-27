@@ -316,19 +316,22 @@ export function Connections() {
 							<EmptyState
 								icon={<Database />}
 								title="No connections yet"
-								description="Create a local workspace for PostgreSQL, SQLite, Redis, or ClickHouse. Credentials stay on this Mac."
+								description="Create a local workspace for PostgreSQL, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Create database",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setCreateDatabaseOpen(true),
 									},
 									{
 										label: "Connect Docker",
+										icon: <Cube className="size-4" />,
 										onClick: () => setConnectDockerOpen(true),
 										variant: "outline",
 									},
 									{
 										label: "New connection",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setIsFormOpen(true),
 										variant: "outline",
 									},
