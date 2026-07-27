@@ -1,99 +1,90 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import type { CreateTableColumnDraft } from "@/lib/createTableForm";
+import type {
+	CreateTableDbType,
+	MysqlColumnModifiersDraft,
+} from "@/lib/createTableForm";
+import { getCreateTableModifierCapabilities } from "@/lib/databaseCatalog";
 
 interface CreateTableMysqlModifiersProps {
-	column: CreateTableColumnDraft;
-	onChange: (column: CreateTableColumnDraft) => void;
+	columnId: string;
+	dbType: CreateTableDbType;
+	dataType: string;
+	modifiers: MysqlColumnModifiersDraft;
+	onChange: (modifiers: MysqlColumnModifiersDraft) => void;
+	onAutoIncrementChange: (autoIncrement: boolean) => void;
 }
 
-const LENGTH_TYPES = ["CHAR", "VARCHAR", "BINARY", "VARBINARY"];
-const DECIMAL_TYPES = ["DECIMAL", "NUMERIC"];
-const INTEGER_TYPES = [
-	"TINYINT",
-	"SMALLINT",
-	"MEDIUMINT",
-	"INT",
-	"INTEGER",
-	"BIGINT",
-];
-const UNSIGNED_TYPES = [
-	...INTEGER_TYPES,
-	...DECIMAL_TYPES,
-	"FLOAT",
-	"DOUBLE",
-];
-
 export function CreateTableMysqlModifiers({
-	column,
+	columnId,
+	dbType,
+	dataType,
+	modifiers,
 	onChange,
+	onAutoIncrementChange,
 }: CreateTableMysqlModifiersProps) {
-	const dataType = column.dataType.toUpperCase();
-	const update = (updates: Partial<CreateTableColumnDraft>) =>
-		onChange({ ...column, ...updates });
+	const capabilities = getCreateTableModifierCapabilities(dbType);
+	const update = (updates: Partial<MysqlColumnModifiersDraft>) =>
+		onChange({ ...modifiers, ...updates });
+	const normalizedType = dataType.toUpperCase();
 
 	return (
 		<div className="flex flex-wrap items-end gap-3 rounded-md bg-muted/40 p-2.5">
-			{LENGTH_TYPES.includes(dataType) && (
+			{capabilities.lengthTypes.includes(normalizedType) && (
 				<div className="w-24 space-y-1.5">
-					<Label htmlFor={`create-table-length-${column.id}`}>Length</Label>
+					<Label htmlFor={`create-table-length-${columnId}`}>Length</Label>
 					<Input
-						id={`create-table-length-${column.id}`}
+						id={`create-table-length-${columnId}`}
 						type="number"
 						min={1}
-						value={column.length}
+						value={modifiers.length}
 						onChange={(event) => update({ length: event.target.value })}
 					/>
 				</div>
 			)}
-			{DECIMAL_TYPES.includes(dataType) && (
+			{capabilities.decimalTypes.includes(normalizedType) && (
 				<>
 					<div className="w-24 space-y-1.5">
-						<Label htmlFor={`create-table-precision-${column.id}`}>Precision</Label>
+						<Label htmlFor={`create-table-precision-${columnId}`}>Precision</Label>
 						<Input
-							id={`create-table-precision-${column.id}`}
+							id={`create-table-precision-${columnId}`}
 							type="number"
 							min={1}
 							max={65}
-							value={column.precision}
+							value={modifiers.precision}
 							onChange={(event) => update({ precision: event.target.value })}
 						/>
 					</div>
 					<div className="w-24 space-y-1.5">
-						<Label htmlFor={`create-table-scale-${column.id}`}>Scale</Label>
+						<Label htmlFor={`create-table-scale-${columnId}`}>Scale</Label>
 						<Input
-							id={`create-table-scale-${column.id}`}
+							id={`create-table-scale-${columnId}`}
 							type="number"
 							min={0}
 							max={30}
-							value={column.scale}
+							value={modifiers.scale}
 							onChange={(event) => update({ scale: event.target.value })}
 						/>
 					</div>
 				</>
 			)}
-			{UNSIGNED_TYPES.includes(dataType) && (
+			{capabilities.unsignedTypes.includes(normalizedType) && (
 				<Label>
 					<Switch
 						size="sm"
-						checked={column.unsigned}
+						checked={modifiers.unsigned}
 						onCheckedChange={(unsigned) => update({ unsigned })}
 					/>
 					Unsigned
 				</Label>
 			)}
-			{INTEGER_TYPES.includes(dataType) && (
+			{capabilities.autoIncrementTypes.includes(normalizedType) && (
 				<Label>
 					<Switch
 						size="sm"
-						checked={column.autoIncrement}
-						onCheckedChange={(autoIncrement) =>
-							update({
-								autoIncrement,
-								...(autoIncrement ? { primaryKey: true, nullable: false } : {}),
-							})
-						}
+						checked={modifiers.autoIncrement}
+						onCheckedChange={onAutoIncrementChange}
 					/>
 					Auto increment
 				</Label>

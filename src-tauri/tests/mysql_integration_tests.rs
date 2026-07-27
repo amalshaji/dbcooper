@@ -1,6 +1,7 @@
+use dbcooper_lib::database::mutation::MutationPlan;
 use dbcooper_lib::database::mysql::MysqlDriver;
 use dbcooper_lib::database::{DatabaseDriver, DatabaseType, MysqlConfig, MysqlFlavor};
-use dbcooper_lib::db::models::{CreateTableColumn, CreateTableRequest};
+use dbcooper_lib::db::models::{CreateTableColumn, CreateTableRequest, MysqlColumnModifiers};
 
 fn driver(engine: DatabaseType, port: i64) -> MysqlDriver {
     MysqlDriver::new(MysqlConfig {
@@ -22,11 +23,7 @@ fn column(name: &str, data_type: &str) -> CreateTableColumn {
         primary_key: false,
         unique: false,
         default: None,
-        length: None,
-        precision: None,
-        scale: None,
-        unsigned: false,
-        auto_increment: false,
+        mysql_modifiers: None,
     }
 }
 
@@ -39,13 +36,22 @@ async fn exercise(engine: DatabaseType, port: i64) {
     let mut id = column("id", "bigint");
     id.primary_key = true;
     id.nullable = false;
-    id.unsigned = true;
-    id.auto_increment = true;
+    id.mysql_modifiers = Some(MysqlColumnModifiers {
+        unsigned: true,
+        auto_increment: true,
+        ..Default::default()
+    });
     let mut label = column("label", "varchar");
-    label.length = Some(191);
+    label.mysql_modifiers = Some(MysqlColumnModifiers {
+        length: Some(191),
+        ..Default::default()
+    });
     let mut amount = column("amount", "decimal");
-    amount.precision = Some(30);
-    amount.scale = Some(12);
+    amount.mysql_modifiers = Some(MysqlColumnModifiers {
+        precision: Some(30),
+        scale: Some(12),
+        ..Default::default()
+    });
 
     let request = CreateTableRequest {
         schema: "testdb".to_string(),
@@ -60,10 +66,10 @@ async fn exercise(engine: DatabaseType, port: i64) {
         .iter()
         .any(|item| item.name == table));
     let insert = driver
-        .execute_parameterized(
-            &format!("INSERT INTO `testdb`.`{table}` (`label`, `amount`) VALUES (?, ?)"),
-            &["hello".into(), "123456789012345678.123456789012".into()],
-        )
+        .execute_mutation(&MutationPlan {
+            sql: format!("INSERT INTO `testdb`.`{table}` (`label`, `amount`) VALUES (?, ?)"),
+            values: vec!["hello".into(), "123456789012345678.123456789012".into()],
+        })
         .await
         .unwrap();
     assert_eq!(insert.rows_affected, Some(1));
@@ -109,18 +115,18 @@ async fn exercise(engine: DatabaseType, port: i64) {
         .any(|item| item.name == table));
 
     let updated = driver
-        .execute_parameterized(
-            &format!("UPDATE `{table}` SET `label` = ? WHERE `id` = ?"),
-            &["updated".into(), 1.into()],
-        )
+        .execute_mutation(&MutationPlan {
+            sql: format!("UPDATE `{table}` SET `label` = ? WHERE `id` = ?"),
+            values: vec!["updated".into(), 1.into()],
+        })
         .await
         .unwrap();
     assert_eq!(updated.rows_affected, Some(1));
     let deleted = driver
-        .execute_parameterized(
-            &format!("DELETE FROM `{table}` WHERE `id` = ?"),
-            &[1.into()],
-        )
+        .execute_mutation(&MutationPlan {
+            sql: format!("DELETE FROM `{table}` WHERE `id` = ?"),
+            values: vec![1.into()],
+        })
         .await
         .unwrap();
     assert_eq!(deleted.rows_affected, Some(1));

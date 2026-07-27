@@ -41,11 +41,13 @@ export interface CreateTableColumn {
 	primary_key: boolean;
 	unique: boolean;
 	default: ColumnDefault | null;
-	length?: number | null;
-	precision?: number | null;
-	scale?: number | null;
-	unsigned?: boolean;
-	auto_increment?: boolean;
+	mysql_modifiers?: {
+		length: number | null;
+		precision: number | null;
+		scale: number | null;
+		unsigned: boolean;
+		auto_increment: boolean;
+	};
 }
 
 export interface CreateTableRequest {

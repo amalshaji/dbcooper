@@ -7,7 +7,12 @@ export type CreateTableDbType = Extract<
 >;
 export type DatabaseValueType = ConnectionType;
 export type LiteralKind = "text" | "number" | "boolean";
-export type SqlFormatterLanguage = "postgresql" | "sqlite" | "duckdb" | "sql";
+export type SqlFormatterLanguage =
+	| "postgresql"
+	| "mysql"
+	| "sqlite"
+	| "duckdb"
+	| "sql";
 
 interface DatabasePolicy {
 	label: string;
@@ -18,7 +23,23 @@ interface DatabasePolicy {
 	createTableTypes: string[];
 	literalKinds: Record<string, LiteralKind>;
 	expressionsByType: Record<string, string[]>;
+	modifierPolicy?: DatabaseValueType;
+	createTableModifiers?: CreateTableModifierCapabilities;
 }
+
+export interface CreateTableModifierCapabilities {
+	lengthTypes: string[];
+	decimalTypes: string[];
+	unsignedTypes: string[];
+	autoIncrementTypes: string[];
+}
+
+const EMPTY_MODIFIER_CAPABILITIES: CreateTableModifierCapabilities = {
+	lengthTypes: [],
+	decimalTypes: [],
+	unsignedTypes: [],
+	autoIncrementTypes: [],
+};
 
 const catalog = databaseCatalog as Record<DatabaseValueType, DatabasePolicy>;
 
@@ -46,6 +67,16 @@ export function getCreateTableTypes(
 	dbType: CreateTableDbType,
 ): readonly string[] {
 	return catalog[dbType].createTableTypes;
+}
+
+export function getCreateTableModifierCapabilities(
+	dbType: CreateTableDbType,
+): CreateTableModifierCapabilities {
+	const policy = catalog[dbType];
+	const source = policy.modifierPolicy
+		? catalog[policy.modifierPolicy]
+		: policy;
+	return source.createTableModifiers || EMPTY_MODIFIER_CAPABILITIES;
 }
 
 export function getLiteralKind(

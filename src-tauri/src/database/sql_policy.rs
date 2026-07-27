@@ -12,6 +12,25 @@ struct DialectPolicy {
     structured_row_mutations: bool,
     create_table_types: Vec<String>,
     expressions_by_type: HashMap<String, Vec<String>>,
+    modifier_policy: Option<String>,
+    create_table_modifiers: Option<CreateTableModifierPolicy>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateTableModifierPolicy {
+    length_types: Vec<String>,
+    decimal_types: Vec<String>,
+    unsigned_types: Vec<String>,
+    auto_increment_types: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+pub enum CreateTableModifier {
+    Length,
+    Decimal,
+    Unsigned,
+    AutoIncrement,
 }
 
 type DatabaseCatalog = HashMap<String, DialectPolicy>;
@@ -59,6 +78,31 @@ pub fn supports_create_table_type(db_type: &str, data_type: &str) -> Result<bool
     let normalized = data_type.trim().to_ascii_uppercase();
     Ok(dialect_policy(db_type)?
         .create_table_types
+        .iter()
+        .any(|candidate| candidate == &normalized))
+}
+
+pub fn supports_create_table_modifier(
+    db_type: &str,
+    data_type: &str,
+    modifier: CreateTableModifier,
+) -> Result<bool, String> {
+    let dialect = dialect_policy(db_type)?;
+    let policy = match &dialect.modifier_policy {
+        Some(source) => dialect_policy(source)?,
+        None => dialect,
+    };
+    let Some(modifiers) = &policy.create_table_modifiers else {
+        return Ok(false);
+    };
+    let supported_types = match modifier {
+        CreateTableModifier::Length => &modifiers.length_types,
+        CreateTableModifier::Decimal => &modifiers.decimal_types,
+        CreateTableModifier::Unsigned => &modifiers.unsigned_types,
+        CreateTableModifier::AutoIncrement => &modifiers.auto_increment_types,
+    };
+    let normalized = data_type.trim().to_ascii_uppercase();
+    Ok(supported_types
         .iter()
         .any(|candidate| candidate == &normalized))
 }
@@ -139,8 +183,9 @@ pub fn format_sql_value(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_structured_mutations_supported, supports_create_table_type,
-        validate_default_expression, validate_raw_sql_value,
+        ensure_structured_mutations_supported, supports_create_table_modifier,
+        supports_create_table_type, validate_default_expression, validate_raw_sql_value,
+        CreateTableModifier,
     };
 
     #[test]
@@ -149,6 +194,26 @@ mod tests {
         assert!(!supports_create_table_type("sqlite", "jsonb").unwrap());
         assert!(validate_default_expression("postgres", "uuid", "gen_random_uuid()").is_ok());
         assert!(validate_default_expression("postgres", "integer", "gen_random_uuid()").is_err());
+    }
+
+    #[test]
+    fn catalog_shares_mysql_modifier_capabilities_with_mariadb() {
+        assert!(
+            supports_create_table_modifier("mysql", "varchar", CreateTableModifier::Length)
+                .unwrap()
+        );
+        assert!(supports_create_table_modifier(
+            "mariadb",
+            "bigint",
+            CreateTableModifier::AutoIncrement
+        )
+        .unwrap());
+        assert!(!supports_create_table_modifier(
+            "postgres",
+            "varchar",
+            CreateTableModifier::Length
+        )
+        .unwrap());
     }
 
     #[test]

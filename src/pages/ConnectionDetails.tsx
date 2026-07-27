@@ -3077,11 +3077,12 @@ export function ConnectionDetails() {
 								</div>
 							) : (
 								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-												const formatted = formatSQL(tab.query, {
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => {
+							try {
+								const formatted = formatSQL(tab.query, {
 													language: getSqlFormatterLanguage(
 														connection?.db_type || "postgres",
 													),

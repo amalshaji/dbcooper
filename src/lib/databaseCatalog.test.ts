@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	getCreateTableDbType,
+	getCreateTableModifierCapabilities,
 	getCreateTableTypes,
 	getDatabaseLabel,
 	getSuggestedFunctions,
@@ -27,6 +28,16 @@ describe("database catalog", () => {
 			"current_timestamp",
 		);
 		expect(isSqlFunction("uuid()", "duckdb")).toBe(true);
+	});
+
+	test("shares one MySQL modifier policy with MariaDB", () => {
+		const mysql = getCreateTableModifierCapabilities("mysql");
+		const mariadb = getCreateTableModifierCapabilities("mariadb");
+
+		expect(mariadb).toEqual(mysql);
+		expect(mysql.lengthTypes).toContain("VARCHAR");
+		expect(mysql.autoIncrementTypes).toContain("BIGINT");
+		expect(getCreateTableModifierCapabilities("postgres").lengthTypes).toEqual([]);
 	});
 
 	test("does not accept another dialect's raw SQL functions", () => {

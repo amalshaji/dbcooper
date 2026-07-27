@@ -1,10 +1,12 @@
 use std::collections::HashSet;
 
 use super::sql_policy::{
-    database_label, escape_sql_identifier, format_sql_value, supports_create_table_type,
-    validate_default_expression,
+    database_label, escape_sql_identifier, format_sql_value, supports_create_table_modifier,
+    supports_create_table_type, validate_default_expression, CreateTableModifier,
 };
-use crate::db::models::{ColumnDefault, CreateTableColumn, CreateTableRequest};
+use crate::db::models::{
+    ColumnDefault, CreateTableColumn, CreateTableRequest, MysqlColumnModifiers,
+};
 use serde_json::Value;
 
 #[derive(Clone, Copy)]
@@ -103,7 +105,8 @@ fn build_column_definition(
         ));
     }
 
-    let data_type = format_data_type(column, dialect, &data_type)?;
+    let mysql_modifiers = mysql_modifiers(column, dialect)?;
+    let data_type = format_data_type(mysql_modifiers, dialect, &data_type)?;
     let mut definition = format!("{} {}", quote_identifier(&column.name, dialect), data_type);
     if let Some(default) = &column.default {
         definition.push_str(" DEFAULT ");
@@ -115,23 +118,15 @@ fn build_column_definition(
     if column.unique {
         definition.push_str(" UNIQUE");
     }
-    if column.auto_increment {
-        if !matches!(
-            dialect,
-            CreateTableDialect::Mysql | CreateTableDialect::Mariadb
-        ) {
-            return Err("Auto increment is only supported for MySQL and MariaDB".to_string());
-        }
+    if mysql_modifiers.is_some_and(|modifiers| modifiers.auto_increment) {
         if !column.primary_key {
             return Err("Auto increment columns must be primary keys".to_string());
         }
-        if !matches!(
-            data_type
-                .split(['(', ' '])
-                .next()
-                .unwrap_or(data_type.as_str()),
-            "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "INTEGER" | "BIGINT"
-        ) {
+        if !supports_create_table_modifier(
+            dialect.key(),
+            &column.data_type,
+            CreateTableModifier::AutoIncrement,
+        )? {
             return Err("Auto increment columns must use an integer type".to_string());
         }
         definition.push_str(" AUTO_INCREMENT");
@@ -141,64 +136,61 @@ fn build_column_definition(
 }
 
 fn format_data_type(
-    column: &CreateTableColumn,
+    modifiers: Option<&MysqlColumnModifiers>,
     dialect: CreateTableDialect,
     data_type: &str,
 ) -> Result<String, String> {
-    let mysql = matches!(
-        dialect,
-        CreateTableDialect::Mysql | CreateTableDialect::Mariadb
-    );
-    if !mysql
-        && (column.length.is_some()
-            || column.precision.is_some()
-            || column.scale.is_some()
-            || column.unsigned)
-    {
-        return Err("Type modifiers are only supported for MySQL and MariaDB".to_string());
-    }
-
     let mut result = data_type.to_string();
-    if let Some(length) = column.length {
-        if !matches!(data_type, "CHAR" | "VARCHAR" | "BINARY" | "VARBINARY") || length == 0 {
+    let Some(modifiers) = modifiers else {
+        return Ok(result);
+    };
+    if let Some(length) = modifiers.length {
+        if !supports_create_table_modifier(dialect.key(), data_type, CreateTableModifier::Length)?
+            || length == 0
+        {
             return Err(format!("Length is not supported for {data_type}"));
         }
         result.push_str(&format!("({length})"));
     }
-    if column.precision.is_some() || column.scale.is_some() {
-        if !matches!(data_type, "DECIMAL" | "NUMERIC") {
+    if modifiers.precision.is_some() || modifiers.scale.is_some() {
+        if !supports_create_table_modifier(dialect.key(), data_type, CreateTableModifier::Decimal)?
+        {
             return Err(format!(
                 "Precision and scale are not supported for {data_type}"
             ));
         }
-        let precision = column
+        let precision = modifiers
             .precision
             .ok_or("Precision is required when scale is set")?;
-        let scale = column.scale.unwrap_or(0);
+        let scale = modifiers.scale.unwrap_or(0);
         if precision == 0 || precision > 65 || scale > 30 || scale > precision {
             return Err("Decimal precision must be 1-65 and scale must be 0-30 and no larger than precision".to_string());
         }
         result.push_str(&format!("({precision},{scale})"));
     }
-    if column.unsigned {
-        if !matches!(
-            data_type,
-            "TINYINT"
-                | "SMALLINT"
-                | "MEDIUMINT"
-                | "INT"
-                | "INTEGER"
-                | "BIGINT"
-                | "DECIMAL"
-                | "NUMERIC"
-                | "FLOAT"
-                | "DOUBLE"
-        ) {
+    if modifiers.unsigned {
+        if !supports_create_table_modifier(dialect.key(), data_type, CreateTableModifier::Unsigned)?
+        {
             return Err(format!("Unsigned is not supported for {data_type}"));
         }
         result.push_str(" UNSIGNED");
     }
     Ok(result)
+}
+
+fn mysql_modifiers(
+    column: &CreateTableColumn,
+    dialect: CreateTableDialect,
+) -> Result<Option<&MysqlColumnModifiers>, String> {
+    match (&column.mysql_modifiers, dialect) {
+        (Some(modifiers), CreateTableDialect::Mysql | CreateTableDialect::Mariadb) => {
+            Ok(Some(modifiers))
+        }
+        (Some(_), _) => {
+            Err("MySQL column modifiers are only supported for MySQL and MariaDB".to_string())
+        }
+        (None, _) => Ok(None),
+    }
 }
 
 fn format_default(
@@ -258,7 +250,9 @@ mod tests {
         build_mysql_create_table_sql, build_postgres_create_table_sql,
         build_sqlite_create_table_sql,
     };
-    use crate::db::models::{ColumnDefault, CreateTableColumn, CreateTableRequest};
+    use crate::db::models::{
+        ColumnDefault, CreateTableColumn, CreateTableRequest, MysqlColumnModifiers,
+    };
     use serde_json::json;
 
     fn column(name: &str, data_type: &str) -> CreateTableColumn {
@@ -269,11 +263,7 @@ mod tests {
             primary_key: false,
             unique: false,
             default: None,
-            length: None,
-            precision: None,
-            scale: None,
-            unsigned: false,
-            auto_increment: false,
+            mysql_modifiers: None,
         }
     }
 
@@ -282,13 +272,22 @@ mod tests {
         let mut id = column("id", "bigint");
         id.nullable = false;
         id.primary_key = true;
-        id.unsigned = true;
-        id.auto_increment = true;
+        id.mysql_modifiers = Some(MysqlColumnModifiers {
+            unsigned: true,
+            auto_increment: true,
+            ..Default::default()
+        });
         let mut name = column("name", "varchar");
-        name.length = Some(191);
+        name.mysql_modifiers = Some(MysqlColumnModifiers {
+            length: Some(191),
+            ..Default::default()
+        });
         let mut amount = column("amount", "decimal");
-        amount.precision = Some(12);
-        amount.scale = Some(2);
+        amount.mysql_modifiers = Some(MysqlColumnModifiers {
+            precision: Some(12),
+            scale: Some(2),
+            ..Default::default()
+        });
 
         let sql = build_mysql_create_table_sql(&CreateTableRequest {
             schema: "app".to_string(),
@@ -303,9 +302,12 @@ mod tests {
     #[test]
     fn mysql_builder_rejects_auto_increment_on_non_integer_columns() {
         let mut id = column("id", "varchar");
-        id.length = Some(32);
+        id.mysql_modifiers = Some(MysqlColumnModifiers {
+            length: Some(32),
+            auto_increment: true,
+            ..Default::default()
+        });
         id.primary_key = true;
-        id.auto_increment = true;
 
         let error = build_mysql_create_table_sql(&CreateTableRequest {
             schema: "app".to_string(),

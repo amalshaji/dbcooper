@@ -1,5 +1,6 @@
 import {
 	getCreateTableTypes,
+	getCreateTableModifierCapabilities,
 	getDatabaseLabel,
 	getDefaultSchema,
 	getLiteralKind,
@@ -16,6 +17,14 @@ export type CreateTableColumnDefaultDraft =
 	| { kind: "literal"; value: string }
 	| { kind: "expression"; value: string };
 
+export interface MysqlColumnModifiersDraft {
+	length: string;
+	precision: string;
+	scale: string;
+	unsigned: boolean;
+	autoIncrement: boolean;
+}
+
 export interface CreateTableColumnDraft {
 	id: string;
 	name: string;
@@ -24,11 +33,7 @@ export interface CreateTableColumnDraft {
 	primaryKey: boolean;
 	unique: boolean;
 	default: CreateTableColumnDefaultDraft;
-	length?: string;
-	precision?: string;
-	scale?: string;
-	unsigned?: boolean;
-	autoIncrement?: boolean;
+	mysqlModifiers: MysqlColumnModifiersDraft | null;
 }
 
 export interface CreateTableDraft {
@@ -39,7 +44,9 @@ export interface CreateTableDraft {
 
 const IDENTIFIER_PATTERN = /^[a-z_][a-z0-9_]*$/;
 
-export function createEmptyTableColumn(): CreateTableColumnDraft {
+export function createEmptyTableColumn(
+	dbType: CreateTableDbType,
+): CreateTableColumnDraft {
 	return {
 		id: crypto.randomUUID(),
 		name: "",
@@ -48,11 +55,16 @@ export function createEmptyTableColumn(): CreateTableColumnDraft {
 		primaryKey: false,
 		unique: false,
 		default: { kind: "none" },
-		length: "",
-		precision: "",
-		scale: "",
-		unsigned: false,
-		autoIncrement: false,
+		mysqlModifiers:
+			dbType === "mysql" || dbType === "mariadb"
+				? {
+						length: "",
+						precision: "",
+						scale: "",
+						unsigned: false,
+						autoIncrement: false,
+					}
+				: null,
 	};
 }
 
@@ -66,7 +78,7 @@ export function createInitialTableDraft(
 				? getDefaultSchema(dbType)
 				: initialSchema || getDefaultSchema(dbType),
 		tableName: "",
-		columns: [createEmptyTableColumn()],
+		columns: [createEmptyTableColumn(dbType)],
 	};
 }
 
@@ -115,27 +127,27 @@ export function getCreateTableValidationError(
 			return `Unsupported ${getDatabaseLabel(dbType)} data type: ${column.dataType}`;
 		}
 
-		const mysqlFamily = dbType === "mysql" || dbType === "mariadb";
-		const lengthTypes = ["CHAR", "VARCHAR", "BINARY", "VARBINARY"];
-		const decimalTypes = ["DECIMAL", "NUMERIC"];
-		const integerTypes = ["TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT"];
-		const unsignedTypes = [...integerTypes, ...decimalTypes, "FLOAT", "DOUBLE"];
-		if (column.length && (!mysqlFamily || !lengthTypes.includes(dataType) || !/^\d+$/.test(column.length) || Number(column.length) < 1)) {
+		const modifiers = column.mysqlModifiers;
+		const capabilities = getCreateTableModifierCapabilities(dbType);
+		if (modifiers && dbType !== "mysql" && dbType !== "mariadb") {
+			return `MySQL modifiers are not supported for ${name}`;
+		}
+		if (modifiers?.length && (!capabilities.lengthTypes.includes(dataType) || !/^\d+$/.test(modifiers.length) || Number(modifiers.length) < 1)) {
 			return `Length is not supported for ${name}`;
 		}
-		if (column.precision || column.scale) {
-			const precisionValue = column.precision || "";
-			const scaleValue = column.scale || "";
+		if (modifiers?.precision || modifiers?.scale) {
+			const precisionValue = modifiers.precision || "";
+			const scaleValue = modifiers.scale || "";
 			const precision = Number(precisionValue);
 			const scale = scaleValue ? Number(scaleValue) : 0;
-			if (!mysqlFamily || !decimalTypes.includes(dataType) || !/^\d+$/.test(precisionValue) || (scaleValue && !/^\d+$/.test(scaleValue)) || precision < 1 || precision > 65 || scale > 30 || scale > precision) {
+			if (!capabilities.decimalTypes.includes(dataType) || !/^\d+$/.test(precisionValue) || (scaleValue && !/^\d+$/.test(scaleValue)) || precision < 1 || precision > 65 || scale > 30 || scale > precision) {
 				return `Decimal precision or scale is invalid for ${name}`;
 			}
 		}
-		if (column.unsigned && (!mysqlFamily || !unsignedTypes.includes(dataType))) {
+		if (modifiers?.unsigned && !capabilities.unsignedTypes.includes(dataType)) {
 			return `Unsigned is not supported for ${name}`;
 		}
-		if (column.autoIncrement && (!mysqlFamily || !integerTypes.includes(dataType) || !column.primaryKey)) {
+		if (modifiers?.autoIncrement && (!capabilities.autoIncrementTypes.includes(dataType) || !column.primaryKey)) {
 			return `Auto increment requires an integer primary key for ${name}`;
 		}
 
@@ -196,16 +208,15 @@ export function buildCreateTableRequest(
 				};
 			}
 
-			const mysqlModifiers =
-				dbType === "mysql" || dbType === "mariadb"
+			const mysqlModifiers = column.mysqlModifiers
 					? {
-							length: column.length ? Number(column.length) : null,
-							precision: column.precision ? Number(column.precision) : null,
-							scale: column.scale ? Number(column.scale) : null,
-							unsigned: Boolean(column.unsigned),
-							auto_increment: Boolean(column.autoIncrement),
+							length: column.mysqlModifiers.length ? Number(column.mysqlModifiers.length) : null,
+							precision: column.mysqlModifiers.precision ? Number(column.mysqlModifiers.precision) : null,
+							scale: column.mysqlModifiers.scale ? Number(column.mysqlModifiers.scale) : null,
+							unsigned: column.mysqlModifiers.unsigned,
+							auto_increment: column.mysqlModifiers.autoIncrement,
 						}
-					: {};
+					: undefined;
 
 			return {
 				name: column.name.trim(),
@@ -214,7 +225,7 @@ export function buildCreateTableRequest(
 				primary_key: column.primaryKey,
 				unique: column.unique,
 				default: defaultValue,
-				...mysqlModifiers,
+				...(mysqlModifiers ? { mysql_modifiers: mysqlModifiers } : {}),
 			};
 		}),
 	};

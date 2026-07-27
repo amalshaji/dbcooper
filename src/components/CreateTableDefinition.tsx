@@ -78,7 +78,7 @@ export function CreateTableDefinition({
 						size="sm"
 						onClick={() =>
 							update({
-								columns: [...draft.columns, createEmptyTableColumn()],
+								columns: [...draft.columns, createEmptyTableColumn(dbType)],
 							})
 						}
 					>

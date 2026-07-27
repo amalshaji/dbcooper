@@ -112,6 +112,15 @@ pub enum ColumnDefault {
     Expression { value: String },
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MysqlColumnModifiers {
+    pub length: Option<u32>,
+    pub precision: Option<u32>,
+    pub scale: Option<u32>,
+    pub unsigned: bool,
+    pub auto_increment: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTableColumn {
     pub name: String,
@@ -120,16 +129,7 @@ pub struct CreateTableColumn {
     pub primary_key: bool,
     pub unique: bool,
     pub default: Option<ColumnDefault>,
-    #[serde(default)]
-    pub length: Option<u32>,
-    #[serde(default)]
-    pub precision: Option<u32>,
-    #[serde(default)]
-    pub scale: Option<u32>,
-    #[serde(default)]
-    pub unsigned: bool,
-    #[serde(default)]
-    pub auto_increment: bool,
+    pub mysql_modifiers: Option<MysqlColumnModifiers>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
