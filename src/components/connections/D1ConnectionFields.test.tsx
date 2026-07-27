@@ -60,6 +60,11 @@ test("loads D1 databases explicitly while preserving manual database ID entry", 
 	);
 
 	expect(screen.getByLabelText("Database ID")).not.toBeNull();
+	expect(
+		screen
+			.getByRole("link", { name: "How to get credentials" })
+			.getAttribute("href"),
+	).toBe("https://dbcooper.amal.sh/#cloudflare-d1-setup");
 	expect(listDatabases).toHaveBeenCalledTimes(0);
 
 	await user.click(screen.getByRole("button", { name: "Load databases" }));

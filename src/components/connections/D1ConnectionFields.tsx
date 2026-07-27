@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { ArrowSquareOut, Eye, EyeSlash } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -74,9 +74,20 @@ export function D1ConnectionFields({
 	return (
 		<>
 			<Field>
-				<FieldLabel htmlFor="connection-account-id">
-					Cloudflare Account ID
-				</FieldLabel>
+				<div className="flex items-center justify-between gap-3">
+					<FieldLabel htmlFor="connection-account-id">
+						Cloudflare Account ID
+					</FieldLabel>
+					<a
+						href="https://dbcooper.amal.sh/#cloudflare-d1-setup"
+						target="_blank"
+						rel="noopener noreferrer"
+						className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+					>
+						How to get credentials
+						<ArrowSquareOut className="size-3" aria-hidden="true" />
+					</a>
+				</div>
 				<Input
 					id="connection-account-id"
 					required
@@ -97,7 +108,7 @@ export function D1ConnectionFields({
 						required
 						value={apiToken}
 						onChange={(event) => onChange({ apiToken: event.target.value })}
-						placeholder="Token with D1 Read or D1 Write permission"
+						placeholder="Token with D1 Read or D1 Edit permission"
 						className="pr-10"
 					/>
 					<button

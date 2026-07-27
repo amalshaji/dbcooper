@@ -98,7 +98,14 @@ DBcooper includes an opt-in, token-authenticated MCP server for external coding 
 
 ### Cloudflare D1
 
-Create a Cloudflare API token with `D1 Read` permission for browsing and querying, or `D1 Write` permission to edit rows and create tables. In **New Connection**, choose **Cloudflare D1**, enter the Cloudflare Account ID and token, then either load the account's databases or paste a D1 database UUID manually.
+To create a D1 connection:
+
+1. Open the Cloudflare dashboard **Account home**, find the account, open its menu, and choose **Copy account ID**. See Cloudflare's [Account ID guide](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
+2. Go to **My Profile → API Tokens → Create Token → Create Custom Token**. Under permissions, choose **Account → D1 → Read** for browsing and querying, or **Edit** if DBcooper should edit rows or create tables. Scope the token to the account from step 1. See Cloudflare's [API token guide](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
+3. Create the token and copy its secret immediately. Cloudflare shows the secret only once, so store it securely.
+4. In **New Connection**, choose **Cloudflare D1**, enter the Account ID and token, then load the account's databases or paste a D1 database UUID manually.
+
+The in-app connection form links to the same [Cloudflare D1 setup guide](https://dbcooper.amal.sh/#cloudflare-d1-setup).
 
 D1 connections use Cloudflare's HTTPS API directly and do not support SSH tunnels. Cloudflare applies a global API limit of 1,200 requests per five minutes per user; DBcooper surfaces rate-limit responses and does not automatically replay D1 requests. Because the API transports results as JSON, integers outside JavaScript's safe integer range may lose precision when displayed.
 
