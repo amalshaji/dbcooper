@@ -178,6 +178,14 @@ import {
 	prepareDuckDbRuntime,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
 } from "@/lib/duckdbHelper";
+import {
+	areCellValuesEqual,
+	buildWrappedQuery,
+	getPrimaryKeyRowKey,
+	isWrappableQuery,
+	serializeRowsToCsv,
+	stripTrailingSemicolon,
+} from "@/lib/connection-details/queryTableState";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -192,90 +200,6 @@ type LoadingPhase =
 	| "connecting"
 	| "loading-schema"
 	| "complete";
-
-function stripTrailingSemicolon(query: string): string {
-	return query.trim().replace(/;\s*$/, "");
-}
-
-function stripLeadingSqlComments(query: string): string {
-	let sql = query.trimStart();
-
-	while (true) {
-		if (sql.startsWith("--")) {
-			const newlineIndex = sql.indexOf("\n");
-			if (newlineIndex === -1) return "";
-			sql = sql.slice(newlineIndex + 1).trimStart();
-			continue;
-		}
-
-		if (sql.startsWith("/*")) {
-			const endIndex = sql.indexOf("*/");
-			if (endIndex === -1) return "";
-			sql = sql.slice(endIndex + 2).trimStart();
-			continue;
-		}
-
-		break;
-	}
-
-	return sql;
-}
-
-function isWrappableQuery(query: string): boolean {
-	const sql = stripLeadingSqlComments(query).toUpperCase();
-	return (
-		sql.startsWith("SELECT") ||
-		sql.startsWith("WITH") ||
-		sql.startsWith("VALUES") ||
-		sql.startsWith("FROM") ||
-		sql.startsWith("SUMMARIZE") ||
-		sql.startsWith("PIVOT") ||
-		sql.startsWith("UNPIVOT")
-	);
-}
-
-function quoteResultColumn(column: string, dbType?: string): string {
-	const resolvedType = (dbType || "").toLowerCase();
-	if (["clickhouse", "mysql", "mariadb"].includes(resolvedType)) {
-		return `\`${column.replace(/`/g, "``")}\``;
-	}
-	return `"${column.replace(/"/g, '""')}"`;
-}
-
-function buildWrappedQuery(
-	baseQuery: string,
-	filter: string,
-	sort: SortConfig | null,
-	dbType?: string,
-): string {
-	const normalizedBaseQuery = stripTrailingSemicolon(baseQuery);
-	const trimmedFilter = filter.trim();
-	const whereClause = trimmedFilter ? ` WHERE ${trimmedFilter}` : "";
-	const orderClause = sort
-		? ` ORDER BY ${quoteResultColumn(sort.column, dbType)} ${sort.direction.toUpperCase()}`
-		: "";
-
-	return `WITH user_query AS (
-${normalizedBaseQuery}
-)
-SELECT * FROM user_query${whereClause}${orderClause};`;
-}
-
-function getPrimaryKeyRowKey(
-	row: Record<string, unknown>,
-	columns: TableColumn[],
-): string | null {
-	const primaryKeyColumns = columns.filter((column) => column.primary_key);
-	if (primaryKeyColumns.length === 0) return null;
-
-	return JSON.stringify(
-		primaryKeyColumns.map((column) => [column.name, row[column.name]]),
-	);
-}
-
-function areCellValuesEqual(left: unknown, right: unknown): boolean {
-	return JSON.stringify(left) === JSON.stringify(right);
-}
 
 interface PendingInlineCellEdit {
 	row: Record<string, unknown>;
@@ -2111,28 +2035,7 @@ export function ConnectionDetails() {
 
 		if (!filePath) return;
 
-		const headers = Object.keys(tab.results[0]);
-		const csvContent = [
-			headers.join(","),
-			...tab.results.map((row) =>
-				headers
-					.map((header) => {
-						const value = row[header];
-						if (value === null || value === undefined) return "";
-						const stringValue =
-							typeof value === "object" ? JSON.stringify(value) : String(value);
-						if (
-							stringValue.includes(",") ||
-							stringValue.includes('"') ||
-							stringValue.includes("\n")
-						) {
-							return `"${stringValue.replace(/"/g, '""')}"`;
-						}
-						return stringValue;
-					})
-					.join(","),
-			),
-		].join("\n");
+		const csvContent = serializeRowsToCsv(tab.results);
 
 		try {
 			await writeTextFile(filePath, csvContent);
@@ -3216,69 +3119,7 @@ export function ConnectionDetails() {
 							<Button
 								variant="outline"
 								size="sm"
-								onClick={async () => {
-									if (!tab.results || tab.results.length === 0) return;
-
-									const { save } = await import("@tauri-apps/plugin-dialog");
-									const { writeTextFile } = await import(
-										"@tauri-apps/plugin-fs"
-									);
-									const { revealItemInDir } = await import(
-										"@tauri-apps/plugin-opener"
-									);
-
-									const defaultName = `query_results_${new Date()
-										.toISOString()
-										.slice(0, 19)
-										.replace(/[:-]/g, "")}.csv`;
-
-									const filePath = await save({
-										defaultPath: defaultName,
-										filters: [{ name: "CSV", extensions: ["csv"] }],
-									});
-
-									if (!filePath) return;
-
-									const headers = Object.keys(tab.results[0]);
-									const csvContent = [
-										headers.join(","),
-										...tab.results.map((row) =>
-											headers
-												.map((header) => {
-													const value = row[header];
-													if (value === null || value === undefined) return "";
-													const stringValue =
-														typeof value === "object"
-															? JSON.stringify(value)
-															: String(value);
-													if (
-														stringValue.includes(",") ||
-														stringValue.includes('"') ||
-														stringValue.includes("\n")
-													) {
-														return `"${stringValue.replace(/"/g, '""')}"`;
-													}
-													return stringValue;
-												})
-												.join(","),
-										),
-									].join("\n");
-
-									try {
-										await writeTextFile(filePath, csvContent);
-										toast.success("CSV saved successfully", {
-											action: {
-												label: "Open File Location",
-												onClick: () => revealItemInDir(filePath),
-											},
-										});
-									} catch (error) {
-										toast.error("Failed to save CSV", {
-											description:
-												error instanceof Error ? error.message : String(error),
-										});
-									}
-								}}
+								onClick={handleExportCSV}
 							>
 								<DownloadSimple className="w-4 h-4" />
 								Download CSV
