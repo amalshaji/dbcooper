@@ -5,7 +5,7 @@ import type {
 	CreateTableDbType,
 	MysqlColumnModifiersDraft,
 } from "@/lib/createTableForm";
-import { getCreateTableModifierCapabilities } from "@/lib/databaseCatalog";
+import { getCreateTableModifierCapabilities } from "../lib/databaseCatalog";
 
 interface CreateTableMysqlModifiersProps {
 	columnId: string;

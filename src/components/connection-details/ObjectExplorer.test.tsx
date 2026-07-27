@@ -81,6 +81,12 @@ mock.module("@/components/ui/switch", () => ({
 mock.module("@/lib/databaseCatalog", () => ({
 	getDefaultSchema: (dbType: "postgres" | "sqlite") =>
 		dbType === "sqlite" ? "main" : "public",
+	getCreateTableModifierCapabilities: () => ({
+		lengthTypes: [],
+		decimalTypes: [],
+		unsignedTypes: [],
+		autoIncrementTypes: [],
+	}),
 }));
 mock.module("@/types/tabTypes", () => ({
 	formatFunctionSignature: () => "",
