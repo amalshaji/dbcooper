@@ -71,7 +71,12 @@ describe("CSV serialization", () => {
 		expect(
 			serializeRowsToCsv([
 				{ id: 1, label: "alpha,beta", note: 'said "hello"', metadata: null },
-				{ id: 2, label: "line\nbreak", note: { active: true }, metadata: undefined },
+				{
+					id: 2,
+					label: "line\nbreak",
+					note: { active: true },
+					metadata: undefined,
+				},
 			]),
 		).toBe(
 			'id,label,note,metadata\n1,"alpha,beta","said ""hello""",\n2,"line\nbreak","{""active"":true}",',

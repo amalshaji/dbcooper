@@ -7,8 +7,6 @@ import {
 	useCallback,
 	useRef,
 } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { format as formatSQL } from "sql-formatter";
 import { useParams, useNavigate } from "react-router-dom";
 import {
 	type Tab,
@@ -36,22 +34,11 @@ import {
 	api,
 	type Connection,
 	type QueryHistory,
-	type RedisKeyDetails,
-	type RedisKeyInfo,
 	type TableInfo,
 } from "@/lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
-import { PostgresqlIcon } from "@/components/icons/postgres";
-import { SqliteIcon } from "@/components/icons/sqlite";
-import { DuckdbIcon } from "@/components/icons/duckdb";
-import { CloudflareIcon } from "@/components/icons/cloudflare";
-import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
-import { RedisIcon } from "@/components/icons/redis";
-import { ClickhouseIcon } from "@/components/icons/clickhouse";
-import { MariadbIcon } from "@/components/icons/mariadb";
-import { MysqlIcon } from "@/components/icons/mysql";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -60,16 +47,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@/components/ui/sheet";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -83,60 +60,20 @@ import {
 import {
 	Sidebar,
 	SidebarContent,
-	SidebarGroup,
-	SidebarGroupContent,
-	SidebarGroupLabel,
-	SidebarHeader,
-	SidebarMenu,
-	SidebarMenuButton,
-	SidebarMenuItem,
 	SidebarProvider,
 	SidebarInset,
-	SidebarTrigger,
-	useSidebar,
 } from "@/components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-	ContextMenu,
-	ContextMenuContent,
-	ContextMenuItem,
-	ContextMenuTrigger,
-} from "@/components/ui/context-menu";
-import {
 	Table,
-	ArrowLeft,
-	ArrowRight,
 	Code,
-	DotsThreeVertical,
-	FloppyDisk,
 	ArrowsClockwise,
-	ArrowClockwise,
-	Database,
-	CaretDown,
-	DownloadSimple,
-	TreeStructure,
-	X,
-	PlayCircle,
-	Check,
-	Copy,
 	Plus,
-	PaintBrush,
-	Gear,
 	ClockCounterClockwise,
-	WarningCircle,
-	Trash,
 } from "@phosphor-icons/react";
-import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Spinner } from "@/components/ui/spinner";
 import { QueryResultSheet } from "@/components/QueryResultSheet";
-import { SqlEditor } from "@/components/SqlEditor";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useQueryAiGeneration } from "@/hooks/useQueryAiGeneration";
@@ -144,10 +81,15 @@ import { useTableDataFilters } from "@/hooks/useTableDataFilters";
 import { useSavedViewApplication } from "@/hooks/useSavedViewApplication";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
-import { InlineEditableCell } from "@/components/InlineEditableCell";
-import { RedisKeySheet } from "@/components/RedisKeySheet";
-import { ExpandableText } from "@/components/ExpandableText";
-import { ConnectionStatus } from "@/components/ConnectionStatus";
+import {
+	ConnectionHeader,
+	RedisConnectionHeader,
+} from "@/components/connection-details/ConnectionHeaders";
+import {
+	ConnectionOpeningScreen,
+	DatabaseIcon,
+	type LoadingPhase,
+} from "@/components/connection-details/ConnectionOpeningScreen";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
 import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
@@ -155,8 +97,19 @@ import { ColumnLayoutPopover } from "@/components/connection-details/ColumnLayou
 import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
+import { TableStructureView } from "@/components/connection-details/TableStructureView";
+import { QueryWorkspace } from "@/components/connection-details/QueryWorkspace";
+import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
+import {
+	ConnectionSidebarHeader,
+	QueryHistoryPanel,
+	SavedQueriesPanel,
+} from "@/components/connection-details/ConnectionSidebarPanels";
+import {
+	PendingInlineChangesBar,
+	TableDataGrid,
+} from "@/components/connection-details/TableDataGrid";
 import { CommandPalette } from "@/components/CommandPalette";
-import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
@@ -170,10 +123,7 @@ import {
 	hasUnappliedFilterDraft,
 	normalizeColumnLayout,
 } from "@/lib/savedViews";
-import {
-	getSqlFormatterLanguage,
-	supportsStructuredRowMutations,
-} from "@/lib/databaseCapabilities";
+import { supportsStructuredRowMutations } from "@/lib/databaseCapabilities";
 import {
 	prepareDuckDbRuntime,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
@@ -193,153 +143,10 @@ const SchemaVisualizer = lazy(() =>
 	})),
 );
 
-type LoadingPhase =
-	| "fetching-config"
-	| "preparing-duckdb"
-	| "establishing-ssh"
-	| "connecting"
-	| "loading-schema"
-	| "complete";
-
 interface PendingInlineCellEdit {
 	row: Record<string, unknown>;
 	columnName: string;
 	value: unknown;
-}
-
-function formatQuerySuccessDetail(affectedRows: number | null): string {
-	if (affectedRows === null) return "No rows returned";
-
-	return `${affectedRows} row${affectedRows !== 1 ? "s" : ""} affected`;
-}
-
-// Header component that uses useSidebar for conditional padding
-function ContentHeader({
-	connection,
-	navigate,
-	connectionStatus,
-	onReconnect,
-	onStatusChange,
-	onOpenSettings,
-}: {
-	connection: Connection;
-	navigate: (path: string) => void;
-	connectionStatus: "connected" | "disconnected";
-	onReconnect: () => Promise<void>;
-	onStatusChange: (status: "connected" | "disconnected") => void;
-	onOpenSettings: () => void;
-}) {
-	const { state } = useSidebar();
-	const isCollapsed = state === "collapsed";
-
-	return (
-		<header
-			data-tauri-drag-region
-			className={`app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center gap-2 border-b px-4 ${
-				isCollapsed ? "pl-20" : ""
-			}`}
-		>
-			<SidebarTrigger className="-ml-1" />
-			<div className="flex flex-1 items-center gap-2">
-				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
-					<X className="size-4" />
-					Close connection
-				</Button>
-			</div>
-			<div className="flex items-center gap-2">
-				<ConnectionStatus
-					connectionUuid={connection.uuid}
-					status={connectionStatus}
-					onReconnect={onReconnect}
-					onStatusChange={onStatusChange}
-				/>
-				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-					{connection.type}
-				</Badge>
-				<Badge
-					variant={connection.ssl ? "default" : "secondary"}
-					className="h-5 px-2 text-[10px]"
-				>
-					SSL: {connection.ssl ? "Yes" : "No"}
-				</Badge>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onClick={onOpenSettings}
-					aria-label="Open connection settings"
-					title="Connection settings"
-				>
-					<Gear className="size-4" />
-				</Button>
-			</div>
-		</header>
-	);
-}
-
-// Simplified header for Redis (no sidebar)
-function RedisContentHeader({
-	connection,
-	navigate,
-	connectionStatus,
-	onReconnect,
-	onStatusChange,
-	onOpenSettings,
-}: {
-	connection: Connection;
-	navigate: (path: string) => void;
-	connectionStatus: "connected" | "disconnected";
-	onReconnect: () => Promise<void>;
-	onStatusChange: (status: "connected" | "disconnected") => void;
-	onOpenSettings: () => void;
-}) {
-	return (
-		<header
-			data-tauri-drag-region
-			className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b pl-20 pr-4"
-		>
-			<div className="ml-4 flex flex-1 items-center gap-2">
-				<Button variant="ghost" size="sm" onClick={() => navigate("/")}>
-					<X className="size-4" />
-					Close connection
-				</Button>
-				<span className="text-sm font-semibold">{connection.name}</span>
-				<span className="text-xs text-muted-foreground">
-					{connection.host}:{connection.port}
-				</span>
-			</div>
-			<div className="flex items-center gap-2">
-				<ConnectionStatus
-					connectionUuid={connection.uuid}
-					status={connectionStatus}
-					onReconnect={onReconnect}
-					onStatusChange={onStatusChange}
-				/>
-				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-					{connection.type}
-				</Badge>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					onClick={onOpenSettings}
-					aria-label="Open connection settings"
-					title="Connection settings"
-				>
-					<Gear className="size-4" />
-				</Button>
-			</div>
-		</header>
-	);
-}
-
-// query_history.executed_at is a UTC string from SQLite's datetime('now')
-// with no timezone marker; append "Z" so it parses as UTC, then show local.
-function formatHistoryTime(executedAt: string): string {
-	const iso = executedAt.includes("T")
-		? executedAt
-		: `${executedAt.replace(" ", "T")}Z`;
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return executedAt;
-	return date.toLocaleString();
 }
 
 export function ConnectionDetails() {
@@ -393,93 +200,6 @@ export function ConnectionDetails() {
 	// Tab state
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
-
-	// Redis-specific state (no tabs for Redis)
-	const [redisPattern, setRedisPattern] = useState("*");
-	const [redisKeys, setRedisKeys] = useState<RedisKeyInfo[] | null>(null);
-	const [redisSelectedKey, setRedisSelectedKey] = useState<string | null>(null);
-	const [redisKeyDetails, setRedisKeyDetails] =
-		useState<RedisKeyDetails | null>(null);
-	const [loadingRedisKeys, setLoadingRedisKeys] = useState(false);
-	const [loadingRedisDetails, setLoadingRedisDetails] = useState(false);
-	const [redisSheetOpen, setRedisSheetOpen] = useState(false);
-	const [copiedToClipboard, setCopiedToClipboard] = useState(false);
-	const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-	const [redisSearchTime, setRedisSearchTime] = useState<number | null>(null);
-	const [redisKeySheetOpen, setRedisKeySheetOpen] = useState(false);
-	const [redisKeySheetMode, setRedisKeySheetMode] = useState<"add" | "edit">(
-		"add",
-	);
-	const [savingRedisKey, setSavingRedisKey] = useState(false);
-	const [redisScanProgress, setRedisScanProgress] = useState<{
-		iteration: number;
-		maxIterations: number;
-		keysFound: number;
-	} | null>(null);
-	const [redisScanCursor, setRedisScanCursor] = useState<number | null>(null);
-	const [redisScanComplete, setRedisScanComplete] = useState<boolean>(true);
-	const [redisScanBaseCount, setRedisScanBaseCount] = useState<number>(0);
-
-	// Ref for Redis keys list virtualization
-	const redisKeysListRef = useRef<HTMLDivElement>(null);
-
-	// Virtualizer for Redis keys list
-	const redisKeysVirtualizer = useVirtualizer({
-		count: redisKeys?.length ?? 0,
-		getScrollElement: () => redisKeysListRef.current,
-		estimateSize: () => 48,
-		overscan: 10,
-	});
-
-	// Listen for Redis scan progress events
-	useEffect(() => {
-		if (!uuid) return;
-
-		let isMounted = true;
-		let unlistenFn: (() => void) | null = null;
-
-		const setupListener = async () => {
-			const unlisten = await listen<{
-				uuid: string;
-				iteration: number;
-				max_iterations: number;
-				keys_found: number;
-				keys: string[];
-			}>("redis-scan-progress", (event) => {
-				if (event.payload.uuid === uuid) {
-					setRedisScanProgress({
-						iteration: event.payload.iteration,
-						maxIterations: event.payload.max_iterations,
-						keysFound: event.payload.keys_found,
-					});
-					// Append new keys as they stream in
-					if (event.payload.keys.length > 0) {
-						setRedisKeys((prev) => {
-							const newKeys: RedisKeyInfo[] = event.payload.keys.map((key) => ({
-								key,
-								key_type: "",
-								ttl: -2,
-							}));
-							return [...(prev || []), ...newKeys];
-						});
-					}
-				}
-			});
-
-			if (isMounted) {
-				unlistenFn = unlisten;
-			} else {
-				unlisten();
-			}
-		};
-
-		setupListener();
-
-		return () => {
-			isMounted = false;
-			unlistenFn?.();
-		};
-	}, [uuid]);
 
 	// Save dialog state (for query tabs)
 	const [saveQueryName, setSaveQueryName] = useState("");
@@ -2248,124 +1968,6 @@ export function ConnectionDetails() {
 		navigate,
 	]);
 
-	// Memoized columns for table data
-	const tableDataColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-		if (!activeTab || activeTab.type !== "table-data") return [];
-		const tab = activeTab as TableDataTab;
-		if (!tab.data || tab.data.data.length === 0) return [];
-
-		const schema = tab.tableName.split(".")[0];
-		const firstRow = tab.data.data[0];
-		const dbType = connection?.db_type || connection?.type;
-		const hasPrimaryKey = tab.columns.some((col) => col.primary_key);
-		return Object.keys(firstRow).map((key) => {
-			const fkInfo = tab.foreignKeys.find((fk) => fk.column === key);
-			const columnInfo = tab.columns.find((col) => col.name === key);
-
-			return {
-				accessorKey: key,
-				header: () => (
-					<span className="flex flex-col">
-						<span className="flex items-center gap-1">
-							{key}
-							{fkInfo && (
-								<span className="text-[10px] text-muted-foreground">(FK)</span>
-							)}
-						</span>
-						{columnInfo && (
-							<span
-								className="text-[10px] text-muted-foreground truncate max-w-[150px]"
-								title={columnInfo.type}
-							>
-								{columnInfo.type}
-							</span>
-						)}
-					</span>
-				),
-				cell: ({ getValue, row }) => {
-					const originalValue = getValue();
-					const rowKey = getPrimaryKeyRowKey(row.original, tab.columns);
-					const pendingEdit = rowKey
-						? pendingInlineEditsByTab[tab.id]?.[`${rowKey}:${key}`]
-						: undefined;
-					const value = pendingEdit ? pendingEdit.value : originalValue;
-					const cellContent =
-						value === null ? (
-							<span className="text-muted-foreground italic">null</span>
-						) : null;
-
-					const rawValue =
-						typeof value === "object" ? JSON.stringify(value) : String(value);
-					const displayValue =
-						rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
-					const canEditInline =
-						!!columnInfo &&
-						!columnInfo.primary_key &&
-						hasPrimaryKey &&
-						!!dbType &&
-						supportsStructuredRowMutations(dbType);
-
-					const content =
-						cellContent ??
-						(fkInfo && value !== null ? (
-							<span className="group/fk flex items-center" title={rawValue}>
-								<span className="truncate">{displayValue}</span>
-								<button
-									type="button"
-									className="opacity-0 group-hover/fk:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity cursor-pointer"
-									onClick={(e) => {
-										e.stopPropagation();
-										handleOpenTableDataWithFilter(
-											`${schema}.${fkInfo.references_table}`,
-											fkInfo.references_column,
-											value,
-										);
-									}}
-									title={`View ${fkInfo.references_table} where ${fkInfo.references_column} = ${value}`}
-								>
-									<ArrowRight className="w-3.5 h-3.5 text-primary" />
-								</button>
-							</span>
-						) : (
-							<span title={rawValue}>{displayValue}</span>
-						));
-
-					return columnInfo ? (
-						<InlineEditableCell
-							value={value}
-							column={columnInfo}
-							disabled={!canEditInline}
-							onSave={(nextValue) =>
-								handleInlineCellSave(row.original, key, nextValue)
-							}
-						>
-							{pendingEdit ? (
-								<span className="text-primary font-medium">{content}</span>
-							) : (
-								content
-							)}
-						</InlineEditableCell>
-					) : (
-						content
-					);
-				},
-			};
-		});
-	}, [
-		activeTab,
-		connection,
-		pendingInlineEditsByTab,
-		handleOpenTableDataWithFilter,
-		handleInlineCellSave,
-	]);
-
-	const tableDataPageCount = useMemo(() => {
-		if (!activeTab || activeTab.type !== "table-data") return 0;
-		const tab = activeTab as TableDataTab;
-		if (!tab.data) return 0;
-		return Math.ceil(tab.data.total / tab.data.limit);
-	}, [activeTab]);
-
 	// Memoized columns for query results
 	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!activeTab || activeTab.type !== "query") return [];
@@ -2389,149 +1991,14 @@ export function ConnectionDetails() {
 		}));
 	}, [activeTab]);
 
-	const getDatabaseIcon = () => {
-		if (!connection) return null;
-		switch (connection.type) {
-			case "postgres":
-				return <PostgresqlIcon className="size-8" />;
-			case "mysql":
-				return <MysqlIcon className="size-8" />;
-			case "mariadb":
-				return <MariadbIcon className="size-8" />;
-			case "sqlite":
-				return <SqliteIcon className="size-8" />;
-			case "duckdb":
-				return <DuckdbIcon className="size-8" />;
-			case "redis":
-				return <RedisIcon className="size-8" />;
-			case "clickhouse":
-				return <ClickhouseIcon className="size-8" />;
-			case "d1":
-				return <CloudflareIcon className="h-4 w-8" />;
-			default:
-				return <Database className="size-8" />;
-		}
-	};
-
-	const loadingPhases: Array<{ phase: LoadingPhase; label: string }> = [
-		{ phase: "fetching-config", label: "Fetching connection details" },
-		...(connection?.type === "duckdb"
-			? [
-					{
-						phase: "preparing-duckdb" as LoadingPhase,
-						label: "Preparing DuckDB support",
-					},
-				]
-			: []),
-		...(connection?.ssh_enabled
-			? [
-					{
-						phase: "establishing-ssh" as LoadingPhase,
-						label: "Establishing SSH tunnel and connecting",
-					},
-				]
-			: [
-					{
-						phase: "connecting" as LoadingPhase,
-						label: "Establishing connection",
-					},
-				]),
-		...(connection?.type !== "redis"
-			? [
-					{
-						phase: "loading-schema" as LoadingPhase,
-						label: "Loading schema and objects",
-					},
-				]
-			: []),
-	];
-
-	const getPhaseStatus = (phase: LoadingPhase) => {
-		const phaseIndex = loadingPhases.findIndex((p) => p.phase === phase);
-		const currentIndex = loadingPhases.findIndex(
-			(p) => p.phase === loadingPhase,
-		);
-
-		if (phaseIndex < currentIndex) return "complete";
-		if (phaseIndex === currentIndex && loadingPhase !== "complete")
-			return "active";
-		return "pending";
-	};
-
 	if (loadingPhase !== "complete" || connection === null) {
 		return (
-			<div className="workspace-canvas flex h-screen items-center justify-center p-6">
-				<div className="workspace-panel w-full max-w-sm rounded-xl border p-5 shadow-sm">
-					<div className="mb-4 flex items-center border-b pb-4">
-						<div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-							{getDatabaseIcon() ?? <Database className="size-5" />}
-						</div>
-						<div className="ml-3 min-w-0">
-							<p className="section-label">Opening workspace</p>
-							<p className="mt-0.5 truncate text-sm font-semibold">
-								{connection?.name ?? "Database connection"}
-							</p>
-						</div>
-					</div>
-					<div className="flex min-w-0 flex-col gap-2.5">
-						{loadingPhases.map((phaseInfo) => {
-							const status = getPhaseStatus(phaseInfo.phase);
-							// Show connection status for the connecting phase
-							const isConnectingPhase = phaseInfo.phase === "connecting";
-							const showConnectionStatus =
-								isConnectingPhase &&
-								loadingPhase !== "fetching-config" &&
-								connectionStatus !== "connected";
-
-							return (
-								<div key={phaseInfo.phase}>
-								<div className="flex items-center gap-3">
-									<div className="flex size-5 shrink-0 items-center justify-center">
-										{status === "complete" ? (
-											<Check className="size-4 text-emerald-600" />
-										) : status === "active" ? (
-											showConnectionStatus &&
-											connectionStatus === "disconnected" ? (
-												<X className="size-4 text-destructive" />
-											) : (
-												<Spinner className="size-4" />
-											)
-										) : (
-											<div className="size-1.5 rounded-full bg-muted-foreground/30" />
-										)}
-									</div>
-									<span
-										className={`flex-1 text-xs ${
-											status === "complete"
-												? "text-muted-foreground"
-												: status === "active"
-													? showConnectionStatus &&
-														connectionStatus === "disconnected"
-														? "font-medium text-destructive"
-														: "text-foreground font-medium"
-													: "text-muted-foreground/50"
-										}`}
-									>
-										{showConnectionStatus && connectionStatus === "disconnected"
-											? "Connection failed"
-											: phaseInfo.label}
-									</span>
-								</div>
-								{phaseInfo.phase === "preparing-duckdb" &&
-									status === "active" &&
-									duckDbHelperProgress && (
-										<div className="ml-8 mt-2">
-											<DuckDbHelperProgress
-												progress={duckDbHelperProgress}
-											/>
-										</div>
-									)}
-								</div>
-							);
-						})}
-					</div>
-				</div>
-			</div>
+			<ConnectionOpeningScreen
+				connection={connection}
+				loadingPhase={loadingPhase}
+				connectionStatus={connectionStatus}
+				duckDbHelperProgress={duckDbHelperProgress}
+			/>
 		);
 	}
 
@@ -2539,7 +2006,6 @@ export function ConnectionDetails() {
 		const pendingInlineChangeCount = Object.keys(
 			pendingInlineEditsByTab[tab.id] ?? {},
 		).length;
-		const hasPendingInlineChanges = pendingInlineChangeCount > 0;
 
 		return (
 			<Card className="workspace-panel">
@@ -2611,36 +2077,13 @@ export function ConnectionDetails() {
 						</div>
 					</div>
 				</CardHeader>
-				{hasPendingInlineChanges && (
-					<div className="mx-6 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-						<span className="text-xs font-medium text-foreground">
-							Unsaved changes
-						</span>
-						<div className="flex items-center gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleDiscardInlineChanges}
-								disabled={savingInlineEdits || tab.loading}
-							>
-								<X className="w-4 h-4" />
-								Discard
-							</Button>
-							<Button
-								size="sm"
-								onClick={() => void handleSaveInlineChanges()}
-								disabled={savingInlineEdits || tab.loading}
-							>
-								{savingInlineEdits ? (
-									<Spinner />
-								) : (
-									<FloppyDisk className="w-4 h-4" />
-								)}
-								Commit
-							</Button>
-						</div>
-					</div>
-				)}
+				<PendingInlineChangesBar
+					changeCount={pendingInlineChangeCount}
+					saving={savingInlineEdits}
+					loading={tab.loading}
+					onDiscard={handleDiscardInlineChanges}
+					onCommit={() => void handleSaveInlineChanges()}
+				/>
 				<TableFilterBar
 					state={tab.filterState}
 					columns={tab.columns}
@@ -2650,589 +2093,57 @@ export function ConnectionDetails() {
 					onClear={handleClearFilter}
 				/>
 				<CardContent className="max-h-[65vh] flex flex-col">
-					{tab.loading ? (
-						<div className="space-y-3 h-full overflow-auto">
-							<div className="flex items-center gap-2">
-								{[...Array(5)].map((_, i) => (
-									<Skeleton key={i} className="h-8 flex-1 rounded" />
-								))}
-							</div>
-							{[...Array(20)].map((_, rowIndex) => (
-								<div key={rowIndex} className="flex items-center gap-2">
-									{[...Array(5)].map((_, colIndex) => (
-										<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-									))}
-								</div>
-							))}
-						</div>
-					) : tab.data && tab.data.data.length > 0 ? (
-						<div className="h-[65vh] overflow-hidden">
-							<DataTable
-								data={tab.data.data}
-								columns={tableDataColumns}
-								pageCount={tableDataPageCount}
-								currentPage={tab.currentPage}
-								onPageChange={handlePageChange}
-								onRowClick={handleRowClick}
-								virtualize
-								onCellFilter={handleCellFilter}
-								sortable
-								sort={tab.sort}
-								onSortChange={handleSortChange}
-								isRowHighlighted={(row) =>
-									highlightedTableRow?.tableName === tab.tableName &&
-									getPrimaryKeyRowKey(row, tab.columns) ===
-										highlightedTableRow.rowKey
-								}
-								columnLayout={tab.columnLayout}
-								onColumnLayoutChange={(columnLayout) =>
-									updateTab<TableDataTab>(tab.id, { columnLayout })
-								}
-							/>
-						</div>
-					) : (
-						<div className="flex min-h-40 items-center justify-center px-4 text-center">
-							<p className="text-sm text-muted-foreground">
-								No rows found in this table.
-							</p>
-						</div>
-					)}
+					<TableDataGrid
+						tab={tab}
+						dbType={connection.db_type}
+						pendingInlineEdits={pendingInlineEditsByTab[tab.id] ?? {}}
+						highlightedRow={highlightedTableRow}
+						onOpenTableDataWithFilter={handleOpenTableDataWithFilter}
+						onInlineCellSave={handleInlineCellSave}
+						onPageChange={handlePageChange}
+						onRowClick={handleRowClick}
+						onCellFilter={handleCellFilter}
+						onSortChange={handleSortChange}
+						onColumnLayoutChange={(columnLayout) =>
+							updateTab<TableDataTab>(tab.id, { columnLayout })
+						}
+					/>
 				</CardContent>
 			</Card>
 		);
 	};
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
-		<Card className="workspace-panel">
-			<CardHeader>
-				<div className="flex items-center justify-between">
-					<div>
-						<CardTitle>Table Structure: {tab.tableName}</CardTitle>
-						<CardDescription>
-							Column information, indexes, and foreign keys
-						</CardDescription>
-					</div>
-				</div>
-			</CardHeader>
-			<CardContent className="space-y-6">
-				{tab.loading ? (
-					<div className="space-y-6">
-						<div>
-							<div className="flex items-center gap-2 mb-3">
-								<Skeleton className="h-5 w-5 rounded" />
-								<Skeleton className="h-6 w-32 rounded" />
-							</div>
-							<div className="space-y-2">
-								<div className="flex items-center gap-2">
-									{[...Array(5)].map((_, i) => (
-										<Skeleton key={i} className="h-8 flex-1 rounded" />
-									))}
-								</div>
-								{[...Array(5)].map((_, rowIndex) => (
-									<div key={rowIndex} className="flex items-center gap-2">
-										{[...Array(5)].map((_, colIndex) => (
-											<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-										))}
-									</div>
-								))}
-							</div>
-						</div>
-					</div>
-				) : tab.structure ? (
-					<>
-						<div>
-							<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-								<Database className="w-5 h-5" />
-								Columns ({tab.structure.columns?.length || 0})
-							</h3>
-							<div className="overflow-x-auto">
-								<table className="w-full border-collapse border border-border">
-									<thead>
-										<tr className="bg-muted/50">
-											<th className="border border-border px-3 py-2 text-left font-medium">
-												Name
-											</th>
-											<th className="border border-border px-3 py-2 text-left font-medium">
-												Type
-											</th>
-											<th className="border border-border px-3 py-2 text-left font-medium">
-												Nullable
-											</th>
-											<th className="border border-border px-3 py-2 text-left font-medium">
-												Default
-											</th>
-											<th className="border border-border px-3 py-2 text-left font-medium">
-												Primary Key
-											</th>
-										</tr>
-									</thead>
-									<tbody>
-										{tab.structure.columns?.map((column, index) => (
-											<tr key={index} className="hover:bg-muted/30">
-												<td className="border border-border px-3 py-2 font-mono text-xs">
-													{column.name}
-												</td>
-												<td className="border border-border px-3 py-2 text-xs">
-													{column.type}
-												</td>
-												<td className="border border-border px-3 py-2 text-sm">
-													{column.nullable ? (
-														<span className="text-green-600">✓</span>
-													) : (
-														<span className="text-red-600">✗</span>
-													)}
-												</td>
-												<td className="border border-border px-3 py-2 text-xs font-mono">
-													{column.default || "-"}
-												</td>
-												<td className="border border-border px-3 py-2 text-sm">
-													{column.primary_key ? (
-														<span className="text-blue-600 font-semibold">
-															✓
-														</span>
-													) : (
-														<span className="text-gray-400">-</span>
-													)}
-												</td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-						</div>
-
-						{tab.structure.indexes && tab.structure.indexes.length > 0 && (
-							<div>
-								<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-									<Table className="w-5 h-5" />
-									Indexes ({tab.structure.indexes.length})
-								</h3>
-								<div className="overflow-x-auto">
-									<table className="w-full border-collapse border border-border">
-										<thead>
-											<tr className="bg-muted/50">
-												<th className="border border-border px-3 py-2 text-left font-medium">
-													Name
-												</th>
-												<th className="border border-border px-3 py-2 text-left font-medium">
-													Columns
-												</th>
-												<th className="border border-border px-3 py-2 text-left font-medium">
-													Unique
-												</th>
-												<th className="border border-border px-3 py-2 text-left font-medium">
-													Primary
-												</th>
-											</tr>
-										</thead>
-										<tbody>
-											{tab.structure.indexes.map((index, idx) => (
-												<tr key={idx} className="hover:bg-muted/30">
-													<td className="border border-border px-3 py-2 font-mono text-xs">
-														{index.name}
-													</td>
-													<td className="border border-border px-3 py-2 text-sm">
-														{Array.isArray(index.columns)
-															? index.columns.join(", ")
-															: index.columns}
-													</td>
-													<td className="border border-border px-3 py-2 text-sm">
-														{index.unique ? (
-															<span className="text-orange-600">✓</span>
-														) : (
-															<span className="text-gray-400">-</span>
-														)}
-													</td>
-													<td className="border border-border px-3 py-2 text-sm">
-														{index.primary ? (
-															<span className="text-blue-600 font-semibold">
-																✓
-															</span>
-														) : (
-															<span className="text-gray-400">-</span>
-														)}
-													</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								</div>
-							</div>
-						)}
-
-						{tab.structure.foreign_keys &&
-							tab.structure.foreign_keys.length > 0 && (
-								<div>
-									<h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-										<ArrowLeft className="w-5 h-5" />
-										Foreign Keys ({tab.structure.foreign_keys.length})
-									</h3>
-									<div className="overflow-x-auto">
-										<table className="w-full border-collapse border border-border">
-											<thead>
-												<tr className="bg-muted/50">
-													<th className="border border-border px-3 py-2 text-left font-medium">
-														Name
-													</th>
-													<th className="border border-border px-3 py-2 text-left font-medium">
-														Column
-													</th>
-													<th className="border border-border px-3 py-2 text-left font-medium">
-														References
-													</th>
-												</tr>
-											</thead>
-											<tbody>
-												{tab.structure.foreign_keys.map((fk, idx) => (
-													<tr key={idx} className="hover:bg-muted/30">
-														<td className="border border-border px-3 py-2 font-mono text-xs">
-															{fk.name}
-														</td>
-														<td className="border border-border px-3 py-2 font-mono text-xs">
-															{fk.column}
-														</td>
-														<td className="border border-border px-3 py-2 text-sm">
-															{fk.references_table}.{fk.references_column}
-														</td>
-													</tr>
-												))}
-											</tbody>
-										</table>
-									</div>
-								</div>
-							)}
-					</>
-				) : (
-					<p className="text-muted-foreground text-center py-8">
-						Failed to load table structure.
-					</p>
-				)}
-			</CardContent>
-		</Card>
+		<TableStructureView tab={tab} />
 	);
 
-	const renderQueryError = (errorMessage: string) => {
-		const trimmedError = errorMessage.trimEnd();
-
-		return (
-			<div className="rounded-md border border-destructive/20 bg-destructive/10 p-4">
-				<div className="flex items-start justify-between">
-					<p className="text-sm font-medium text-destructive">Query error</p>
-					<Button
-						variant="ghost"
-						size="sm"
-						className="h-7 px-2 text-destructive hover:text-destructive"
-						onClick={() => handleCopyQueryError(trimmedError)}
-					>
-						<Copy className="w-4 h-4" />
-						Copy
-					</Button>
-				</div>
-				<div className="mt-1">
-					<span className="inline whitespace-pre-wrap break-words select-text text-sm text-destructive/80">
-						{trimmedError}
-					</span>
-				</div>
-			</div>
-		);
-	};
-
 	const renderQueryContent = (tab: QueryTab) => (
-		<div className="space-y-3">
-			<Card className="workspace-panel gap-2">
-				<CardHeader>
-					<div className="flex items-center justify-between">
-						<div>
-							<CardTitle>SQL editor</CardTitle>
-							<CardDescription>Write and execute SQL queries</CardDescription>
-						</div>
-						<div className="flex items-center gap-2">
-							{showSaveDialog ? (
-								<div className="flex items-center gap-2">
-									<Input
-										placeholder="Query name"
-										value={saveQueryName}
-										onChange={(e) => setSaveQueryName(e.target.value)}
-										className="w-40"
-										onKeyDown={(e) => {
-											if (e.key === "Enter") {
-												handleSaveQuery();
-											} else if (e.key === "Escape") {
-												setShowSaveDialog(false);
-												setSaveQueryName("");
-											}
-										}}
-										autoFocus
-									/>
-									<Button
-										size="sm"
-										onClick={handleSaveQuery}
-										disabled={!saveQueryName.trim()}
-									>
-										Save
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={() => {
-											setShowSaveDialog(false);
-											setSaveQueryName("");
-										}}
-									>
-										Cancel
-									</Button>
-								</div>
-							) : (
-								<>
-					<Button
-						size="sm"
-						variant="outline"
-						onClick={() => {
-							try {
-								const formatted = formatSQL(tab.query, {
-													language: getSqlFormatterLanguage(
-														connection?.db_type || "postgres",
-													),
-													tabWidth: 2,
-													keywordCase: "upper",
-												});
-												handleQueryChange(formatted);
-												toast.success("SQL formatted");
-											} catch (error) {
-												toast.error("Failed to format SQL", {
-													description:
-														error instanceof Error
-															? error.message
-															: "Unknown error",
-												});
-											}
-										}}
-										disabled={!tab.query.trim()}
-									>
-										<PaintBrush className="w-4 h-4" />
-										Beautify
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-											// Pre-populate name if this is an existing saved query
-											if (tab.savedQueryName) {
-												setSaveQueryName(tab.savedQueryName);
-											}
-											setShowSaveDialog(true);
-										}}
-										disabled={!tab.query.trim()}
-									>
-										<FloppyDisk className="w-4 h-4" />
-										Save query
-									</Button>
-									<div className="flex">
-										<Button
-											size="sm"
-											onClick={handleRunQuery}
-											disabled={tab.executing}
-											className="rounded-r-none border-r-0 -mr-1"
-										>
-											{tab.executing ? <Spinner /> : null}
-											Run query{" "}
-											<span className="text-xs opacity-60">
-												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
-												+↵)
-											</span>
-										</Button>
-										<DropdownMenu>
-											<DropdownMenuTrigger
-												render={
-													<Button
-														size="sm"
-														className="px-1 rounded-l-none border border-border"
-														disabled={tab.executing}
-													>
-														<CaretDown className="w-4 h-4" />
-													</Button>
-												}
-											/>
-											<DropdownMenuContent align="end">
-												<DropdownMenuItem onClick={handleRunAllQueries}>
-													<PlayCircle className="w-4 h-4" />
-													Run all queries
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</div>
-								</>
-							)}
-						</div>
-					</div>
-				</CardHeader>
-				<CardContent>
-					<SqlEditor
-						value={tab.query}
-						onChange={handleQueryChange}
-						onRunQuery={handleRunQuery}
-						height="300px"
-						// disabled={!tab.query.trim()}
-						tables={tables.map((t) => ({
-							schema: t.schema,
-							name: t.name,
-							columns: tableColumns[`${t.schema}.${t.name}`],
-						}))}
-						ai={getEditorAiProps(tab)}
-						onCursorActivity={(line, char) => {
-							setCursorLine(line);
-							setCursorChar(char);
-						}}
-					/>
-				</CardContent>
-			</Card>
-
-			<Card className="workspace-panel">
-				<CardHeader>
-					<div className="flex items-center justify-between">
-						<div>
-							<div className="flex items-center gap-2">
-								<CardTitle>Query results</CardTitle>
-								{tab.executionTime !== null && (
-									<span className="text-xs text-muted-foreground">
-										({tab.executionTime}ms)
-									</span>
-								)}
-							</div>
-							<CardDescription>
-								{tab.results !== null &&
-									tab.results.length > 0 &&
-									`${tab.filter ? "Filtered " : ""}returned ${
-										tab.results.length
-									} row${tab.results.length !== 1 ? "s" : ""}`}
-								{tab.results !== null &&
-									tab.results.length === 0 &&
-									tab.success &&
-									(tab.affectedRows !== null
-										? `Query executed successfully - ${formatQuerySuccessDetail(
-												tab.affectedRows,
-											)}`
-										: "Query executed successfully - no rows returned")}
-							</CardDescription>
-						</div>
-						{tab.results && tab.results.length > 0 && (
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleExportCSV}
-							>
-								<DownloadSimple className="w-4 h-4" />
-								Download CSV
-							</Button>
-						)}
-					</div>
-				</CardHeader>
-				<CardContent>
-					{tab.executing ? (
-						<div className="space-y-3">
-							<div className="flex items-center gap-2">
-								{[...Array(4)].map((_, i) => (
-									<Skeleton key={i} className="h-8 flex-1 rounded" />
-								))}
-							</div>
-							{[...Array(5)].map((_, rowIndex) => (
-								<div key={rowIndex} className="flex items-center gap-2">
-									{[...Array(4)].map((_, colIndex) => (
-										<Skeleton key={colIndex} className="h-6 flex-1 rounded" />
-									))}
-								</div>
-							))}
-						</div>
-					) : tab.error ? (
-						renderQueryError(tab.error)
-					) : tab.results ? (
-						<div className="space-y-4">
-							{tab.resultBaseQuery ? (
-								<div className="flex items-center gap-2">
-									<Input
-										placeholder="Filter query output (SQL WHERE clause)"
-										value={tab.filterInput}
-										onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-											handleQueryFilterInputChange(e.target.value)
-										}
-										onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-											if (e.key === "Enter") {
-												handleApplyQueryFilter();
-											}
-										}}
-										className="flex-1 font-mono text-xs"
-									/>
-									{tab.filter && (
-										<Button
-											size="sm"
-											variant="outline"
-											onClick={handleClearFilter}
-											disabled={tab.executing}
-										>
-											Clear
-										</Button>
-									)}
-								</div>
-							) : (
-								<div className="text-xs text-muted-foreground">
-									Query-level filter/sort is only available for SELECT-style
-									results.
-								</div>
-							)}
-							{tab.filter && (
-								<div className="text-xs text-muted-foreground">
-									Active filter:{" "}
-									<code className="bg-muted px-1 py-0.5 rounded">
-										{tab.filter}
-									</code>
-								</div>
-							)}
-							{tab.results.length > 0 ? (
-								<div className="max-h-[85vh]">
-									<DataTable
-										data={tab.results}
-										columns={queryColumns}
-										hidePagination
-										virtualize={tab.results.length > 100}
-										sortable={!!tab.resultBaseQuery}
-										sort={tab.sort}
-										onSortChange={
-											tab.resultBaseQuery ? handleQuerySortChange : undefined
-										}
-										onRowClick={(row) => {
-											const index = tab.results?.indexOf(row) ?? -1;
-											setSelectedQueryRow({ row, index });
-											setQueryResultSheetOpen(true);
-										}}
-									/>
-								</div>
-							) : tab.success ? (
-								<div className="flex items-start gap-2 rounded-md border bg-muted/20 px-3 py-2 text-sm">
-									<span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[3px] border border-green-500 bg-green-50 text-green-600 dark:border-green-500/80 dark:bg-green-950/30 dark:text-green-400">
-										<Check weight="bold" className="h-3 w-3" />
-									</span>
-									<div className="min-w-0">
-										<p className="font-medium text-foreground">
-											Query executed successfully
-										</p>
-										<p className="mt-0.5 text-muted-foreground">
-											{formatQuerySuccessDetail(tab.affectedRows)}
-										</p>
-									</div>
-								</div>
-							) : null}
-						</div>
-					) : (
-						<div className="flex min-h-40 items-center justify-center px-4 text-center">
-							<p className="max-w-md text-sm text-muted-foreground">
-								No results yet. Write a SQL query, then run it to see the output
-								here.
-							</p>
-						</div>
-					)}
-				</CardContent>
-			</Card>
-		</div>
+		<QueryWorkspace
+			tab={tab}
+			connection={connection}
+			tables={tables}
+			tableColumns={tableColumns}
+			queryColumns={queryColumns}
+			showSaveDialog={showSaveDialog}
+			saveQueryName={saveQueryName}
+			setSaveQueryName={setSaveQueryName}
+			setShowSaveDialog={setShowSaveDialog}
+			handleSaveQuery={handleSaveQuery}
+			handleQueryChange={handleQueryChange}
+			handleRunQuery={handleRunQuery}
+			handleRunAllQueries={handleRunAllQueries}
+			getEditorAiProps={getEditorAiProps}
+			setCursorLine={setCursorLine}
+			setCursorChar={setCursorChar}
+			handleCopyQueryError={handleCopyQueryError}
+			handleExportCSV={handleExportCSV}
+			handleQueryFilterInputChange={handleQueryFilterInputChange}
+			handleApplyQueryFilter={handleApplyQueryFilter}
+			handleClearFilter={handleClearFilter}
+			handleQuerySortChange={handleQuerySortChange}
+			setSelectedQueryRow={setSelectedQueryRow}
+			setQueryResultSheetOpen={setQueryResultSheetOpen}
+		/>
 	);
 
 	const renderEmptyState = () => (
@@ -3246,566 +2157,6 @@ export function ConnectionDetails() {
 	);
 
 	// ============================================================================
-	// Redis-specific handlers (simple view without tabs)
-	// ============================================================================
-
-	const handleRedisSearch = async () => {
-		if (!connection) return;
-		setLoadingRedisKeys(true);
-		setRedisSelectedKey(null);
-		setRedisKeyDetails(null);
-		setRedisSearchTime(null);
-		setRedisScanProgress(null);
-		setRedisScanCursor(null);
-		setRedisScanComplete(true);
-		setRedisScanBaseCount(0); // Reset base count for new search
-		setRedisKeys([]); // Clear keys before starting - they will be streamed in via events
-
-		try {
-			const result = await api.redis.searchKeys(
-				connection.uuid,
-				redisPattern,
-				100,
-				0,
-			);
-			// Keys are streamed via events, so we don't need to set them here
-			// But we still need the final metadata from the result
-			setRedisSearchTime(result.time_taken_ms ?? null);
-			setRedisScanCursor(result.cursor);
-			setRedisScanComplete(result.scan_complete);
-		} catch (error) {
-			console.error("Failed to search Redis keys:", error);
-			toast.error("Failed to search keys");
-		} finally {
-			setLoadingRedisKeys(false);
-			setRedisScanProgress(null);
-		}
-	};
-
-	const handleRedisScanMore = async () => {
-		if (!connection || redisScanComplete || redisScanCursor == null) return;
-		setLoadingRedisKeys(true);
-		setRedisScanProgress(null);
-		setRedisScanBaseCount(redisKeys?.length ?? 0); // Track existing keys for cumulative progress
-
-		try {
-			const result = await api.redis.searchKeys(
-				connection.uuid,
-				redisPattern,
-				100,
-				redisScanCursor,
-			);
-			// Keys are streamed via events, so we don't need to append them here
-			setRedisSearchTime((prev) => {
-				const current = result.time_taken_ms;
-				if (prev == null || current == null) {
-					return null;
-				}
-				return prev + current;
-			});
-			setRedisScanCursor(result.cursor);
-			setRedisScanComplete(result.scan_complete);
-		} catch (error) {
-			console.error("Failed to scan more Redis keys:", error);
-			toast.error("Failed to scan more keys");
-		} finally {
-			setLoadingRedisKeys(false);
-			setRedisScanProgress(null);
-		}
-	};
-
-	const handleRedisKeySelect = async (key: string) => {
-		if (!connection) return;
-
-		setRedisSelectedKey(key);
-		setLoadingRedisDetails(true);
-		setRedisSheetOpen(true);
-
-		try {
-			const details = await api.redis.getKeyDetails(connection.uuid, key);
-			setRedisKeyDetails(details);
-		} catch (error) {
-			console.error("Failed to get Redis key details:", error);
-			toast.error("Failed to load key details");
-			setRedisSheetOpen(false);
-		} finally {
-			setLoadingRedisDetails(false);
-		}
-	};
-
-	const handleRedisDeleteKey = async () => {
-		setShowDeleteDialog(false);
-		if (!connection || !redisSelectedKey) return;
-
-		try {
-			await api.redis.deleteKey(connection.uuid, redisSelectedKey);
-			toast.success("Key deleted successfully");
-			// Close sheet, refresh keys list, and clear selection
-			setRedisSheetOpen(false);
-			handleRedisSearch();
-			setRedisSelectedKey(null);
-			setRedisKeyDetails(null);
-		} catch (error) {
-			console.error("Failed to delete Redis key:", error);
-			toast.error("Failed to delete key");
-		}
-	};
-
-	const handleCopyValue = () => {
-		if (!redisKeyDetails) return;
-		const valueString = JSON.stringify(redisKeyDetails.value, null, 2);
-		navigator.clipboard.writeText(valueString);
-		setCopiedToClipboard(true);
-		toast.success("Copied to clipboard");
-		setTimeout(() => setCopiedToClipboard(false), 2000);
-	};
-
-	const handleRedisAddKey = () => {
-		setRedisKeySheetMode("add");
-		setRedisKeySheetOpen(true);
-	};
-
-	const handleRedisEditKey = () => {
-		setRedisKeySheetMode("edit");
-		setRedisKeySheetOpen(true);
-	};
-
-	const handleRedisSaveKey = async (data: {
-		key: string;
-		type: "string" | "list" | "set" | "hash" | "zset";
-		value: unknown;
-		ttl?: number;
-	}) => {
-		if (!connection) return;
-
-		setSavingRedisKey(true);
-		try {
-			switch (data.type) {
-				case "string":
-					await api.redis.setKey(
-						connection.uuid,
-						data.key,
-						data.value as string,
-						data.ttl,
-					);
-					break;
-				case "list":
-					await api.redis.setListKey(
-						connection.uuid,
-						data.key,
-						data.value as string[],
-						data.ttl,
-					);
-					break;
-				case "set":
-					await api.redis.setSetKey(
-						connection.uuid,
-						data.key,
-						data.value as string[],
-						data.ttl,
-					);
-					break;
-				case "hash":
-					await api.redis.setHashKey(
-						connection.uuid,
-						data.key,
-						data.value as Record<string, string>,
-						data.ttl,
-					);
-					break;
-				case "zset":
-					await api.redis.setZSetKey(
-						connection.uuid,
-						data.key,
-						data.value as Array<[string, number]>,
-						data.ttl,
-					);
-					break;
-			}
-
-			toast.success(
-				`Key "${data.key}" ${redisKeySheetMode === "add" ? "created" : "updated"} successfully`,
-			);
-			setRedisKeySheetOpen(false);
-			handleRedisSearch();
-			if (redisKeySheetMode === "edit") {
-				setRedisSheetOpen(false);
-				setRedisSelectedKey(null);
-				setRedisKeyDetails(null);
-			}
-		} catch (error) {
-			console.error("Failed to save Redis key:", error);
-			toast.error(
-				`Failed to ${redisKeySheetMode === "add" ? "create" : "update"} key`,
-			);
-		} finally {
-			setSavingRedisKey(false);
-		}
-	};
-
-	const renderRedisView = () => (
-		<div className="flex flex-col h-full gap-4">
-			{/* Pattern Search */}
-			<Card>
-				<CardContent className="pt-6">
-					<div className="flex items-center gap-2">
-						<Input
-							placeholder="Enter pattern (e.g., *, user:*, cache:*)"
-							value={redisPattern}
-							onChange={(e) => setRedisPattern(e.target.value)}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" && !loadingRedisKeys) {
-									handleRedisSearch();
-								}
-							}}
-							disabled={loadingRedisKeys}
-							className="flex-1 font-mono"
-							autoFocus
-						/>
-						<Button onClick={handleRedisSearch} disabled={loadingRedisKeys}>
-							{loadingRedisKeys ? <Spinner /> : null}
-							Search Keys
-						</Button>
-						<Button onClick={handleRedisAddKey} variant="default">
-							<Plus className="w-4 h-4" />
-							Add Key
-						</Button>
-					</div>
-					{redisKeys !== null && (
-						<div className="mt-2 text-sm text-muted-foreground">
-							Found {redisKeys.length} key{redisKeys.length !== 1 ? "s" : ""}
-							{redisSearchTime !== null && (
-								<span className="ml-2">• {redisSearchTime}ms</span>
-							)}
-						</div>
-					)}
-				</CardContent>
-			</Card>
-
-			{/* Results */}
-			<Card className="flex-1 overflow-hidden flex flex-col">
-				<CardHeader className="pb-3">
-					<CardTitle className="text-base">Keys</CardTitle>
-				</CardHeader>
-				<CardContent
-					className="flex-1 overflow-y-auto p-0"
-					ref={redisKeysListRef}
-				>
-					{redisKeys && redisKeys.length > 0 ? (
-						<div
-							style={{
-								height: `${redisKeysVirtualizer.getTotalSize()}px`,
-								position: "relative",
-							}}
-						>
-							{redisKeysVirtualizer.getVirtualItems().map((virtualItem) => {
-								const keyInfo = redisKeys[virtualItem.index];
-								return (
-									<div
-										key={virtualItem.key}
-										data-index={virtualItem.index}
-										ref={redisKeysVirtualizer.measureElement}
-										style={{
-											position: "absolute",
-											top: 0,
-											left: 0,
-											width: "100%",
-											height: `${virtualItem.size}px`,
-											transform: `translateY(${virtualItem.start}px)`,
-										}}
-									>
-										<button
-											type="button"
-											onClick={() => handleRedisKeySelect(keyInfo.key)}
-											className="w-full h-full text-left px-4 hover:bg-muted/50 transition-colors border-b flex items-center"
-										>
-											<span className="font-mono text-sm truncate flex-1">
-												{keyInfo.key}
-											</span>
-										</button>
-									</div>
-								);
-							})}
-						</div>
-					) : loadingRedisKeys ? (
-						<div className="flex flex-col items-center justify-center py-8 gap-2">
-							<Spinner />
-							{redisScanProgress && (
-								<div className="text-sm text-muted-foreground">
-									Scanning... {redisScanBaseCount + redisScanProgress.keysFound}{" "}
-									keys found ({redisScanProgress.iteration}/
-									{redisScanProgress.maxIterations} iterations)
-								</div>
-							)}
-						</div>
-					) : redisKeys && redisKeys.length === 0 ? (
-						<div className="text-center py-12 text-muted-foreground">
-							No keys found matching pattern "{redisPattern}"
-							{!redisScanComplete && (
-								<div className="mt-4">
-									<Button
-										onClick={handleRedisScanMore}
-										variant="outline"
-										size="sm"
-									>
-										Scan More Keys
-									</Button>
-								</div>
-							)}
-						</div>
-					) : (
-						<div className="text-center py-12 text-muted-foreground">
-							Enter a pattern and click Search to find keys
-						</div>
-					)}
-				</CardContent>
-				{loadingRedisKeys && redisKeys && redisKeys.length > 0 && (
-					<div className="border-t p-3 flex items-center justify-center gap-2">
-						<Spinner />
-						{redisScanProgress && (
-							<span className="text-sm text-muted-foreground">
-								Scanning... {redisScanBaseCount + redisScanProgress.keysFound}{" "}
-								keys found ({redisScanProgress.iteration}/
-								{redisScanProgress.maxIterations} iterations)
-							</span>
-						)}
-					</div>
-				)}
-				{!redisScanComplete &&
-					redisKeys &&
-					redisKeys.length > 0 &&
-					!loadingRedisKeys && (
-						<div className="border-t p-3 flex items-center justify-center gap-2">
-							<span className="text-sm text-muted-foreground">
-								Scan incomplete
-							</span>
-							<Button onClick={handleRedisScanMore} variant="outline" size="sm">
-								Scan More Keys
-							</Button>
-						</div>
-					)}
-			</Card>
-
-			{/* Key Details Sheet */}
-			<Sheet open={redisSheetOpen} onOpenChange={setRedisSheetOpen}>
-				<SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-					<div className="">
-						{loadingRedisDetails ? (
-							<>
-								<SheetHeader>
-									<SheetTitle>Key Details</SheetTitle>
-									<SheetDescription className="flex items-center gap-2">
-										<Spinner />
-										Loading key details
-									</SheetDescription>
-								</SheetHeader>
-								<div className="mt-2 space-y-6 px-4">
-									{/* Metadata skeleton */}
-									<div>
-										<h3 className="text-sm font-medium mb-3">Metadata</h3>
-										<div className="space-y-3 text-sm">
-											<div>
-												<span className="text-muted-foreground">Key:</span>
-												<Skeleton className="mt-1 h-8 w-full rounded" />
-											</div>
-											<div className="grid grid-cols-2 gap-4">
-												<div className="space-y-1">
-													<span className="text-muted-foreground">Type:</span>
-													<Skeleton className="h-4 w-16 rounded" />
-												</div>
-												<div className="space-y-1">
-													<span className="text-muted-foreground">TTL:</span>
-													<Skeleton className="h-4 w-24 rounded" />
-												</div>
-												<div className="space-y-1">
-													<span className="text-muted-foreground">
-														Encoding:
-													</span>
-													<Skeleton className="h-4 w-20 rounded" />
-												</div>
-												<div className="space-y-1">
-													<span className="text-muted-foreground">Memory:</span>
-													<Skeleton className="h-4 w-20 rounded" />
-												</div>
-											</div>
-										</div>
-									</div>
-									{/* Value skeleton */}
-									<div>
-										<h3 className="text-sm font-medium mb-3">Value</h3>
-										<Skeleton className="h-32 w-full rounded-md" />
-									</div>
-									{/* Actions skeleton */}
-									<div className="flex gap-2 pt-4 border-t">
-										<Skeleton className="h-9 w-24 rounded" />
-										<Skeleton className="h-9 w-16 rounded" />
-									</div>
-								</div>
-							</>
-						) : redisKeyDetails ? (
-							<>
-								<SheetHeader>
-									<SheetTitle>Key Details</SheetTitle>
-									<SheetDescription>
-										Viewing details for Redis key
-									</SheetDescription>
-								</SheetHeader>
-								<div className="mt-2 space-y-6 px-4">
-									{/* Key metadata */}
-									<div>
-										<h3 className="text-sm font-medium mb-3">Metadata</h3>
-										<div className="space-y-3 text-sm">
-											{/* Key - full width */}
-											<div>
-												<span className="text-muted-foreground">Key:</span>
-												<div className="mt-1 font-mono bg-muted px-3 py-2 rounded text-xs break-all">
-													{redisKeyDetails.key}
-												</div>
-											</div>
-											{/* Other metadata in grid */}
-											<div className="grid grid-cols-2 gap-4">
-												<div>
-													<span className="text-muted-foreground">Type:</span>
-													<span className="ml-2">
-														{redisKeyDetails.key_type}
-													</span>
-												</div>
-												<div>
-													<span className="text-muted-foreground">TTL:</span>
-													<span className="ml-2">
-														{redisKeyDetails.ttl === -1
-															? "No expiration"
-															: `${redisKeyDetails.ttl}s`}
-													</span>
-												</div>
-												{redisKeyDetails.encoding && (
-													<div>
-														<span className="text-muted-foreground">
-															Encoding:
-														</span>
-														<span className="ml-2">
-															{redisKeyDetails.encoding}
-														</span>
-													</div>
-												)}
-												{redisKeyDetails.size !== undefined && (
-													<div>
-														<span className="text-muted-foreground">
-															Memory:
-														</span>
-														<span className="ml-2">
-															{redisKeyDetails.size} bytes
-														</span>
-													</div>
-												)}
-												{redisKeyDetails.length !== undefined && (
-													<div>
-														<span className="text-muted-foreground">
-															Length:
-														</span>
-														<span className="ml-2">
-															{redisKeyDetails.length}
-														</span>
-													</div>
-												)}
-											</div>
-										</div>
-									</div>
-
-									{/* Value */}
-									<div>
-										<div className="flex items-center justify-between mb-3">
-											<h3 className="text-sm font-medium">Value</h3>
-											<Button
-												variant="ghost"
-												size="sm"
-												onClick={handleCopyValue}
-												className="h-7 px-2"
-											>
-												{copiedToClipboard ? (
-													<>
-														<Check className="w-4 h-4 mr-1" />
-														Copied!
-													</>
-												) : (
-													<>
-														<Copy className="w-4 h-4 mr-1" />
-														Copy
-													</>
-												)}
-											</Button>
-										</div>
-										<ExpandableText
-											value={JSON.stringify(redisKeyDetails.value, null, 2)}
-											isJson={typeof redisKeyDetails.value === "object"}
-										/>
-									</div>
-
-									{/* Actions */}
-									<div className="flex gap-2 pt-4 border-t">
-										<Button variant="default" onClick={handleRedisEditKey}>
-											Edit Key
-										</Button>
-										<Button
-											variant="destructive"
-											onClick={() => setShowDeleteDialog(true)}
-										>
-											Delete Key
-										</Button>
-										<Button
-											variant="outline"
-											onClick={() => setRedisSheetOpen(false)}
-										>
-											Close
-										</Button>
-									</div>
-								</div>
-							</>
-						) : (
-							<div className="flex items-center justify-center py-12 px-4 text-muted-foreground">
-								Failed to load key details
-							</div>
-						)}
-					</div>
-				</SheetContent>
-			</Sheet>
-
-			{/* Delete Confirmation Dialog */}
-			<AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Delete Redis Key?</AlertDialogTitle>
-						<AlertDialogDescription>
-							Are you sure you want to delete the key{" "}
-							<span className="font-mono bg-muted px-2 py-0.5 rounded">
-								{redisSelectedKey}
-							</span>
-							? This action cannot be undone.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={handleRedisDeleteKey}
-							variant="destructive"
-						>
-							Delete
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-
-			{/* Add/Edit Key Sheet */}
-			<RedisKeySheet
-				open={redisKeySheetOpen}
-				onOpenChange={setRedisKeySheetOpen}
-				mode={redisKeySheetMode}
-				keyDetails={redisKeySheetMode === "edit" ? redisKeyDetails : null}
-				onSave={handleRedisSaveKey}
-				saving={savingRedisKey}
-			/>
-		</div>
-	);
 
 	const renderSchemaVisualizerContent = (tab: SchemaVisualizerTab) => (
 		<div className="h-full">
@@ -3869,7 +2220,7 @@ export function ConnectionDetails() {
 		return (
 			<DisconnectedScreen
 				connectionName={connection.name}
-				databaseIcon={getDatabaseIcon()}
+				databaseIcon={<DatabaseIcon connection={connection} />}
 				error={connectionError}
 				onReconnect={handleReconnect}
 				onClose={() => navigate("/")}
@@ -3881,9 +2232,9 @@ export function ConnectionDetails() {
 	if (connection.type === "redis") {
 		return (
 			<div className="workspace-canvas flex h-screen flex-col">
-				<RedisContentHeader
+				<RedisConnectionHeader
 					connection={connection}
-					navigate={navigate}
+					onClose={() => navigate("/")}
 					connectionStatus={connectionStatus}
 					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
@@ -3891,7 +2242,7 @@ export function ConnectionDetails() {
 				/>
 
 				<div className="min-w-0 flex-1 overflow-auto p-3">
-					{renderRedisView()}
+					<RedisWorkspace connection={connection} />
 				</div>
 			</div>
 		);
@@ -3900,50 +2251,12 @@ export function ConnectionDetails() {
 	return (
 		<SidebarProvider>
 			<Sidebar>
-				<SidebarHeader
-					className="app-titlebar select-none border-b p-3 pt-10"
-					data-tauri-drag-region
-				>
-					<div className="flex items-center justify-between gap-2">
-						<div className="flex items-center gap-2 min-w-0 flex-1">
-							<Table className="w-5 h-5 shrink-0" />
-							<span className="font-semibold truncate">{connection.name}</span>
-						</div>
-						<div className="flex items-center gap-1 shrink-0">
-							{connection.db_type !== "clickhouse" && (
-								<Button
-									variant="default"
-									size="icon-sm"
-									onClick={handleOpenSchemaVisualizer}
-									title="Open Schema Visualizer"
-									aria-label="Open Schema Visualizer"
-									className="h-7 w-7"
-								>
-									<TreeStructure className="w-4 h-4" />
-								</Button>
-							)}
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								onClick={handleRefreshTables}
-								disabled={refreshingTables || loadingSchemaOverview}
-								title="Refresh schema"
-								aria-label="Refresh schema"
-							>
-								{refreshingTables || loadingSchemaOverview ? (
-									<Spinner />
-								) : (
-									<ArrowClockwise className="w-4 h-4" />
-								)}
-							</Button>
-						</div>
-					</div>
-					<div className="text-xs text-muted-foreground mt-1">
-						{connection.db_type === "duckdb"
-							? connection.file_path
-							: getConnectionDatabaseDisplay(connection)}
-					</div>
-				</SidebarHeader>
+				<ConnectionSidebarHeader
+					connection={connection}
+					refreshing={refreshingTables || loadingSchemaOverview}
+					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
+					onRefresh={handleRefreshTables}
+				/>
 				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
 						value={sidebarTab}
@@ -3996,151 +2309,34 @@ export function ConnectionDetails() {
 								}
 							/>
 						</TabsContent>
-						<TabsContent
-							value="queries"
-							className="mt-2 min-h-0 flex-1 overflow-auto"
-						>
-							<SidebarGroup>
-								<SidebarGroupLabel>Saved Queries</SidebarGroupLabel>
-								<SidebarGroupContent>
-									{loadingQueries ? (
-										<div className="flex items-center justify-center py-4">
-											<Spinner />
-										</div>
-									) : savedQueries.length === 0 ? (
-										<p className="text-xs text-muted-foreground px-2 py-4 text-center">
-											No saved queries yet
-										</p>
-									) : (
-										<SidebarMenu>
-											{savedQueries.map((query) => (
-												<ContextMenu key={query.id}>
-													<ContextMenuTrigger>
-														<SidebarMenuItem className="group/query">
-															<SidebarMenuButton
-																onClick={() => handleLoadQuery(query)}
-																className="pr-8"
-															>
-																<Code className="w-4 h-4" />
-																<span className="truncate flex-1">
-																	{query.name}
-																</span>
-															</SidebarMenuButton>
-															<DropdownMenu>
-																<DropdownMenuTrigger
-																	render={
-																		<button
-																			type="button"
-																			className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover/query:opacity-100 hover:bg-sidebar-accent"
-																			onClick={(e) => e.stopPropagation()}
-																		/>
-																	}
-																>
-																	<DotsThreeVertical className="w-3 h-3" />
-																</DropdownMenuTrigger>
-																<DropdownMenuContent align="end">
-																	<DropdownMenuItem
-																		onClick={() => handleDeleteQuery(query)}
-																		variant="destructive"
-																	>
-																		Delete
-																	</DropdownMenuItem>
-																</DropdownMenuContent>
-															</DropdownMenu>
-														</SidebarMenuItem>
-													</ContextMenuTrigger>
-													<ContextMenuContent>
-														<ContextMenuItem
-															onClick={() => handleDeleteQuery(query)}
-															variant="destructive"
-														>
-															Delete
-														</ContextMenuItem>
-													</ContextMenuContent>
-												</ContextMenu>
-											))}
-										</SidebarMenu>
-									)}
-								</SidebarGroupContent>
-							</SidebarGroup>
-						</TabsContent>
-						<TabsContent
-							value="history"
-							className="mt-2 min-h-0 flex-1 overflow-auto"
-						>
-							<SidebarGroup>
-								<div className="flex items-center justify-between pr-2">
-									<SidebarGroupLabel>Recent Queries</SidebarGroupLabel>
-									{queryHistory.length > 0 ? (
-										<button
-											type="button"
-											className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-											onClick={async () => {
-												if (!uuid) return;
-												try {
-													await api.queries.clearHistory(uuid);
-													setQueryHistory([]);
-												} catch (e) {
-													console.error("Failed to clear query history:", e);
-												}
-											}}
-										>
-											<Trash className="w-3 h-3" />
-											Clear
-										</button>
-									) : null}
-								</div>
-								<SidebarGroupContent>
-									{loadingHistory ? (
-										<div className="flex items-center justify-center py-4">
-											<Spinner />
-										</div>
-									) : queryHistory.length === 0 ? (
-										<p className="text-xs text-muted-foreground px-2 py-4 text-center">
-											No query history yet
-										</p>
-									) : (
-										<SidebarMenu>
-											{queryHistory.map((item) => (
-												<SidebarMenuItem key={item.id}>
-													<SidebarMenuButton
-														onClick={() => handleOpenQuery(item.query)}
-														className="h-auto flex-col items-start gap-1 py-2"
-														title={item.error ?? item.query}
-													>
-														<div className="flex items-center gap-2 w-full">
-															{item.status === "error" ? (
-																<WarningCircle className="w-4 h-4 shrink-0 text-destructive group-hover/menu-button:text-sidebar-accent-foreground" />
-															) : (
-																<Check className="w-4 h-4 shrink-0 text-green-600 dark:text-green-500 group-hover/menu-button:text-sidebar-accent-foreground" />
-															)}
-															<span className="truncate flex-1 font-mono text-xs">
-																{item.query}
-															</span>
-														</div>
-														<div className="flex items-center gap-2 text-[10px] text-muted-foreground pl-6 group-hover/menu-button:text-sidebar-accent-foreground">
-															<span>{formatHistoryTime(item.executed_at)}</span>
-															{item.status === "success" &&
-															item.time_taken_ms != null ? (
-																<span>· {item.time_taken_ms} ms</span>
-															) : null}
-														</div>
-													</SidebarMenuButton>
-												</SidebarMenuItem>
-											))}
-										</SidebarMenu>
-									)}
-								</SidebarGroupContent>
-							</SidebarGroup>
-						</TabsContent>
+						<SavedQueriesPanel
+							loading={loadingQueries}
+							queries={savedQueries}
+							onLoad={handleLoadQuery}
+							onDelete={handleDeleteQuery}
+						/>
+						<QueryHistoryPanel
+							loading={loadingHistory}
+							history={queryHistory}
+							onOpen={handleOpenQuery}
+							onClear={async () => {
+								if (!uuid) return;
+								try {
+									await api.queries.clearHistory(uuid);
+									setQueryHistory([]);
+								} catch (error) {
+									console.error("Failed to clear query history:", error);
+								}
+							}}
+						/>
 					</Tabs>
 				</SidebarContent>
 			</Sidebar>
 
 			<SidebarInset className="workspace-canvas flex h-screen min-w-0 flex-col">
-				<ContentHeader
+				<ConnectionHeader
 					connection={connection}
-					navigate={navigate}
+					onClose={() => navigate("/")}
 					connectionStatus={connectionStatus}
 					onReconnect={handleReconnect}
 					onStatusChange={setConnectionStatus}
