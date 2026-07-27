@@ -282,6 +282,11 @@ impl DatabaseDriver for D1Driver {
             .await?
             .results
             .iter()
+            .filter(|row| {
+                !row.get("name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.starts_with("_cf_"))
+            })
             .map(|row| {
                 Ok(TableInfo {
                     schema: "main".to_string(),
@@ -762,6 +767,51 @@ mod tests {
         assert_eq!(result.databases[0].uuid, "database-id");
         assert_eq!(headers.get("authorization").unwrap(), "Bearer secret-token");
         assert_eq!(uri.query(), Some("page=2&per_page=50"));
+    }
+
+    #[tokio::test]
+    async fn hides_cloudflare_managed_tables_from_schema_browsing() {
+        let app = Router::new().route(
+            "/client/v4/accounts/account-id/d1/database/database-id/query",
+            post(|| async {
+                Json(json!({
+                    "success": true,
+                    "errors": [],
+                    "messages": [],
+                    "result": [{
+                        "success": true,
+                        "results": [
+                            {"name": "_cf_KV", "type": "table"},
+                            {"name": "d1_migrations", "type": "table"},
+                            {"name": "uploads", "type": "table"}
+                        ],
+                        "meta": {"changes": 0}
+                    }]
+                }))
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let driver = D1Driver::with_api_base_url(
+            D1Config {
+                account_id: "account-id".to_string(),
+                database_id: "database-id".to_string(),
+                api_token: "secret-token".to_string(),
+            },
+            format!("http://{address}/client/v4"),
+        );
+
+        let tables = driver.list_tables().await.unwrap();
+        server.abort();
+
+        assert_eq!(
+            tables
+                .into_iter()
+                .map(|table| table.name)
+                .collect::<Vec<_>>(),
+            vec!["d1_migrations", "uploads"]
+        );
     }
 
     #[tokio::test]
