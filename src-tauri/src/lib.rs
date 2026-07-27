@@ -13,11 +13,11 @@ use commands::connections::{
     get_connections, import_connections, update_connection,
 };
 use commands::database::{
-    delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
-    redis_set_hash_key, redis_set_key, redis_set_list_key, redis_set_set_key, redis_set_zset_key,
-    redis_update_ttl, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
-    unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
-    update_table_row_with_raw_sql,
+    d1_list_databases, delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details,
+    redis_search_keys, redis_set_hash_key, redis_set_key, redis_set_list_key, redis_set_set_key,
+    redis_set_zset_key, redis_update_ttl, unified_execute_query, unified_get_schema_overview,
+    unified_get_table_data, unified_get_table_structure, unified_list_tables,
+    unified_test_connection, update_table_row, update_table_row_with_raw_sql,
 };
 use commands::mcp::{mcp_get_status, mcp_regenerate_token, mcp_set_enabled};
 use commands::pool::{
@@ -97,7 +97,7 @@ pub fn run() {
                 website: Some("https://dbcooper.amal.sh".into()),
                 website_label: Some("Visit Website".into()),
                 credits: Some(
-                    "A modern database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse."
+                    "A modern database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1."
                         .into(),
                 ),
                 ..Default::default()
@@ -252,6 +252,7 @@ pub fn run() {
             get_table_structure,
             execute_query,
             unified_test_connection,
+            d1_list_databases,
             unified_list_tables,
             unified_get_table_data,
             unified_get_table_structure,

@@ -107,6 +107,46 @@ async fn reconnect(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RetryPolicy {
+    Never,
+    ReconnectOnce,
+}
+
+async fn read_retry_policy(pool_manager: &PoolManager, uuid: &str) -> RetryPolicy {
+    if pool_manager.allows_reconnect_retry(uuid).await {
+        RetryPolicy::ReconnectOnce
+    } else {
+        RetryPolicy::Never
+    }
+}
+
+async fn execute_with_retry_policy<T, Operation, OperationFuture, Reconnect, ReconnectFuture>(
+    operation_name: &str,
+    retry_policy: RetryPolicy,
+    mut operation: Operation,
+    reconnect: Reconnect,
+) -> Result<T, String>
+where
+    Operation: FnMut() -> OperationFuture,
+    OperationFuture: std::future::Future<Output = Result<T, String>>,
+    Reconnect: FnOnce() -> ReconnectFuture,
+    ReconnectFuture: std::future::Future<Output = Result<(), String>>,
+{
+    match operation().await {
+        Ok(result) => Ok(result),
+        Err(error) if retry_policy == RetryPolicy::Never => Err(error),
+        Err(error) => {
+            println!(
+                "[Pool] {} failed: {}, retrying with fresh connection",
+                operation_name, error
+            );
+            reconnect().await?;
+            operation().await
+        }
+    }
+}
+
 /// List tables using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_list_tables(
@@ -117,19 +157,13 @@ pub async fn pool_list_tables(
     // Ensure connected
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    // Try the operation
-    match pool_manager.list_tables(&uuid).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            // On error, disconnect and retry once with fresh connection
-            println!(
-                "[Pool] list_tables failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.list_tables(&uuid).await
-        }
-    }
+    execute_with_retry_policy(
+        "list_tables",
+        read_retry_policy(&pool_manager, &uuid).await,
+        || pool_manager.list_tables(&uuid),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Get table data using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -150,40 +184,24 @@ pub async fn pool_get_table_data(
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
     let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
 
-    match pool_manager
-        .get_table_data(
-            &uuid,
-            &schema,
-            &table,
-            page,
-            limit,
-            table_filter.clone(),
-            sort_column.clone(),
-            sort_direction.clone(),
-        )
-        .await
-    {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] get_table_data failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager
-                .get_table_data(
-                    &uuid,
-                    &schema,
-                    &table,
-                    page,
-                    limit,
-                    table_filter,
-                    sort_column,
-                    sort_direction,
-                )
-                .await
-        }
-    }
+    execute_with_retry_policy(
+        "get_table_data",
+        read_retry_policy(&pool_manager, &uuid).await,
+        || {
+            pool_manager.get_table_data(
+                &uuid,
+                &schema,
+                &table,
+                page,
+                limit,
+                table_filter.clone(),
+                sort_column.clone(),
+                sort_direction.clone(),
+            )
+        },
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Get table structure using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -197,22 +215,13 @@ pub async fn pool_get_table_structure(
 ) -> Result<crate::db::models::TableStructure, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager
-        .get_table_structure(&uuid, &schema, &table)
-        .await
-    {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] get_table_structure failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager
-                .get_table_structure(&uuid, &schema, &table)
-                .await
-        }
-    }
+    execute_with_retry_policy(
+        "get_table_structure",
+        read_retry_policy(&pool_manager, &uuid).await,
+        || pool_manager.get_table_structure(&uuid, &schema, &table),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -247,17 +256,13 @@ pub async fn pool_execute_query(
 ) -> Result<crate::db::models::QueryResult, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] execute_query failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
-        }
-    }
+    execute_with_retry_policy(
+        "execute_query",
+        RetryPolicy::Never,
+        || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Get schema overview using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -269,17 +274,13 @@ pub async fn pool_get_schema_overview(
 ) -> Result<crate::db::models::SchemaOverview, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager.get_schema_overview(&uuid).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] get_schema_overview failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.get_schema_overview(&uuid).await
-        }
-    }
+    execute_with_retry_policy(
+        "get_schema_overview",
+        read_retry_policy(&pool_manager, &uuid).await,
+        || pool_manager.get_schema_overview(&uuid),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 /// Get a function definition using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -294,22 +295,13 @@ pub async fn pool_get_function_definition(
 ) -> Result<crate::db::models::FunctionDefinition, String> {
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
-    match pool_manager
-        .get_function_definition(&uuid, &schema, &name, &identity_args)
-        .await
-    {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] get_function_definition failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager
-                .get_function_definition(&uuid, &schema, &name, &identity_args)
-                .await
-        }
-    }
+    execute_with_retry_policy(
+        "get_function_definition",
+        read_retry_policy(&pool_manager, &uuid).await,
+        || pool_manager.get_function_definition(&uuid, &schema, &name, &identity_args),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
+    )
+    .await
 }
 
 // ============================================================================
@@ -333,14 +325,7 @@ async fn run_mutation(
     mutation: &MutationPlan,
 ) -> Result<QueryResult, String> {
     ensure_connection(pool_manager, sqlite_pool, uuid).await?;
-    match pool_manager.execute_mutation(uuid, mutation).await {
-        Ok(result) => Ok(result),
-        Err(error) => {
-            println!("[Pool] mutation failed: {error}, retrying with fresh connection");
-            reconnect(pool_manager, sqlite_pool, uuid).await?;
-            pool_manager.execute_mutation(uuid, mutation).await
-        }
-    }
+    pool_manager.execute_mutation(uuid, mutation).await
 }
 
 /// Update a row in a table using the pooled connection
@@ -402,4 +387,62 @@ pub async fn pool_insert_table_row(
     let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
     let mutation = build_insert(engine, &schema, &table, &values)?;
     run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execute_with_retry_policy, RetryPolicy};
+    use std::cell::Cell;
+
+    #[tokio::test]
+    async fn never_retry_policy_returns_the_first_error_without_reconnecting() {
+        let operation_calls = Cell::new(0);
+        let reconnect_calls = Cell::new(0);
+
+        let result: Result<(), String> = execute_with_retry_policy(
+            "d1 query",
+            RetryPolicy::Never,
+            || async {
+                operation_calls.set(operation_calls.get() + 1);
+                Err("request outcome is unknown".to_string())
+            },
+            || async {
+                reconnect_calls.set(reconnect_calls.get() + 1);
+                Ok(())
+            },
+        )
+        .await;
+
+        assert_eq!(result, Err("request outcome is unknown".to_string()));
+        assert_eq!(operation_calls.get(), 1);
+        assert_eq!(reconnect_calls.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn reconnect_once_policy_retries_a_safe_read_once() {
+        let operation_calls = Cell::new(0);
+        let reconnect_calls = Cell::new(0);
+
+        let result = execute_with_retry_policy(
+            "safe read",
+            RetryPolicy::ReconnectOnce,
+            || async {
+                operation_calls.set(operation_calls.get() + 1);
+                if operation_calls.get() == 1 {
+                    Err("stale connection".to_string())
+                } else {
+                    Ok("rows")
+                }
+            },
+            || async {
+                reconnect_calls.set(reconnect_calls.get() + 1);
+                Ok(())
+            },
+        )
+        .await;
+
+        assert_eq!(result, Ok("rows"));
+        assert_eq!(operation_calls.get(), 2);
+        assert_eq!(reconnect_calls.get(), 1);
+    }
 }

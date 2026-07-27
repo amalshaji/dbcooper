@@ -3,6 +3,7 @@
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
 //! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
+use crate::database::d1::{list_databases, D1DatabaseList};
 use crate::database::driver_factory::{
     create_driver as build_driver, create_driver_with_ssh as build_driver_with_ssh, DriverConfig,
 };
@@ -112,6 +113,15 @@ fn create_driver(
         ssh_key_path: None,
         ssh_use_key: false,
     })
+}
+
+#[tauri::command]
+pub async fn d1_list_databases(
+    account_id: String,
+    api_token: String,
+    page: Option<u32>,
+) -> Result<D1DatabaseList, String> {
+    list_databases(&account_id, &api_token, page.unwrap_or(1)).await
 }
 
 #[tauri::command]
@@ -309,7 +319,10 @@ pub async fn update_table_row(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+    let table_ref = if matches!(
+        db_type.as_str(),
+        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
+    ) {
         format!("\"{}\"", escape_sql_identifier(&table))
     } else {
         format!(
@@ -379,7 +392,10 @@ pub async fn update_table_row_with_raw_sql(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+    let table_ref = if matches!(
+        db_type.as_str(),
+        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
+    ) {
         format!("\"{}\"", escape_sql_identifier(&table))
     } else {
         format!(
@@ -476,7 +492,10 @@ pub async fn delete_table_row(
     )?;
 
     // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+    let table_ref = if matches!(
+        db_type.as_str(),
+        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
+    ) {
         format!("\"{}\"", escape_sql_identifier(&table))
     } else {
         format!(
@@ -527,7 +546,10 @@ pub async fn insert_table_row(
     )?;
 
     // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
+    let table_ref = if matches!(
+        db_type.as_str(),
+        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
+    ) {
         format!("\"{}\"", escape_sql_identifier(&table))
     } else {
         format!(

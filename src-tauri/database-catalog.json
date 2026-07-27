@@ -188,6 +188,43 @@
       "JSON": ["('{}')", "('[]')"]
     }
   },
+  "d1": {
+    "label": "Cloudflare D1",
+    "defaultSchema": "main",
+    "createTableTypes": [
+      "INTEGER",
+      "REAL",
+      "TEXT",
+      "BLOB",
+      "NUMERIC",
+      "BOOLEAN",
+      "DATE",
+      "DATETIME"
+    ],
+    "literalKinds": {
+      "INTEGER": "number",
+      "REAL": "number",
+      "NUMERIC": "number",
+      "BOOLEAN": "boolean"
+    },
+    "expressionsByType": {
+      "INTEGER": ["NULL"],
+      "BOOLEAN": ["1", "0"],
+      "BOOL": ["1", "0"],
+      "DATE": ["current_date", "date('now')", "date('now', 'localtime')"],
+      "TIME": ["current_time", "time('now')", "time('now', 'localtime')"],
+      "DATETIME": [
+        "current_timestamp",
+        "datetime('now')",
+        "datetime('now', 'localtime')"
+      ],
+      "TIMESTAMP": [
+        "current_timestamp",
+        "datetime('now')",
+        "datetime('now', 'localtime')"
+      ]
+    }
+  },
   "clickhouse": {
     "label": "ClickHouse",
     "defaultSchema": "default",

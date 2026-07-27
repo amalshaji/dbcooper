@@ -179,7 +179,7 @@ fn identifier(value: &str, engine: DatabaseType) -> String {
 }
 
 fn table_reference(schema: &str, table: &str, engine: DatabaseType) -> String {
-    if engine == DatabaseType::Sqlite {
+    if matches!(engine, DatabaseType::Sqlite | DatabaseType::D1) {
         identifier(table, engine)
     } else {
         format!(
@@ -251,6 +251,16 @@ mod tests {
             "INSERT INTO \"orders\" (\"name\") VALUES ('Ada')"
         );
         assert!(insert.values.is_empty());
+
+        let d1 = build_delete(
+            DatabaseType::D1,
+            "main",
+            "orders",
+            &["id".to_string()],
+            &[json!(7)],
+        )
+        .unwrap();
+        assert_eq!(d1.sql, "DELETE FROM \"orders\" WHERE \"id\" = 7");
     }
 
     #[test]

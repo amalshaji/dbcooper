@@ -225,6 +225,12 @@ impl PoolManager {
         pools.get(uuid).map(|e| e.config.clone())
     }
 
+    pub async fn allows_reconnect_retry(&self, uuid: &str) -> bool {
+        self.get_config(uuid)
+            .await
+            .is_some_and(|config| !matches!(config.db_type.as_str(), "d1" | "cloudflare-d1"))
+    }
+
     /// List tables using the pooled connection
     pub async fn list_tables(&self, uuid: &str) -> Result<Vec<TableInfo>, String> {
         let driver = self
