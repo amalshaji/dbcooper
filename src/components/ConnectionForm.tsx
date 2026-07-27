@@ -31,8 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
 import {
-	ensureDuckDbHelper,
-	initialDuckDbHelperProgress,
+	prepareDuckDbRuntime,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
 } from "@/lib/duckdbHelper";
 import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
@@ -168,10 +167,7 @@ export function ConnectionForm({
 	const handleTestConnection = async () => {
 		setIsTesting(true);
 		try {
-			if (formData.type === "duckdb") {
-				setDuckDbHelperProgress(initialDuckDbHelperProgress);
-				await ensureDuckDbHelper(setDuckDbHelperProgress);
-			}
+			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
 			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
 			const result =
 				formData.type === "redis" ||
@@ -234,17 +230,14 @@ export function ConnectionForm({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setIsSubmitting(true);
-		if (formData.type === "duckdb") {
-			setDuckDbHelperProgress(initialDuckDbHelperProgress);
-			try {
-				await ensureDuckDbHelper(setDuckDbHelperProgress);
-			} catch (error) {
-				toast.error("Could not prepare DuckDB support", {
-					description: error instanceof Error ? error.message : String(error),
-				});
-				setIsSubmitting(false);
-				return;
-			}
+		try {
+			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
+		} catch (error) {
+			toast.error("Could not prepare DuckDB support", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+			setIsSubmitting(false);
+			return;
 		}
 		try {
 			await onSubmit(formData);

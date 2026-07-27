@@ -162,7 +162,7 @@ async fn exposes_structure_and_complex_values_without_precision_loss() {
     assert_eq!(result.data[0]["id"], "9007199254740993");
     assert_eq!(result.data[0]["amount"], "123.4500");
     assert_eq!(result.data[0]["tags"], json!(["a", "b"]));
-    assert_eq!(result.data[0]["payload"], "\\xCAFE");
+    assert_eq!(result.data[0]["payload"], "\\xCA\\xFE");
 }
 
 #[tokio::test]
@@ -173,6 +173,8 @@ async fn read_only_execution_blocks_database_and_external_writes() {
         .execute_query("CREATE TABLE events(id INTEGER); INSERT INTO events VALUES (1)")
         .await
         .unwrap();
+    drop(driver);
+    let driver = create_driver(&temp_dir);
 
     let result = driver
         .execute_query_read_only("SELECT COUNT(*) AS count FROM events")

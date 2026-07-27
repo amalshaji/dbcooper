@@ -36,6 +36,19 @@ pub struct DuckDbDriver {
     interactive_session: Arc<Mutex<Option<DuckDbSession>>>,
 }
 
+enum DuckDbSessionError {
+    Query(String),
+    Transport(String),
+}
+
+impl DuckDbSessionError {
+    fn into_message(self) -> String {
+        match self {
+            Self::Query(message) | Self::Transport(message) => message,
+        }
+    }
+}
+
 impl DuckDbDriver {
     pub fn new(config: DuckDbConfig) -> Self {
         let helper_path = duckdb_helper::helper_path().unwrap_or_default();
@@ -68,17 +81,27 @@ impl DuckDbDriver {
         self.run_cli(sql, false).await
     }
 
-    async fn run_cli(&self, sql: &str, read_only: bool) -> Result<Vec<Value>, String> {
-        if !self.helper_path.is_file()
-            || (self.managed_helper && !duckdb_helper::is_helper_installed())
-        {
-            return Err("DuckDB helper is not installed. Reconnect to download it.".to_string());
+    async fn ensure_helper_available(&self) -> Result<(), String> {
+        if self.managed_helper && !duckdb_helper::is_helper_installed() {
+            duckdb_helper::ensure_duckdb_helper_silent().await?;
         }
+        if self.helper_path.is_file() {
+            Ok(())
+        } else {
+            Err("DuckDB helper is not installed. Reconnect to download it.".to_string())
+        }
+    }
+
+    async fn run_cli(&self, sql: &str, read_only: bool) -> Result<Vec<Value>, String> {
+        self.ensure_helper_available().await?;
         let _guard = self.file_lock.lock().await;
         if read_only {
-            let mut session = self.interactive_session.lock().await;
-            if let Some(mut session) = session.take() {
-                session.shutdown().await;
+            let session = self.interactive_session.lock().await;
+            if session.is_some() {
+                return Err(
+                    "Read-only access is unavailable while an active DuckDB session owns the database; disconnect the workspace and retry"
+                        .to_string(),
+                );
             }
             drop(session);
             return run_cli_once(&self.helper_path, &self.config.file_path, sql, true).await;
@@ -88,11 +111,21 @@ impl DuckDbDriver {
         if session.is_none() {
             *session = Some(DuckDbSession::start(&self.helper_path, &self.config.file_path).await?);
         }
-        session
-            .as_mut()
-            .expect("DuckDB session initialized")
-            .execute(sql)
-            .await
+        let mut active = session.take().expect("DuckDB session initialized");
+        match active.execute(sql).await {
+            Ok(rows) => {
+                *session = Some(active);
+                Ok(rows)
+            }
+            Err(DuckDbSessionError::Query(message)) => {
+                *session = Some(active);
+                Err(message)
+            }
+            Err(error @ DuckDbSessionError::Transport(_)) => {
+                active.shutdown().await;
+                Err(error.into_message())
+            }
+        }
     }
 
     async fn table_structure_inner(
@@ -228,26 +261,34 @@ impl DuckDbSession {
         })
     }
 
-    async fn execute(&mut self, sql: &str) -> Result<Vec<Value>, String> {
+    async fn execute(&mut self, sql: &str) -> Result<Vec<Value>, DuckDbSessionError> {
         let marker = format!("__dbcooper_{}", uuid::Uuid::new_v4().simple());
         self.stdin
             .write_all(sql.as_bytes())
             .await
-            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+            .map_err(|error| {
+                DuckDbSessionError::Transport(format!(
+                    "Could not send query to DuckDB helper: {error}"
+                ))
+            })?;
         if !sql.trim_end().ends_with(';') {
-            self.stdin
-                .write_all(b";")
-                .await
-                .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+            self.stdin.write_all(b";").await.map_err(|error| {
+                DuckDbSessionError::Transport(format!(
+                    "Could not send query to DuckDB helper: {error}"
+                ))
+            })?;
         }
         self.stdin
             .write_all(format!("\nSELECT '{marker}' AS __dbcooper_marker;\n").as_bytes())
             .await
-            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
-        self.stdin
-            .flush()
-            .await
-            .map_err(|error| format!("Could not send query to DuckDB helper: {error}"))?;
+            .map_err(|error| {
+                DuckDbSessionError::Transport(format!(
+                    "Could not send query to DuckDB helper: {error}"
+                ))
+            })?;
+        self.stdin.flush().await.map_err(|error| {
+            DuckDbSessionError::Transport(format!("Could not send query to DuckDB helper: {error}"))
+        })?;
 
         let mut output = String::new();
         let mut errors = Vec::new();
@@ -260,25 +301,25 @@ impl DuckDbSession {
                         error_bytes += line.len();
                         if error_bytes > MAX_CLI_ERROR_BYTES {
                             let _ = self.child.kill().await;
-                            return Err("DuckDB query returned too many errors".to_string());
+                            return Err(DuckDbSessionError::Transport("DuckDB query returned too many errors".to_string()));
                         }
                         errors.push(line);
                     },
                     Ok(None) => stderr_open = false,
-                    Err(error) => return Err(format!("Could not read DuckDB helper errors: {error}")),
+                    Err(error) => return Err(DuckDbSessionError::Transport(format!("Could not read DuckDB helper errors: {error}"))),
                 },
                 line = self.stdout.next_line() => match line {
                     Ok(Some(line)) if line.contains(&marker) => break,
                     Ok(Some(line)) => {
                         if output.len() + line.len() > MAX_CLI_OUTPUT_BYTES {
                             let _ = self.child.kill().await;
-                            return Err("DuckDB query output exceeds the 64 MB safety limit".to_string());
+                            return Err(DuckDbSessionError::Transport("DuckDB query output exceeds the 64 MB safety limit".to_string()));
                         }
                         output.push_str(&line);
                         output.push('\n');
                     }
-                    Ok(None) => return Err("DuckDB helper exited before completing the query".to_string()),
-                    Err(error) => return Err(format!("Could not read DuckDB helper output: {error}")),
+                    Ok(None) => return Err(DuckDbSessionError::Transport("DuckDB helper exited before completing the query".to_string())),
+                    Err(error) => return Err(DuckDbSessionError::Transport(format!("Could not read DuckDB helper output: {error}"))),
                 },
             }
         }
@@ -288,21 +329,25 @@ impl DuckDbSession {
                     error_bytes += line.len();
                     if error_bytes > MAX_CLI_ERROR_BYTES {
                         let _ = self.child.kill().await;
-                        return Err("DuckDB query returned too many errors".to_string());
+                        return Err(DuckDbSessionError::Transport(
+                            "DuckDB query returned too many errors".to_string(),
+                        ));
                     }
                     errors.push(line);
                 }
                 Ok(Ok(None)) => stderr_open = false,
                 Ok(Err(error)) => {
-                    return Err(format!("Could not read DuckDB helper errors: {error}"))
+                    return Err(DuckDbSessionError::Transport(format!(
+                        "Could not read DuckDB helper errors: {error}"
+                    )))
                 }
                 Err(_) => break,
             }
         }
         if !errors.is_empty() {
-            return Err(errors.join("\n"));
+            return Err(DuckDbSessionError::Query(errors.join("\n")));
         }
-        parse_cli_output(output.as_bytes())
+        parse_cli_output(output.as_bytes()).map_err(DuckDbSessionError::Transport)
     }
 
     async fn shutdown(&mut self) {
@@ -420,7 +465,9 @@ fn duckdb_command(helper_path: &PathBuf) -> Command {
 #[async_trait]
 impl DatabaseDriver for DuckDbDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
-        self.query_rows("SELECT 1").await?;
+        self.ensure_helper_available().await?;
+        let _guard = self.file_lock.lock().await;
+        run_cli_once(&self.helper_path, &self.config.file_path, "SELECT 1", false).await?;
         Ok(TestConnectionResult {
             success: true,
             message: "Connection successful!".to_string(),
@@ -624,7 +671,7 @@ fn normalize_cli_value(value: &mut Value) {
         Value::Number(number) => {
             let unsafe_integer = number
                 .as_i64()
-                .filter(|value| value.abs() > MAX_SAFE_JSON_INTEGER)
+                .filter(|value| *value < -MAX_SAFE_JSON_INTEGER || *value > MAX_SAFE_JSON_INTEGER)
                 .map(|value| value.to_string())
                 .or_else(|| {
                     number
@@ -636,37 +683,10 @@ fn normalize_cli_value(value: &mut Value) {
                 *value = Value::String(integer);
             }
         }
-        Value::String(text) => {
-            if let Some(blob) = normalize_blob(text) {
-                *text = blob;
-            }
-        }
+        Value::String(_) => {}
         Value::Array(values) => values.iter_mut().for_each(normalize_cli_value),
         Value::Object(values) => values.values_mut().for_each(normalize_cli_value),
         _ => {}
-    }
-}
-
-fn normalize_blob(value: &str) -> Option<String> {
-    if value.len() < 4 || !value.len().is_multiple_of(4) {
-        return None;
-    }
-    let bytes = value.as_bytes();
-    if bytes.chunks_exact(4).all(|chunk| {
-        chunk[0] == b'\\'
-            && chunk[1] == b'x'
-            && chunk[2].is_ascii_hexdigit()
-            && chunk[3].is_ascii_hexdigit()
-    }) {
-        Some(format!(
-            "\\x{}",
-            bytes
-                .chunks_exact(4)
-                .map(|chunk| std::str::from_utf8(&chunk[2..4]).unwrap())
-                .collect::<String>()
-        ))
-    } else {
-        None
     }
 }
 
@@ -753,8 +773,37 @@ fn string_array(value: &Value) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_cli_value, render_filter, CompiledFilter, FilterValue};
+    use super::{normalize_cli_value, render_filter, CompiledFilter, DuckDbDriver, FilterValue};
+    use crate::database::{DatabaseDriver, DuckDbConfig};
     use serde_json::json;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    fn fake_cli() -> (tempfile::TempDir, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("duckdb-test-cli");
+        std::fs::write(
+            &path,
+            r#"#!/bin/sh
+session_value=0
+while IFS= read -r line; do
+  case "$line" in
+    SELECT\ \'__dbcooper_*) printf '%s\n' "$line" ;;
+    *BREAK_SESSION*) exit 1 ;;
+    *SET_SESSION*) session_value=1; printf '[]\n' ;;
+    *CHECK_SESSION*) printf '[{"value":%s}]\n' "$session_value" ;;
+    *) printf '[{"value":1}]\n' ;;
+  esac
+done
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        (directory, path)
+    }
 
     #[test]
     fn normalizes_cli_values_for_javascript() {
@@ -762,8 +811,70 @@ mod tests {
         normalize_cli_value(&mut value);
         assert_eq!(
             value,
-            json!({"id": "9007199254740993", "payload": "\\xCAFE"})
+            json!({"id": "9007199254740993", "payload": "\\xCA\\xFE"})
         );
+    }
+
+    #[test]
+    fn normalizes_minimum_i64_without_panicking() {
+        let mut value = json!({"value": i64::MIN});
+
+        normalize_cli_value(&mut value);
+
+        assert_eq!(value, json!({"value": i64::MIN.to_string()}));
+    }
+
+    #[test]
+    fn preserves_blob_shaped_strings_verbatim() {
+        let mut value = json!({"value": "\\xCA\\xFE"});
+
+        normalize_cli_value(&mut value);
+
+        assert_eq!(value, json!({"value": "\\xCA\\xFE"}));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restarts_the_cli_after_a_transport_failure() {
+        let (directory, helper_path) = fake_cli();
+        let driver = DuckDbDriver::with_helper_path(
+            DuckDbConfig {
+                file_path: directory.path().join("data.duckdb").display().to_string(),
+            },
+            helper_path,
+        );
+
+        let failed = driver.execute_query("BREAK_SESSION").await.unwrap();
+        assert!(failed.error.is_some());
+
+        let recovered = driver.execute_query("SELECT CHECK_SESSION").await.unwrap();
+        assert!(recovered.error.is_none());
+        assert_eq!(recovered.data[0]["value"], 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn read_only_execution_does_not_destroy_interactive_session_state() {
+        let (directory, helper_path) = fake_cli();
+        let driver = DuckDbDriver::with_helper_path(
+            DuckDbConfig {
+                file_path: directory.path().join("data.duckdb").display().to_string(),
+            },
+            helper_path,
+        );
+
+        let configured = driver.execute_query("SET_SESSION").await.unwrap();
+        assert!(configured.error.is_none());
+
+        let read_only = driver.execute_query_read_only("SELECT 1").await.unwrap();
+        assert!(read_only
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("active DuckDB session")));
+
+        let resumed = driver.execute_query("SELECT CHECK_SESSION").await.unwrap();
+        assert!(resumed.error.is_none());
+        assert_eq!(resumed.data[0]["value"], 1);
     }
 
     #[test]

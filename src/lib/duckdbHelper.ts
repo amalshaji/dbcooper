@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ConnectionType } from "@/types/connection";
 
 export type DuckDbHelperStage =
 	| "downloading"
@@ -66,4 +67,13 @@ export async function ensureDuckDbHelper(
 	} finally {
 		unlisten();
 	}
+}
+
+export async function prepareDuckDbRuntime(
+	dbType: ConnectionType,
+	onProgress: (progress: DuckDbHelperProgress) => void,
+): Promise<void> {
+	if (dbType !== "duckdb") return;
+	onProgress(initialDuckDbHelperProgress);
+	await ensureDuckDbHelper(onProgress);
 }
