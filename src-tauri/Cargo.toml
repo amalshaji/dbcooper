@@ -30,8 +30,10 @@ sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
     "sqlite",
     "postgres",
+    "mysql",
     "chrono",
     "uuid",
+    "json",
 ] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }

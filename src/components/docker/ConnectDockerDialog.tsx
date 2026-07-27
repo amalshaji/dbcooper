@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { DockerConnectionFields } from "@/components/docker/DockerConnectionFields";
 import { DockerContainerList } from "@/components/docker/DockerContainerList";
+import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -10,13 +11,23 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	api,
+	DOCKER_DATABASE_ENGINES,
+	isDockerDatabaseEngine,
 	type Connection,
 	type DockerConnectionDraft,
 	type DockerContainerSummary,
+	type DockerDatabaseEngine,
 } from "@/lib/tauri";
 
 interface ConnectDockerDialogProps {
@@ -25,19 +36,32 @@ interface ConnectDockerDialogProps {
 	onLinked: (connection: Connection) => Promise<void>;
 }
 
+type DialogMode =
+	| { status: "listing" }
+	| {
+			status: "choosing";
+			container: DockerContainerSummary;
+			engines: [DockerDatabaseEngine, DockerDatabaseEngine];
+			selectedEngine: DockerDatabaseEngine;
+	  }
+	| {
+			status: "editing";
+			draft: DockerConnectionDraft;
+			name: string;
+	  };
+
 export function ConnectDockerDialog({
 	open,
 	onOpenChange,
 	onLinked,
 }: ConnectDockerDialogProps) {
 	const [containers, setContainers] = useState<DockerContainerSummary[]>([]);
-	const [draft, setDraft] = useState<DockerConnectionDraft | null>(null);
-	const [name, setName] = useState("");
+	const [mode, setMode] = useState<DialogMode>({ status: "listing" });
 	const [loading, setLoading] = useState(false);
 
 	useEffect(() => {
 		if (!open) {
-			setDraft(null);
+			setMode({ status: "listing" });
 			return;
 		}
 		setLoading(true);
@@ -48,12 +72,14 @@ export function ConnectDockerDialog({
 			.finally(() => setLoading(false));
 	}, [open]);
 
-	const selectContainer = async (container: DockerContainerSummary) => {
+	const prepareContainer = async (
+		container: DockerContainerSummary,
+		engine?: DockerDatabaseEngine,
+	) => {
 		setLoading(true);
 		try {
-			const next = await api.docker.prepareConnection(container.id);
-			setDraft(next);
-			setName(next.container_name);
+			const draft = await api.docker.prepareConnection(container.id, engine);
+			setMode({ status: "editing", draft, name: draft.container_name });
 		} catch (error) {
 			toast.error(String(error));
 		} finally {
@@ -61,19 +87,36 @@ export function ConnectDockerDialog({
 		}
 	};
 
+	const selectContainer = async (container: DockerContainerSummary) => {
+		switch (container.detection.status) {
+			case "unsupported":
+				return;
+			case "detected":
+				await prepareContainer(container, container.detection.engine);
+				return;
+			case "ambiguous":
+				setMode({
+					status: "choosing",
+					container,
+					engines: container.detection.engines,
+					selectedEngine: container.detection.engines[0],
+				});
+		}
+	};
+
 	const link = async () => {
-		if (!draft) return;
+		if (mode.status !== "editing") return;
 		setLoading(true);
 		try {
 			const connection = await api.docker.linkConnection({
-				name,
-				container_id: draft.container_id,
-				engine: draft.engine,
-				host: draft.host,
-				port: draft.port,
-				database: draft.database,
-				username: draft.username,
-				password: draft.password,
+				name: mode.name,
+				container_id: mode.draft.container_id,
+				engine: mode.draft.engine,
+				host: mode.draft.host,
+				port: mode.draft.port,
+				database: mode.draft.database,
+				username: mode.draft.username,
+				password: mode.draft.password,
 			});
 			await onLinked(connection);
 			onOpenChange(false);
@@ -95,20 +138,65 @@ export function ConnectDockerDialog({
 						DBcooper inspects only the container you select.
 					</DialogDescription>
 				</DialogHeader>
-				{loading && !draft ? (
+				{loading && mode.status === "listing" ? (
 					<div className="flex min-h-32 items-center justify-center">
 						<Spinner />
 						<span className="ml-2 text-sm text-muted-foreground">
 							Loading containers…
 						</span>
 					</div>
-				) : draft ? (
+				) : mode.status === "editing" ? (
 					<DockerConnectionFields
-						draft={draft}
-						name={name}
-						onNameChange={setName}
-						onDraftChange={setDraft}
+						draft={mode.draft}
+						name={mode.name}
+						onNameChange={(name) => setMode({ ...mode, name })}
+						onDraftChange={(draft) => setMode({ ...mode, draft })}
 					/>
+				) : mode.status === "choosing" ? (
+					<div className="space-y-4 rounded-lg border p-4">
+						<div className="space-y-1">
+							<p className="text-sm font-medium">Choose database type</p>
+							<p className="text-xs text-muted-foreground">
+								Port 3306 can host MySQL or MariaDB, and the image name does
+								not identify which one this is.
+							</p>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="docker-engine-choice">Database</Label>
+							<Select
+								value={mode.selectedEngine}
+								onValueChange={(value) => {
+									if (
+										isDockerDatabaseEngine(value) &&
+										mode.engines.includes(value)
+									) {
+										setMode({ ...mode, selectedEngine: value });
+									}
+								}}
+							>
+								<SelectTrigger id="docker-engine-choice" className="w-full">
+									<SelectValue>
+										{engineLabel(mode.selectedEngine)}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{mode.engines.map((engine) => (
+										<SelectItem key={engine} value={engine}>
+											{engineLabel(engine)}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+						<Button
+							onClick={() =>
+								prepareContainer(mode.container, mode.selectedEngine)
+							}
+						>
+							{loading && <Spinner />}
+							Continue
+						</Button>
+					</div>
 				) : (
 					<div className="max-h-72 space-y-2 overflow-auto">
 						<DockerContainerList
@@ -118,25 +206,37 @@ export function ConnectDockerDialog({
 					</div>
 				)}
 				<DialogFooter>
-					{draft && (
+					{mode.status !== "listing" && (
 						<Button
 							variant="outline"
-							onClick={() => setDraft(null)}
+							onClick={() => setMode({ status: "listing" })}
 							disabled={loading}
 						>
 							Back
 						</Button>
 					)}
 					<Button
-						variant={draft ? "default" : "outline"}
-						onClick={draft ? link : () => onOpenChange(false)}
-						disabled={loading || (draft ? !name.trim() : false)}
+						variant={mode.status === "editing" ? "default" : "outline"}
+						onClick={
+							mode.status === "editing" ? link : () => onOpenChange(false)
+						}
+						disabled={
+							loading ||
+							(mode.status === "editing" ? !mode.name.trim() : false)
+						}
 					>
-						{loading && <Spinner />}
-						{draft ? "Connect Docker" : "Close"}
+						{loading && mode.status === "editing" && <Spinner />}
+						{mode.status === "editing" ? "Connect Docker" : "Close"}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function engineLabel(engine: DockerDatabaseEngine) {
+	return (
+		DOCKER_DATABASE_ENGINES.find((item) => item.value === engine)?.label ||
+		engine
 	);
 }

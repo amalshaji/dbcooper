@@ -163,6 +163,7 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 primary_key: true,
                 unique: false,
                 default: None,
+                mysql_modifiers: None,
             },
             CreateTableColumn {
                 name: "slug".to_string(),
@@ -171,6 +172,7 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 primary_key: false,
                 unique: true,
                 default: None,
+                mysql_modifiers: None,
             },
             CreateTableColumn {
                 name: "created_at".to_string(),
@@ -181,6 +183,7 @@ async fn test_create_table_uses_requested_schema_and_reports_database_errors() {
                 default: Some(ColumnDefault::Expression {
                     value: "current_timestamp".to_string(),
                 }),
+                mysql_modifiers: None,
             },
         ],
     };

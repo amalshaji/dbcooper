@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	getCreateTableDbType,
+	getCreateTableModifierCapabilities,
 	getCreateTableTypes,
 	getDatabaseLabel,
 	getSuggestedFunctions,
@@ -11,11 +12,14 @@ describe("database catalog", () => {
 	test("scopes create-table support and type options by engine", () => {
 		expect(getCreateTableDbType("postgres")).toBe("postgres");
 		expect(getCreateTableDbType("sqlite")).toBe("sqlite");
+		expect(getCreateTableDbType("mysql")).toBe("mysql");
+		expect(getCreateTableDbType("mariadb")).toBe("mariadb");
 		expect(getCreateTableDbType("clickhouse")).toBeNull();
 		expect(getCreateTableDbType("duckdb")).toBeNull();
 		expect(getCreateTableDbType("redis")).toBeNull();
 		expect(getCreateTableTypes("postgres")).toContain("JSONB");
 		expect(getCreateTableTypes("sqlite")).not.toContain("JSONB");
+		expect(getCreateTableTypes("mysql")).toContain("BIGINT");
 	});
 
 	test("provides DuckDB query expressions without enabling table creation", () => {
@@ -24,6 +28,16 @@ describe("database catalog", () => {
 			"current_timestamp",
 		);
 		expect(isSqlFunction("uuid()", "duckdb")).toBe(true);
+	});
+
+	test("shares one MySQL modifier policy with MariaDB", () => {
+		const mysql = getCreateTableModifierCapabilities("mysql");
+		const mariadb = getCreateTableModifierCapabilities("mariadb");
+
+		expect(mariadb).toEqual(mysql);
+		expect(mysql.lengthTypes).toContain("VARCHAR");
+		expect(mysql.autoIncrementTypes).toContain("BIGINT");
+		expect(getCreateTableModifierCapabilities("postgres").lengthTypes).toEqual([]);
 	});
 
 	test("does not accept another dialect's raw SQL functions", () => {

@@ -3,7 +3,7 @@ import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { barf, rosePineDawn } from "thememirror";
 import { SqlAIPreview } from "@/components/SqlAIPreview";
 import { Button } from "@/components/ui/button";
@@ -63,8 +63,6 @@ export function SqlEditor({
 	disabled = false,
 }: SqlEditorProps) {
 	const [isDark, setIsDark] = useState(false);
-	const [containerWidth, setContainerWidth] = useState<number | null>(null);
-	const containerRef = useRef<HTMLDivElement>(null);
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
 
@@ -82,20 +80,6 @@ export function SqlEditor({
 		});
 
 		return () => observer.disconnect();
-	}, []);
-
-	useEffect(() => {
-		const updateWidth = () => {
-			if (containerRef.current) {
-				const width = containerRef.current.offsetWidth;
-				setContainerWidth(width);
-			}
-		};
-
-		updateWidth();
-		window.addEventListener("resize", updateWidth);
-
-		return () => window.removeEventListener("resize", updateWidth);
 	}, []);
 
 	const runQueryKeymap = useMemo(
@@ -267,8 +251,7 @@ export function SqlEditor({
 				/>
 			)}
 			<div
-				ref={containerRef}
-				className="border rounded-md overflow-hidden w-full font-mono relative"
+				className="relative min-w-0 overflow-hidden rounded-md border font-mono"
 			>
 				<div className="absolute top-2 right-2 z-10 flex gap-1">
 					{cursorWarning && (
@@ -303,28 +286,26 @@ export function SqlEditor({
 						</Tooltip>
 					)}
 				</div>
-				<div className="overflow-x-auto">
-					<CodeMirror
-						value={value}
-						height={height}
-						width={containerWidth ? `${containerWidth}px` : "100%"}
-						extensions={extensions}
-						theme={isDark ? barf : rosePineDawn}
-						onChange={onChange}
-						editable={!disabled}
-						basicSetup={{
-							lineNumbers: true,
-							foldGutter: true,
-							dropCursor: false,
-							allowMultipleSelections: false,
-							indentOnInput: true,
-							bracketMatching: true,
-							closeBrackets: true,
-							autocompletion: true,
-							highlightSelectionMatches: false,
-						}}
-					/>
-				</div>
+				<CodeMirror
+					value={value}
+					height={height}
+					width="100%"
+					extensions={extensions}
+					theme={isDark ? barf : rosePineDawn}
+					onChange={onChange}
+					editable={!disabled}
+					basicSetup={{
+						lineNumbers: true,
+						foldGutter: true,
+						dropCursor: false,
+						allowMultipleSelections: false,
+						indentOnInput: true,
+						bracketMatching: true,
+						closeBrackets: true,
+						autocompletion: true,
+						highlightSelectionMatches: false,
+					}}
+				/>
 			</div>
 		</div>
 	);

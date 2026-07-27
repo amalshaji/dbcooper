@@ -185,4 +185,47 @@ mod tests {
             .unwrap();
         assert_eq!(count, 0);
     }
+
+    #[tokio::test]
+    async fn stores_mysql_family_engine_values() {
+        let pool = test_pool().await;
+
+        for engine in [DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb] {
+            let plan = ManagedDatabasePlan::new(engine);
+            let data = plan.connection_data("Local database", 3306);
+            let link = plan.link("desktop-linux".to_string(), "container".to_string());
+
+            insert_connection_with_link(&pool, &plan.uuid, &data, &link)
+                .await
+                .unwrap();
+        }
+
+        let engines: Vec<String> =
+            sqlx::query_scalar("SELECT engine FROM docker_connections ORDER BY engine")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(engines, vec!["mariadb", "mysql"]);
+    }
+
+    #[tokio::test]
+    async fn rejects_unsupported_engine_values() {
+        let pool = test_pool().await;
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Postgres);
+        let data = plan.connection_data("Local Postgres", 55432);
+        let link = plan.link("desktop-linux".to_string(), "container".to_string());
+
+        insert_connection_with_link(&pool, &plan.uuid, &data, &link)
+            .await
+            .unwrap();
+
+        let result = sqlx::query(
+            "UPDATE docker_connections SET engine = 'unsupported' WHERE connection_uuid = ?",
+        )
+        .bind(&plan.uuid)
+        .execute(&pool)
+        .await;
+
+        assert!(result.is_err());
+    }
 }

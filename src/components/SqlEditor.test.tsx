@@ -18,7 +18,11 @@ mock.module("@codemirror/view", () => ({
 	keymap: { of: () => ({}) },
 }));
 mock.module("@uiw/react-codemirror", () => ({
-	default: ({ value }: { value: string }) => <div>{value}</div>,
+	default: ({ value, width }: { value: string; width?: string }) => (
+		<div data-testid="code-mirror" data-width={width}>
+			{value}
+		</div>
+	),
 }));
 mock.module("thememirror", () => ({ barf: {}, rosePineDawn: {} }));
 mock.module("@/lib/aiDraftState", () => ({
@@ -47,7 +51,9 @@ mock.module("@/components/ui/tooltip", () => ({
 	TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-const { cleanup, render, screen } = await import("@testing-library/react");
+const { cleanup, render, screen, waitFor } = await import(
+	"@testing-library/react"
+);
 const { SqlEditor } = await import("./SqlEditor");
 
 afterEach(cleanup);
@@ -136,4 +142,29 @@ test("offers AI generation for an empty database", () => {
 
 	const prompt = screen.getByPlaceholderText("Ask for a query or change…");
 	expect(prompt.parentElement?.className).toContain("rounded-lg");
+});
+
+test("keeps CodeMirror within the editor content box without an outer scroll layer", async () => {
+	const offsetWidth = Object.getOwnPropertyDescriptor(
+		HTMLElement.prototype,
+		"offsetWidth",
+	);
+	Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+		configurable: true,
+		get: () => 640,
+	});
+
+	try {
+		render(<SqlEditor value="" onChange={() => {}} />);
+
+		const editor = screen.getByTestId("code-mirror");
+		await waitFor(() => expect(editor.dataset.width).toBe("100%"));
+		expect(editor.parentElement?.className).not.toContain("overflow-x-auto");
+	} finally {
+		if (offsetWidth) {
+			Object.defineProperty(HTMLElement.prototype, "offsetWidth", offsetWidth);
+		} else {
+			Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
+		}
+	}
 });

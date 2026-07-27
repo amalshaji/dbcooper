@@ -9,11 +9,14 @@ import {
 describe("create table form", () => {
 	test("starts with the correct schema and one text column", () => {
 		const postgresDraft = createInitialTableDraft("postgres", "analytics");
+		const mysqlDraft = createInitialTableDraft("mysql", "app");
 		const sqliteDraft = createInitialTableDraft("sqlite");
 
 		expect(postgresDraft.schema).toBe("analytics");
 		expect(postgresDraft.columns).toHaveLength(1);
 		expect(postgresDraft.columns[0].dataType).toBe("TEXT");
+		expect(postgresDraft.columns[0].mysqlModifiers).toBeNull();
+		expect(mysqlDraft.columns[0].mysqlModifiers).not.toBeNull();
 		expect(sqliteDraft.schema).toBe("main");
 	});
 
@@ -29,6 +32,7 @@ describe("create table form", () => {
 				primaryKey: true,
 				unique: false,
 				default: { kind: "none" },
+				mysqlModifiers: null,
 			},
 			{
 				id: "attempts",
@@ -38,6 +42,7 @@ describe("create table form", () => {
 				primaryKey: false,
 				unique: false,
 				default: { kind: "literal", value: "0" },
+				mysqlModifiers: null,
 			},
 			{
 				id: "created",
@@ -47,6 +52,7 @@ describe("create table form", () => {
 				primaryKey: false,
 				unique: false,
 				default: { kind: "expression", value: "current_timestamp" },
+				mysqlModifiers: null,
 			},
 		];
 
@@ -119,5 +125,45 @@ describe("create table form", () => {
 		expect(getDefaultExpressions("sqlite", "DATETIME")).toContain(
 			"datetime('now')",
 		);
+	});
+
+	test("builds MySQL native length, decimal, unsigned, and auto increment modifiers", () => {
+		const draft = createInitialTableDraft("mysql", "app");
+		draft.tableName = "orders";
+		draft.columns[0] = {
+			...draft.columns[0],
+			name: "id",
+			dataType: "BIGINT",
+			primaryKey: true,
+			mysqlModifiers: {
+				...draft.columns[0].mysqlModifiers!,
+				unsigned: true,
+				autoIncrement: true,
+			},
+		};
+		draft.columns.push({
+			...draft.columns[0],
+			id: "amount",
+			name: "amount",
+			dataType: "DECIMAL",
+			primaryKey: false,
+			mysqlModifiers: {
+				...draft.columns[0].mysqlModifiers!,
+				unsigned: false,
+				autoIncrement: false,
+				precision: "12",
+				scale: "2",
+			},
+		});
+
+		const request = buildCreateTableRequest(draft, "mysql");
+		expect(request.columns[0].mysql_modifiers).toMatchObject({
+			unsigned: true,
+			auto_increment: true,
+		});
+		expect(request.columns[1].mysql_modifiers).toMatchObject({
+			precision: 12,
+			scale: 2,
+		});
 	});
 });

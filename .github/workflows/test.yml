@@ -25,6 +25,36 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_DATABASE: testdb
+          MYSQL_USER: dbcooper
+          MYSQL_PASSWORD: dbcooper
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u dbcooper --password=dbcooper"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: mariadb
+          MARIADB_DATABASE: testdb
+          MARIADB_USER: dbcooper
+          MARIADB_PASSWORD: dbcooper
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
       redis:
         image: redis:7
         ports:

@@ -4,8 +4,15 @@
 
 use std::sync::Arc;
 
+use crate::database::mutation::{
+    build_delete, build_insert, build_update, MutationPlan, MutationValue,
+};
 use crate::database::pool_manager::{ConnectionStatus, PoolManager};
-use crate::db::models::{CreateTableRequest, TableInfo, TestConnectionResult};
+use crate::database::sql_policy::ensure_structured_mutations_supported;
+use crate::database::DatabaseType;
+use crate::db::models::{
+    Connection, CreateTableRequest, QueryResult, TableInfo, TestConnectionResult,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -309,10 +316,32 @@ pub async fn pool_get_function_definition(
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================
 
-use crate::database::sql_policy::{
-    ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
-    validate_raw_sql_value,
-};
+async fn mutation_engine(sqlite_pool: &SqlitePool, uuid: &str) -> Result<DatabaseType, String> {
+    let connection: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(uuid)
+        .fetch_one(sqlite_pool)
+        .await
+        .map_err(|error| format!("Failed to get connection: {error}"))?;
+    ensure_structured_mutations_supported(&connection.db_type)?;
+    DatabaseType::try_from(connection.db_type.as_str())
+}
+
+async fn run_mutation(
+    pool_manager: &PoolManager,
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+    mutation: &MutationPlan,
+) -> Result<QueryResult, String> {
+    ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    match pool_manager.execute_mutation(uuid, mutation).await {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            println!("[Pool] mutation failed: {error}, retrying with fresh connection");
+            reconnect(pool_manager, sqlite_pool, uuid).await?;
+            pool_manager.execute_mutation(uuid, mutation).await
+        }
+    }
+}
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]
@@ -324,103 +353,18 @@ pub async fn pool_update_table_row(
     table: String,
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
-    updates: Vec<serde_json::Value>,
+    updates: Vec<MutationValue>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
-        return Err("Primary key columns and values must match".to_string());
-    }
-
-    if updates.is_empty() {
-        return Err("No updates provided".to_string());
-    }
-
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let db_type = &conn.db_type;
-    ensure_structured_mutations_supported(db_type)?;
-
-    // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
-
-    // Extract columns and values from the updates array
-    let mut set_parts: Vec<String> = Vec::new();
-
-    for update_obj in updates.iter() {
-        let update_map = update_obj
-            .as_object()
-            .ok_or("Each update must be an object")?;
-
-        let column = update_map
-            .get("column")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing column name")?;
-        let value = update_map.get("value").ok_or("Missing value")?;
-        let is_raw_sql = update_map
-            .get("isRawSql")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let formatted_value = if is_raw_sql {
-            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
-            validate_raw_sql_value(raw_value, db_type)
-                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
-            raw_value.to_string()
-        } else {
-            format_sql_value(value)
-        };
-
-        set_parts.push(format!(
-            "\"{}\" = {}",
-            escape_sql_identifier(column),
-            formatted_value
-        ));
-    }
-
-    let set_clause = set_parts.join(", ");
-
-    // Build WHERE clause for primary key
-    let where_parts: Vec<String> = primary_key_columns
-        .iter()
-        .zip(primary_key_values.iter())
-        .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
-        })
-        .collect();
-    let where_clause = where_parts.join(" AND ");
-
-    let query = format!(
-        "UPDATE {} SET {} WHERE {}",
-        table_ref, set_clause, where_clause
-    );
-
-    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] update_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
-        }
-    }
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_update(
+        engine,
+        &schema,
+        &table,
+        &primary_key_columns,
+        &primary_key_values,
+        &updates,
+    )?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
 }
 
 /// Delete a row from a table using the pooled connection
@@ -434,58 +378,15 @@ pub async fn pool_delete_table_row(
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
-        return Err("Primary key columns and values must match".to_string());
-    }
-
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let db_type = &conn.db_type;
-    ensure_structured_mutations_supported(db_type)?;
-
-    // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
-
-    // Build WHERE clause for primary key
-    let where_parts: Vec<String> = primary_key_columns
-        .iter()
-        .zip(primary_key_values.iter())
-        .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
-        })
-        .collect();
-    let where_clause = where_parts.join(" AND ");
-
-    let query = format!("DELETE FROM {} WHERE {}", table_ref, where_clause);
-
-    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] delete_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
-        }
-    }
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_delete(
+        engine,
+        &schema,
+        &table,
+        &primary_key_columns,
+        &primary_key_values,
+    )?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
 }
 
 /// Insert a new row into a table using the pooled connection
@@ -496,86 +397,9 @@ pub async fn pool_insert_table_row(
     uuid: String,
     schema: String,
     table: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<MutationValue>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if values.is_empty() {
-        return Err("No values provided".to_string());
-    }
-
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let db_type = &conn.db_type;
-    ensure_structured_mutations_supported(db_type)?;
-
-    // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
-
-    // Extract columns and values from the values array
-    let mut columns: Vec<String> = Vec::new();
-    let mut value_parts: Vec<String> = Vec::new();
-
-    for value_obj in values.iter() {
-        let value_map = value_obj
-            .as_object()
-            .ok_or("Each value must be an object")?;
-
-        let column = value_map
-            .get("column")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing column name")?;
-        let value = value_map.get("value").ok_or("Missing value")?;
-        let is_raw_sql = value_map
-            .get("isRawSql")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        columns.push(format!("\"{}\"", escape_sql_identifier(column)));
-
-        let formatted_value = if is_raw_sql {
-            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
-            validate_raw_sql_value(raw_value, db_type)
-                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
-            raw_value.to_string()
-        } else {
-            format_sql_value(value)
-        };
-
-        value_parts.push(formatted_value);
-    }
-
-    let columns_clause = columns.join(", ");
-    let values_clause = value_parts.join(", ");
-
-    let query = format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        table_ref, columns_clause, values_clause
-    );
-
-    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-
-    match pool_manager.execute_query(&uuid, &query).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            println!(
-                "[Pool] insert_table_row failed: {}, retrying with fresh connection",
-                e
-            );
-            reconnect(&pool_manager, sqlite_pool.inner(), &uuid).await?;
-            pool_manager.execute_query(&uuid, &query).await
-        }
-    }
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_insert(engine, &schema, &table, &values)?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
 }

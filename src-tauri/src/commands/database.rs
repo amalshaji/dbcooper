@@ -3,11 +3,13 @@
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
 //! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
-use crate::database::driver_factory::{create_driver as create_database_driver, DriverConfig};
+use crate::database::driver_factory::{
+    create_driver as build_driver, create_driver_with_ssh as build_driver_with_ssh, DriverConfig,
+};
 use crate::database::redis::{RedisDriver, RedisKeyDetails, RedisKeyListResponse};
 use crate::database::sql_policy::{
     ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
-    is_file_database, validate_raw_sql_value,
+    validate_raw_sql_value,
 };
 use crate::database::{DatabaseDriver, RedisConfig};
 use crate::db::models::{
@@ -46,70 +48,40 @@ async fn create_driver_with_ssh(
     ssh_key_path: Option<String>,
     ssh_use_key: Option<bool>,
 ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
-    let ssh_enabled = ssh_enabled.unwrap_or(false) && !is_file_database(db_type)?;
-    let (effective_host, effective_port, tunnel) = if ssh_enabled {
-        let ssh_host_val = ssh_host.unwrap_or_default();
-        let ssh_port_val = ssh_port.unwrap_or(22) as u16;
-        let ssh_user_val = ssh_user.unwrap_or_default();
-        let ssh_password_val = ssh_password.unwrap_or_default();
-        let ssh_key_path_val = ssh_key_path.unwrap_or_default();
-        let use_key = ssh_use_key.unwrap_or(false);
-
-        let key_path = if use_key && !ssh_key_path_val.is_empty() {
-            Some(ssh_key_path_val.as_str())
-        } else {
-            None
-        };
-        let password_opt = if !ssh_password_val.is_empty() {
-            Some(ssh_password_val.as_str())
-        } else {
-            None
-        };
-
-        let remote_host = host.clone().unwrap_or_default();
-        let remote_port = port.unwrap_or(5432) as u16;
-
-        // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
-        let tunnel = match tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            SshTunnel::new(
-                &ssh_host_val,
-                ssh_port_val,
-                &ssh_user_val,
-                password_opt,
-                key_path,
-                &remote_host,
-                remote_port,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(tunnel)) => tunnel,
-            Ok(Err(e)) => return Err(format!("SSH tunnel failed: {}", e)),
-            Err(_) => return Err("SSH tunnel connection timed out after 20 seconds".to_string()),
-        };
-
-        (
-            "127.0.0.1".to_string(),
-            tunnel.local_port as i64,
-            Some(tunnel),
-        )
+    let ssh_enabled = ssh_enabled.unwrap_or(false);
+    let host = if ssh_enabled {
+        Some(host.unwrap_or_default())
     } else {
-        (host.clone().unwrap_or_default(), port.unwrap_or(5432), None)
+        host
     };
-
-    let driver = create_database_driver(DriverConfig {
+    let ssh_host = if ssh_enabled {
+        Some(ssh_host.unwrap_or_default())
+    } else {
+        ssh_host
+    };
+    let ssh_user = if ssh_enabled {
+        Some(ssh_user.unwrap_or_default())
+    } else {
+        ssh_user
+    };
+    build_driver_with_ssh(&DriverConfig {
         db_type: db_type.to_string(),
-        host: Some(effective_host),
-        port: Some(effective_port),
+        host,
+        port,
         database,
         username,
         password,
         ssl,
         file_path,
-    })?;
-
-    Ok((driver, tunnel))
+        ssh_enabled,
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        ssh_password,
+        ssh_key_path,
+        ssh_use_key: ssh_use_key.unwrap_or(false),
+    })
+    .await
 }
 
 /// Simple driver creation without SSH support (for backwards compatibility)
@@ -123,7 +95,7 @@ fn create_driver(
     ssl: Option<bool>,
     file_path: Option<String>,
 ) -> Result<Box<dyn DatabaseDriver>, String> {
-    create_database_driver(DriverConfig {
+    build_driver(&DriverConfig {
         db_type: db_type.to_string(),
         host,
         port,
@@ -132,6 +104,13 @@ fn create_driver(
         password,
         ssl,
         file_path,
+        ssh_enabled: false,
+        ssh_host: None,
+        ssh_port: None,
+        ssh_user: None,
+        ssh_password: None,
+        ssh_key_path: None,
+        ssh_use_key: false,
     })
 }
 

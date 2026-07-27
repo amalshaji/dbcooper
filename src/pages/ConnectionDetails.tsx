@@ -48,6 +48,8 @@ import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -232,7 +234,7 @@ function isWrappableQuery(query: string): boolean {
 
 function quoteResultColumn(column: string, dbType?: string): string {
 	const resolvedType = (dbType || "").toLowerCase();
-	if (resolvedType === "clickhouse") {
+	if (["clickhouse", "mysql", "mariadb"].includes(resolvedType)) {
 		return `\`${column.replace(/`/g, "``")}\``;
 	}
 	return `"${column.replace(/"/g, '""')}"`;
@@ -641,10 +643,7 @@ export function ConnectionDetails() {
 		return schemaNames.size;
 	}, [tables, schemaOverview]);
 
-	const createTableDbType =
-		connection?.type === "postgres" || connection?.type === "sqlite"
-			? getCreateTableDbType(connection.db_type)
-			: null;
+	const createTableDbType = getCreateTableDbType(connection?.db_type);
 
 	useEffect(() => {
 		const fetchConnection = async () => {
@@ -2490,6 +2489,10 @@ export function ConnectionDetails() {
 		switch (connection.type) {
 			case "postgres":
 				return <PostgresqlIcon className="size-8" />;
+			case "mysql":
+				return <MysqlIcon className="size-8" />;
+			case "mariadb":
+				return <MariadbIcon className="size-8" />;
 			case "sqlite":
 				return <SqliteIcon className="size-8" />;
 			case "duckdb":
@@ -3030,7 +3033,7 @@ export function ConnectionDetails() {
 	const renderQueryContent = (tab: QueryTab) => (
 		<div className="space-y-3">
 			<Card className="workspace-panel gap-2">
-				<CardHeader className="pb-0 pt-4">
+				<CardHeader>
 					<div className="flex items-center justify-between">
 						<div>
 							<CardTitle>SQL editor</CardTitle>
@@ -3074,12 +3077,12 @@ export function ConnectionDetails() {
 								</div>
 							) : (
 								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-											try {
-												const formatted = formatSQL(tab.query, {
+					<Button
+						size="sm"
+						variant="outline"
+						onClick={() => {
+							try {
+								const formatted = formatSQL(tab.query, {
 													language: getSqlFormatterLanguage(
 														connection?.db_type || "postgres",
 													),
@@ -3178,7 +3181,7 @@ export function ConnectionDetails() {
 			</Card>
 
 			<Card className="workspace-panel">
-				<CardHeader className="py-4">
+				<CardHeader>
 					<div className="flex items-center justify-between">
 						<div>
 							<div className="flex items-center gap-2">
@@ -4137,6 +4140,7 @@ export function ConnectionDetails() {
 									uuid && createTableDbType
 										? {
 												dbType: createTableDbType,
+												defaultSchema: connection.database,
 												onPreview: (request) =>
 													api.pool.previewCreateTable(uuid, request),
 												onCreate: (request) =>

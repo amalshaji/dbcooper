@@ -50,6 +50,7 @@ pub fn sql_prompts(
         "sqlite" | "sqlite3" => ("SQLite", "Use SQLite syntax"),
         "duckdb" => ("DuckDB", "Use DuckDB SQL syntax"),
         "mysql" => ("MySQL", "Use MySQL syntax"),
+        "mariadb" => ("MariaDB", "Use MariaDB syntax"),
         "redis" => ("Redis", "Generate Redis commands"),
         "clickhouse" => ("ClickHouse", "Use ClickHouse syntax"),
         _ => ("PostgreSQL", "Use PostgreSQL syntax"),

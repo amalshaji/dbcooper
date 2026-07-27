@@ -10,6 +10,7 @@ import { CreateTableSheet } from "../CreateTableSheet";
 
 export interface ObjectExplorerCreateTableCapability {
 	dbType: CreateTableDbType;
+	defaultSchema?: string;
 	onPreview: (request: CreateTableRequest) => Promise<string>;
 	onCreate: (request: CreateTableRequest) => Promise<TableInfo>;
 	onCreated: (table: TableInfo) => void;
@@ -27,11 +28,14 @@ export function ObjectExplorerCreateTable({
 	selectedSchema,
 }: ObjectExplorerCreateTableProps) {
 	const [open, setOpen] = useState(false);
-	const defaultSchema = getDefaultSchema(capability.dbType);
+	const mysqlFamily = capability.dbType === "mysql" || capability.dbType === "mariadb";
+	const defaultSchema = mysqlFamily
+		? capability.defaultSchema || selectedSchema || schemas[0] || ""
+		: getDefaultSchema(capability.dbType);
 	const availableSchemas =
 		capability.dbType === "sqlite"
 			? [defaultSchema]
-			: Array.from(new Set([defaultSchema, ...schemas])).sort((left, right) =>
+			: Array.from(new Set([defaultSchema, ...schemas].filter(Boolean))).sort((left, right) =>
 					left.localeCompare(right),
 				);
 
@@ -51,7 +55,7 @@ export function ObjectExplorerCreateTable({
 				<CreateTableSheet
 					dbType={capability.dbType}
 					initialSchema={
-						capability.dbType === "sqlite"
+						capability.dbType === "sqlite" || mysqlFamily
 							? defaultSchema
 							: selectedSchema || defaultSchema
 					}

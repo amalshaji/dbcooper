@@ -45,5 +45,6 @@ pub async fn get_connection_config(
         } else {
             Some(conn.ssh_key_path)
         },
+        ssh_use_key: conn.ssh_use_key == 1,
     })
 }

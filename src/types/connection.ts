@@ -1,5 +1,7 @@
 export type ConnectionType =
 	| "postgres"
+	| "mysql"
+	| "mariadb"
 	| "sqlite"
 	| "duckdb"
 	| "redis"

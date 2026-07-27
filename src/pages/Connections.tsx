@@ -314,9 +314,9 @@ export function Connections() {
 					{connections.length === 0 ? (
 						<div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
 							<EmptyState
-								icon={<Database />}
 								title="No connections yet"
-								description="Create a local workspace for PostgreSQL, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
+								icon={<Database />}
+								description="Create a local workspace for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Create database",

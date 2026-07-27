@@ -119,6 +119,75 @@
       "UUID": ["uuid()"]
     }
   },
+  "mysql": {
+    "label": "MySQL",
+    "defaultSchema": "",
+    "fileDatabase": false,
+    "structuredRowMutations": true,
+    "formatterLanguage": "mysql",
+    "modifierPolicy": "mysql",
+    "createTableModifiers": {
+      "lengthTypes": ["CHAR", "VARCHAR", "BINARY", "VARBINARY"],
+      "decimalTypes": ["DECIMAL", "NUMERIC"],
+      "unsignedTypes": [
+        "TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT",
+        "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE"
+      ],
+      "autoIncrementTypes": [
+        "TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT"
+      ]
+    },
+    "createTableTypes": [
+      "TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT",
+      "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "BOOLEAN", "CHAR", "VARCHAR",
+      "BINARY", "VARBINARY", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT",
+      "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "DATE", "TIME",
+      "DATETIME", "TIMESTAMP", "YEAR", "JSON"
+    ],
+    "literalKinds": {
+      "TINYINT": "number", "SMALLINT": "number", "MEDIUMINT": "number",
+      "INT": "number", "INTEGER": "number", "BIGINT": "number",
+      "DECIMAL": "number", "NUMERIC": "number", "FLOAT": "number",
+      "DOUBLE": "number", "BOOLEAN": "boolean"
+    },
+    "expressionsByType": {
+      "BOOLEAN": ["TRUE", "FALSE"],
+      "DATE": ["current_date"],
+      "TIME": ["current_time"],
+      "DATETIME": ["current_timestamp", "now()"],
+      "TIMESTAMP": ["current_timestamp", "now()"],
+      "JSON": ["('{}')", "('[]')"]
+    }
+  },
+  "mariadb": {
+    "label": "MariaDB",
+    "defaultSchema": "",
+    "fileDatabase": false,
+    "structuredRowMutations": true,
+    "formatterLanguage": "mysql",
+    "modifierPolicy": "mysql",
+    "createTableTypes": [
+      "TINYINT", "SMALLINT", "MEDIUMINT", "INT", "INTEGER", "BIGINT",
+      "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "BOOLEAN", "CHAR", "VARCHAR",
+      "BINARY", "VARBINARY", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT",
+      "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "DATE", "TIME",
+      "DATETIME", "TIMESTAMP", "YEAR", "JSON"
+    ],
+    "literalKinds": {
+      "TINYINT": "number", "SMALLINT": "number", "MEDIUMINT": "number",
+      "INT": "number", "INTEGER": "number", "BIGINT": "number",
+      "DECIMAL": "number", "NUMERIC": "number", "FLOAT": "number",
+      "DOUBLE": "number", "BOOLEAN": "boolean"
+    },
+    "expressionsByType": {
+      "BOOLEAN": ["TRUE", "FALSE"],
+      "DATE": ["current_date"],
+      "TIME": ["current_time"],
+      "DATETIME": ["current_timestamp", "now()"],
+      "TIMESTAMP": ["current_timestamp", "now()"],
+      "JSON": ["('{}')", "('[]')"]
+    }
+  },
   "clickhouse": {
     "label": "ClickHouse",
     "defaultSchema": "default",

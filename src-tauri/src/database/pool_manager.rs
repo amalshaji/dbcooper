@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 
-use super::driver_factory::{create_driver as create_database_driver, DriverConfig};
-use super::sql_policy::is_file_database;
+use super::driver_factory::create_driver_with_ssh;
+pub use super::driver_factory::DriverConfig as ConnectionConfig;
+use super::mutation::MutationPlan;
 use super::DatabaseDriver;
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
@@ -24,26 +25,6 @@ pub enum ConnectionStatus {
     Connected,
     Disconnected,
     Reconnecting,
-}
-
-/// Configuration needed to create a driver
-#[derive(Clone, Debug)]
-pub struct ConnectionConfig {
-    pub db_type: String,
-    pub host: Option<String>,
-    pub port: Option<i64>,
-    pub database: Option<String>,
-    pub username: Option<String>,
-    pub password: Option<String>,
-    pub ssl: Option<bool>,
-    pub file_path: Option<String>,
-    // SSH tunnel fields
-    pub ssh_enabled: bool,
-    pub ssh_host: Option<String>,
-    pub ssh_port: Option<i64>,
-    pub ssh_user: Option<String>,
-    pub ssh_password: Option<String>,
-    pub ssh_key_path: Option<String>,
 }
 
 /// Entry in the connection pool
@@ -93,69 +74,6 @@ impl PoolManager {
             .clone()
     }
 
-    /// Create a driver from configuration (with optional SSH tunnel)
-    async fn create_driver(
-        config: &ConnectionConfig,
-    ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
-        // Handle SSH tunnel if enabled
-        let ssh_enabled = config.ssh_enabled && !is_file_database(&config.db_type)?;
-        let (effective_host, effective_port, ssh_tunnel) = if ssh_enabled {
-            let ssh_host = config.ssh_host.as_ref().ok_or("SSH host is required")?;
-            let ssh_port = config.ssh_port.unwrap_or(22) as u16;
-            let ssh_user = config.ssh_user.as_ref().ok_or("SSH user is required")?;
-            let ssh_password = config.ssh_password.as_ref().map(|s| s.as_str());
-            let ssh_key_path = config.ssh_key_path.as_ref().map(|s| s.as_str());
-            let remote_host = config.host.as_ref().ok_or("Remote host is required")?;
-            let remote_port = config.port.unwrap_or(5432) as u16;
-
-            // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
-            let tunnel = match tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                SshTunnel::new(
-                    ssh_host,
-                    ssh_port,
-                    ssh_user,
-                    ssh_password,
-                    ssh_key_path,
-                    remote_host,
-                    remote_port,
-                ),
-            )
-            .await
-            {
-                Ok(Ok(tunnel)) => tunnel,
-                Ok(Err(e)) => return Err(format!("SSH tunnel failed: {}", e)),
-                Err(_) => {
-                    return Err("SSH tunnel connection timed out after 20 seconds".to_string())
-                }
-            };
-
-            (
-                "127.0.0.1".to_string(),
-                tunnel.local_port as i64,
-                Some(tunnel),
-            )
-        } else {
-            (
-                config.host.clone().unwrap_or_default(),
-                config.port.unwrap_or(5432),
-                None,
-            )
-        };
-
-        let driver = create_database_driver(DriverConfig {
-            db_type: config.db_type.clone(),
-            host: Some(effective_host),
-            port: Some(effective_port),
-            database: config.database.clone(),
-            username: config.username.clone(),
-            password: config.password.clone(),
-            ssl: config.ssl,
-            file_path: config.file_path.clone(),
-        })?;
-        Ok((driver, ssh_tunnel))
-    }
-
     /// Ensure a connection exists in the pool, connecting if needed.
     ///
     /// Serialized per-UUID via the connect lock so concurrent callers (Tauri
@@ -194,7 +112,7 @@ impl PoolManager {
         }
 
         // Create new driver (with optional SSH tunnel)
-        let (driver, ssh_tunnel) = Self::create_driver(&config).await?;
+        let (driver, ssh_tunnel) = create_driver_with_ssh(&config).await?;
         let driver = Arc::new(driver);
 
         // Test the connection
@@ -390,6 +308,18 @@ impl PoolManager {
             .await
             .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
         driver.execute_query(query).await
+    }
+
+    pub async fn execute_mutation(
+        &self,
+        uuid: &str,
+        mutation: &MutationPlan,
+    ) -> Result<QueryResult, String> {
+        let driver = self
+            .get_cached(uuid)
+            .await
+            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        driver.execute_mutation(mutation).await
     }
 
     /// Execute a query with read-only enforcement (engine-enforced where possible).

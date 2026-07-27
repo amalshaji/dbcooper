@@ -137,6 +137,7 @@ async fn test_create_table_builds_sqlite_table_and_reports_duplicates() {
                 primary_key: true,
                 unique: false,
                 default: None,
+                mysql_modifiers: None,
             },
             CreateTableColumn {
                 name: "slug".to_string(),
@@ -145,6 +146,7 @@ async fn test_create_table_builds_sqlite_table_and_reports_duplicates() {
                 primary_key: false,
                 unique: true,
                 default: None,
+                mysql_modifiers: None,
             },
             CreateTableColumn {
                 name: "created_at".to_string(),
@@ -155,6 +157,7 @@ async fn test_create_table_builds_sqlite_table_and_reports_duplicates() {
                 default: Some(ColumnDefault::Expression {
                     value: "current_timestamp".to_string(),
                 }),
+                mysql_modifiers: None,
             },
         ],
     };

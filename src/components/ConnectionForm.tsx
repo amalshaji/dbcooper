@@ -23,6 +23,8 @@ import {
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { toast } from "sonner";
@@ -56,6 +58,18 @@ const databaseTypes: {
 		icon: <PostgresqlIcon className="w-4 h-4" />,
 	},
 	{
+		value: "mysql",
+		label: "MySQL",
+		disabled: false,
+		icon: <MysqlIcon className="w-4 h-4" />,
+	},
+	{
+		value: "mariadb",
+		label: "MariaDB",
+		disabled: false,
+		icon: <MariadbIcon className="w-4 h-4" />,
+	},
+	{
 		value: "sqlite",
 		label: "SQLite",
 		disabled: false,
@@ -83,6 +97,8 @@ const databaseTypes: {
 
 const defaultPorts: Record<ConnectionType, number> = {
 	postgres: 5432,
+	mysql: 3306,
+	mariadb: 3306,
 	sqlite: 0,
 	duckdb: 0,
 	redis: 6379,
@@ -168,9 +184,11 @@ export function ConnectionForm({
 		setIsTesting(true);
 		try {
 			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
-			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
+			// Use unified test connection for non-Postgres engines; keep the legacy Postgres command.
 			const result =
 				formData.type === "redis" ||
+				formData.type === "mysql" ||
+				formData.type === "mariadb" ||
 				formData.type === "sqlite" ||
 				formData.type === "duckdb" ||
 				formData.type === "clickhouse"
@@ -484,7 +502,11 @@ export function ConnectionForm({
 											setFormData({ ...formData, username: e.target.value })
 										}
 										placeholder={
-											formData.type === "redis" ? "default" : "postgres"
+											formData.type === "redis"
+												? "default"
+												: formData.type === "mysql" || formData.type === "mariadb"
+													? "root"
+													: "postgres"
 										}
 									/>
 								</Field>

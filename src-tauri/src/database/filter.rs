@@ -12,6 +12,7 @@ pub enum FilterDialect {
     Sqlite,
     DuckDb,
     Clickhouse,
+    Mysql,
 }
 
 fn normalize_clickhouse_type(data_type: &str) -> String {
@@ -144,6 +145,18 @@ pub fn classify_column_type(data_type: &str, dialect: FilterDialect) -> FilterCo
                 FilterColumnKind::Other
             }
         }
+        FilterDialect::Mysql => match normalized.split(['(', ' ']).next().unwrap_or_default() {
+            "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "bigint" => {
+                FilterColumnKind::Integer
+            }
+            "decimal" | "numeric" | "float" | "double" | "real" => FilterColumnKind::Decimal,
+            "bool" | "boolean" => FilterColumnKind::Boolean,
+            "date" | "datetime" | "timestamp" | "time" | "year" => FilterColumnKind::Temporal,
+            "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" => {
+                FilterColumnKind::Text
+            }
+            _ => FilterColumnKind::Other,
+        },
     }
 }
 
@@ -293,7 +306,9 @@ fn quote_identifier(identifier: &str, dialect: FilterDialect) -> String {
         FilterDialect::Postgres | FilterDialect::Sqlite | FilterDialect::DuckDb => {
             format!("\"{}\"", identifier.replace('"', "\"\""))
         }
-        FilterDialect::Clickhouse => format!("`{}`", identifier.replace('`', "``")),
+        FilterDialect::Clickhouse | FilterDialect::Mysql => {
+            format!("`{}`", identifier.replace('`', "``"))
+        }
     }
 }
 
@@ -338,8 +353,15 @@ fn tagged_number(
             .parse::<i64>()
             .map(FilterValue::Integer)
             .map_err(|_| "Integer filter value is out of range".to_string())?,
+        (FilterDialect::Mysql, FilterColumnKind::Integer) => FilterValue::ExactNumber {
+            value: value.to_string(),
+            data_type: "decimal".to_string(),
+        },
         (
-            FilterDialect::Postgres | FilterDialect::Sqlite | FilterDialect::DuckDb,
+            FilterDialect::Postgres
+            | FilterDialect::Sqlite
+            | FilterDialect::DuckDb
+            | FilterDialect::Mysql,
             FilterColumnKind::Decimal,
         ) => FilterValue::ExactNumber {
             value: value.to_string(),
@@ -408,7 +430,7 @@ fn placeholder(index: usize, value: &FilterValue, dialect: FilterDialect) -> Str
             }
             _ => format!("${}", index + 1),
         },
-        FilterDialect::Sqlite | FilterDialect::DuckDb => "?".to_string(),
+        FilterDialect::Sqlite | FilterDialect::DuckDb | FilterDialect::Mysql => "?".to_string(),
         FilterDialect::Clickhouse => {
             let value_type = match value {
                 FilterValue::Text(_) => "String",
@@ -685,6 +707,32 @@ mod tests {
             vec![FilterValue::ExactNumber {
                 value: value.to_string(),
                 data_type: "numeric".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn preserves_mysql_unsigned_bigint_values() {
+        let compiled = compile_filter(
+            &expression(FilterCondition {
+                column: "id".to_string(),
+                operator: FilterOperator::Equals,
+                value: Some(json!({
+                    "kind": "integer",
+                    "value": "18446744073709551615"
+                })),
+            }),
+            &[column("id", "bigint unsigned", FilterDialect::Mysql)],
+            FilterDialect::Mysql,
+        )
+        .unwrap();
+
+        assert_eq!(compiled.sql, "`id` = ?");
+        assert_eq!(
+            compiled.values,
+            vec![FilterValue::ExactNumber {
+                value: "18446744073709551615".to_string(),
+                data_type: "decimal".to_string(),
             }]
         );
     }
