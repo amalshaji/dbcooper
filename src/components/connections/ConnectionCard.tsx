@@ -1,4 +1,4 @@
-import { Cloud, Database, Lock } from "@phosphor-icons/react";
+import { Database, Lock } from "@phosphor-icons/react";
 import {
 	ConnectionActionsContext,
 	ConnectionActionsDropdown,
@@ -10,6 +10,7 @@ import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { Connection } from "@/lib/tauri";
@@ -75,7 +76,7 @@ function dbTypeConfig(type: string) {
 			};
 		case "d1":
 			return {
-				icon: Cloud,
+				icon: CloudflareIcon,
 				iconClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
 				accentClass: "bg-orange-500",
 			};
@@ -135,7 +136,9 @@ export function ConnectionCard({
 						<div
 							className={`flex size-9 shrink-0 items-center justify-center rounded-md ${config.iconClass}`}
 						>
-							<DbIcon className="size-4" />
+							<DbIcon
+								className={connection.type === "d1" ? "h-3.5 w-5" : "size-4"}
+							/>
 						</div>
 						<div className="min-w-0 flex-1">
 							<div className="flex items-center gap-2">

@@ -27,11 +27,12 @@ import { MariadbIcon } from "@/components/icons/mariadb";
 import { MysqlIcon } from "@/components/icons/mysql";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { Cloud, Eye, EyeSlash } from "@phosphor-icons/react";
+import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
 import {
 	prepareDuckDbRuntime,
@@ -98,7 +99,7 @@ const databaseTypes: {
 		value: "d1",
 		label: "Cloudflare D1",
 		disabled: false,
-		icon: <Cloud className="size-4" weight="duotone" />,
+		icon: <CloudflareIcon className="h-3.5 w-5" />,
 	},
 ];
 

@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { MariadbIcon } from "@/components/icons/mariadb";
@@ -129,7 +130,6 @@ import {
 	ClockCounterClockwise,
 	WarningCircle,
 	Trash,
-	Cloud,
 } from "@phosphor-icons/react";
 import { DataTable } from "@/components/DataTable";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -2503,7 +2503,7 @@ export function ConnectionDetails() {
 			case "clickhouse":
 				return <ClickhouseIcon className="size-8" />;
 			case "d1":
-				return <Cloud className="size-8" weight="duotone" />;
+				return <CloudflareIcon className="h-4 w-8" />;
 			default:
 				return <Database className="size-8" />;
 		}
