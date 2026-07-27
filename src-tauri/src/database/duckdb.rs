@@ -95,6 +95,10 @@ impl DuckDbDriver {
     async fn run_cli(&self, sql: &str, read_only: bool) -> Result<Vec<Value>, String> {
         self.ensure_helper_available().await?;
         let _guard = self.file_lock.lock().await;
+        self.run_cli_locked(sql, read_only).await
+    }
+
+    async fn run_cli_locked(&self, sql: &str, read_only: bool) -> Result<Vec<Value>, String> {
         if read_only {
             let session = self.interactive_session.lock().await;
             if session.is_some() {
@@ -467,7 +471,11 @@ impl DatabaseDriver for DuckDbDriver {
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         self.ensure_helper_available().await?;
         let _guard = self.file_lock.lock().await;
-        run_cli_once(&self.helper_path, &self.config.file_path, "SELECT 1", false).await?;
+        if self.interactive_session.lock().await.is_some() {
+            self.run_cli_locked("SELECT 1", false).await?;
+        } else {
+            run_cli_once(&self.helper_path, &self.config.file_path, "SELECT 1", false).await?;
+        }
         Ok(TestConnectionResult {
             success: true,
             message: "Connection successful!".to_string(),
@@ -788,6 +796,12 @@ mod tests {
         std::fs::write(
             &path,
             r#"#!/bin/sh
+starts_file="$0.starts"
+starts=0
+if [ -f "$starts_file" ]; then
+  starts=$(cat "$starts_file")
+fi
+printf '%s\n' "$((starts + 1))" > "$starts_file"
 session_value=0
 while IFS= read -r line; do
   case "$line" in
@@ -803,6 +817,15 @@ done
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         (directory, path)
+    }
+
+    #[cfg(unix)]
+    fn cli_start_count(helper_path: &PathBuf) -> u32 {
+        std::fs::read_to_string(format!("{}.starts", helper_path.display()))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
     }
 
     #[test]
@@ -875,6 +898,47 @@ done
         let resumed = driver.execute_query("SELECT CHECK_SESSION").await.unwrap();
         assert!(resumed.error.is_none());
         assert_eq!(resumed.data[0]["value"], 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn health_check_reuses_the_active_cli_session() {
+        let (directory, helper_path) = fake_cli();
+        let driver = DuckDbDriver::with_helper_path(
+            DuckDbConfig {
+                file_path: directory.path().join("data.duckdb").display().to_string(),
+            },
+            helper_path.clone(),
+        );
+
+        let query = driver.execute_query("SELECT 1").await.unwrap();
+        assert!(query.error.is_none());
+        assert_eq!(cli_start_count(&helper_path), 1);
+
+        let health = driver.test_connection().await.unwrap();
+
+        assert!(health.success);
+        assert_eq!(cli_start_count(&helper_path), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn initial_health_check_leaves_the_database_available_for_read_only_access() {
+        let (directory, helper_path) = fake_cli();
+        let driver = DuckDbDriver::with_helper_path(
+            DuckDbConfig {
+                file_path: directory.path().join("data.duckdb").display().to_string(),
+            },
+            helper_path.clone(),
+        );
+
+        let health = driver.test_connection().await.unwrap();
+        assert!(health.success);
+
+        let read_only = driver.execute_query_read_only("SELECT 1").await.unwrap();
+
+        assert!(read_only.error.is_none());
+        assert_eq!(cli_start_count(&helper_path), 2);
     }
 
     #[test]
