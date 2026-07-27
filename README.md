@@ -4,7 +4,7 @@
 
 # DBcooper
 
-A database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse, built with Tauri, React, and TypeScript.
+A database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1, built with Tauri, React, and TypeScript.
 
 ![dbcooper](./docs/public/images/dbcooper.png)
 ![aggregation](./docs/public/images/aggregate.png)
@@ -60,7 +60,7 @@ Find answers to common questions on our [documentation site](https://dbcooper.am
 
 - **Frontend**: React + TypeScript + Vite
 - **Backend**: Rust + Tauri v2
-- **Database**: SQLite app storage; PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse connections
+- **Database**: SQLite app storage; PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1 connections
 - **UI**: shadcn/ui components
 - **Package Manager**: Bun
 
@@ -87,11 +87,20 @@ bun run icons
 
 # Build for production
 bun run tauri build
+
+# Test D1 against a disposable local Wrangler database
+bun run test:d1-local
 ```
 
 ### MCP server for external agents
 
 DBcooper includes an opt-in, token-authenticated MCP server for external coding agents. See [docs/mcp.md](./docs/mcp.md) for setup and curl examples.
+
+### Cloudflare D1
+
+Create a Cloudflare API token with `D1 Read` permission for browsing and querying, or `D1 Write` permission to edit rows and create tables. In **New Connection**, choose **Cloudflare D1**, enter the Cloudflare Account ID and token, then either load the account's databases or paste a D1 database UUID manually.
+
+D1 connections use Cloudflare's HTTPS API directly and do not support SSH tunnels. Cloudflare applies a global API limit of 1,200 requests per five minutes per user; DBcooper surfaces rate-limit responses and does not automatically replay D1 requests. Because the API transports results as JSON, integers outside JavaScript's safe integer range may lose precision when displayed.
 
 ### AI SQL Generation
 

@@ -9,6 +9,7 @@
     "build": "vite build",
     "build:macos-icons": "./scripts/build-macos-icons.sh",
     "test": "bun test src",
+    "test:d1-local": "./scripts/test-d1-local.sh",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "check": "bun run test && bun run typecheck && bun run lint && bun run build",
@@ -76,6 +77,7 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
-    "vite-plugin-svgr": "^4.5.0"
+    "vite-plugin-svgr": "^4.5.0",
+    "wrangler": "4.114.0"
   }
 }

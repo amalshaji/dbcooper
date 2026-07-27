@@ -429,11 +429,20 @@ pub async fn list_databases(
     api_token: &str,
     page: u32,
 ) -> Result<D1DatabaseList, String> {
+    list_databases_at_base(&api_base_url(), account_id, api_token, page).await
+}
+
+async fn list_databases_at_base(
+    api_base_url: &str,
+    account_id: &str,
+    api_token: &str,
+    page: u32,
+) -> Result<D1DatabaseList, String> {
     if account_id.trim().is_empty() || api_token.trim().is_empty() {
         return Err("Cloudflare Account ID and API token are required".to_string());
     }
     let client = Client::new();
-    let mut url = d1_database_url(&api_base_url(), account_id, "", None)?;
+    let mut url = d1_database_url(api_base_url, account_id, "", None)?;
     url.query_pairs_mut()
         .append_pair("page", &page.max(1).to_string())
         .append_pair("per_page", "50");
@@ -598,10 +607,14 @@ fn escape_sql_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{d1_database_url, parse_query_response, D1Config, D1Driver, D1QueryResponse};
+    use super::{
+        d1_database_url, list_databases_at_base, parse_query_response, D1Config, D1Driver,
+        D1QueryResponse,
+    };
+    use crate::database::DatabaseDriver;
     use axum::extract::State;
-    use axum::http::HeaderMap;
-    use axum::routing::post;
+    use axum::http::{HeaderMap, Uri};
+    use axum::routing::{get, post};
     use axum::{Json, Router};
     use serde_json::json;
     use tokio::net::TcpListener;
@@ -705,5 +718,91 @@ mod tests {
         assert_eq!(result.results, vec![json!({"ok": 1})]);
         assert_eq!(headers.get("authorization").unwrap(), "Bearer secret-token");
         assert_eq!(body, json!({"sql": "SELECT 1 AS ok"}));
+    }
+
+    #[tokio::test]
+    async fn lists_databases_with_explicit_pagination() {
+        let (sender, mut receiver) = mpsc::unbounded_channel();
+        let app = Router::new()
+            .route(
+                "/client/v4/accounts/account-id/d1/database",
+                get(
+                    |State(sender): State<mpsc::UnboundedSender<(HeaderMap, Uri)>>,
+                     headers: HeaderMap,
+                     uri: Uri| async move {
+                        sender.send((headers, uri)).unwrap();
+                        Json(json!({
+                            "success": true,
+                            "errors": [],
+                            "messages": [],
+                            "result": [{"uuid": "database-id", "name": "Production"}],
+                            "result_info": {"page": 2, "total_pages": 3}
+                        }))
+                    },
+                ),
+            )
+            .with_state(sender);
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let result = list_databases_at_base(
+            &format!("http://{address}/client/v4"),
+            "account-id",
+            "secret-token",
+            2,
+        )
+        .await
+        .unwrap();
+        let (headers, uri) = receiver.recv().await.unwrap();
+        server.abort();
+
+        assert_eq!(result.page, 2);
+        assert_eq!(result.total_pages, 3);
+        assert_eq!(result.databases[0].uuid, "database-id");
+        assert_eq!(headers.get("authorization").unwrap(), "Bearer secret-token");
+        assert_eq!(uri.query(), Some("page=2&per_page=50"));
+    }
+
+    #[tokio::test]
+    #[ignore = "run with bun run test:d1-local"]
+    async fn local_wrangler_supports_schema_browsing_and_crud() {
+        let api_base_url = std::env::var("DBCOOPER_D1_LOCAL_URL")
+            .expect("DBCOOPER_D1_LOCAL_URL is set by scripts/test-d1-local.sh");
+        let driver = D1Driver::with_api_base_url(
+            D1Config {
+                account_id: "local-account".to_string(),
+                database_id: "local-database".to_string(),
+                api_token: "local-token".to_string(),
+            },
+            api_base_url,
+        );
+
+        for sql in [
+            "DROP TABLE IF EXISTS d1_people",
+            "CREATE TABLE d1_people (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+            "INSERT INTO d1_people (id, name) VALUES (1, 'Ada')",
+        ] {
+            let result = driver.execute_query(sql).await.unwrap();
+            assert!(result.error.is_none(), "{sql}: {:?}", result.error);
+        }
+
+        let tables = driver.list_tables().await.unwrap();
+        let structure = driver
+            .get_table_structure("main", "d1_people")
+            .await
+            .unwrap();
+        let data = driver
+            .get_table_data("main", "d1_people", 1, 20, None, None, None)
+            .await
+            .unwrap();
+
+        assert!(tables.iter().any(|table| table.name == "d1_people"));
+        assert!(structure
+            .columns
+            .iter()
+            .any(|column| column.name == "id" && column.primary_key));
+        assert_eq!(data.total, 1);
+        assert_eq!(data.data, vec![json!({"id": 1, "name": "Ada"})]);
     }
 }

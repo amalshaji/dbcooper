@@ -1,0 +1,13 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "dbcooper-d1-local",
+  "main": "worker.ts",
+  "compatibility_date": "2026-07-27",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dbcooper-d1-local",
+      "database_id": "local-database"
+    }
+  ]
+}

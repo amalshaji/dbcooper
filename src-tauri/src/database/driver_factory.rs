@@ -180,7 +180,7 @@ fn build_driver(
 
 #[cfg(test)]
 mod tests {
-    use super::{create_driver, DriverConfig};
+    use super::{create_driver, create_driver_with_ssh, DriverConfig};
 
     fn config(db_type: &str) -> DriverConfig {
         DriverConfig {
@@ -223,6 +223,17 @@ mod tests {
         assert_eq!(
             create_driver(&config("unknown")).err().unwrap(),
             "Unsupported database type: unknown"
+        );
+    }
+
+    #[tokio::test]
+    async fn d1_rejects_ssh_before_opening_a_tunnel() {
+        let mut config = config("d1");
+        config.ssh_enabled = true;
+
+        assert_eq!(
+            create_driver_with_ssh(&config).await.err().unwrap(),
+            "SSH tunnels are not supported for Cloudflare D1"
         );
     }
 }

@@ -6,7 +6,11 @@ const faqs = [
 	},
 	{
 		question: "Which databases are supported?",
-		answer: "PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse today. More engines are planned for future releases.",
+		answer: "PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1 today. More engines are planned for future releases.",
+	},
+	{
+		question: "How do I connect to Cloudflare D1?",
+		answer: "Choose Cloudflare D1, enter your Account ID and a token with D1 Read or D1 Write permission, then load a database or paste its UUID. D1 uses Cloudflare's HTTPS API, so SSH tunnels are not used.",
 	},
 	{
 		question: "Can DBcooper create a local database for me?",
@@ -22,7 +26,7 @@ const faqs = [
 	},
 	{
 		question: "Is my data secure?",
-		answer: "Absolutely. DBcooper runs entirely on your machine — connection credentials and query results never leave your computer, and there's no telemetry.",
+		answer: "DBcooper has no telemetry. Connection credentials stay in its local application store and are sent only to the database service you configure when DBcooper connects.",
 	},
 	{
 		question: "How do I report bugs or request features?",
