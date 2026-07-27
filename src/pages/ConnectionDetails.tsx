@@ -47,6 +47,7 @@ import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
+import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { MariadbIcon } from "@/components/icons/mariadb";
@@ -4099,7 +4100,7 @@ export function ConnectionDetails() {
 					<div className="text-xs text-muted-foreground mt-1">
 						{connection.db_type === "duckdb"
 							? connection.file_path
-							: connection.database}
+							: getConnectionDatabaseDisplay(connection)}
 					</div>
 				</SidebarHeader>
 				<SidebarContent className="overflow-hidden p-2">

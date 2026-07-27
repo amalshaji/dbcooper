@@ -13,6 +13,7 @@ import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import type { Connection } from "@/lib/tauri";
 import type { DockerConnectionState } from "@/types/docker";
 
@@ -167,7 +168,7 @@ export function ConnectionCard({
 								{connection.type === "sqlite" || connection.type === "duckdb"
 									? connection.file_path?.split("/").pop() || "Local file"
 									: connection.type === "d1"
-										? `Cloudflare • ${connection.database}`
+										? getConnectionDatabaseDisplay(connection)
 										: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>
 						</div>

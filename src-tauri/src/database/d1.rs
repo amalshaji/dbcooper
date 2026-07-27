@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use reqwest::{Client, StatusCode, Url};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::time::Instant;
@@ -131,8 +132,8 @@ impl D1Driver {
     fn query_url(&self) -> Result<Url, String> {
         d1_database_url(
             &self.api_base_url,
-            &self.config.account_id,
-            &self.config.database_id,
+            self.config.account_id.trim(),
+            self.config.database_id.trim(),
             Some("query"),
         )
     }
@@ -155,32 +156,13 @@ impl D1Driver {
         let response = self
             .client
             .post(self.query_url()?)
-            .bearer_auth(&self.config.api_token)
+            .bearer_auth(self.config.api_token.trim())
             .json(&D1QueryRequest { sql, params })
             .send()
             .await
             .map_err(|error| format!("Cloudflare D1 request failed: {error}"))?;
 
-        let status = response.status();
-        let retry_after = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
-        let body = response
-            .text()
-            .await
-            .map_err(|error| format!("Failed to read Cloudflare D1 response: {error}"))?;
-        let envelope: D1QueryResponse = serde_json::from_str(&body).map_err(|error| {
-            format!("Cloudflare D1 returned an invalid response ({status}): {error}")
-        })?;
-
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            let suffix = retry_after
-                .map(|value| format!(" Retry after {value} seconds."))
-                .unwrap_or_default();
-            return Err(format!("Cloudflare API rate limit exceeded.{suffix}"));
-        }
+        let (status, envelope): (_, D1QueryResponse) = read_response(response).await?;
         if !status.is_success() || !envelope.success {
             return Err(format_api_errors(&envelope.errors, status));
         }
@@ -447,32 +429,17 @@ async fn list_databases_at_base(
         return Err("Cloudflare Account ID and API token are required".to_string());
     }
     let client = Client::new();
-    let mut url = d1_database_url(api_base_url, account_id, "", None)?;
+    let mut url = d1_database_url(api_base_url, account_id.trim(), "", None)?;
     url.query_pairs_mut()
         .append_pair("page", &page.max(1).to_string())
         .append_pair("per_page", "50");
     let response = client
         .get(url)
-        .bearer_auth(api_token)
+        .bearer_auth(api_token.trim())
         .send()
         .await
         .map_err(|error| format!("Cloudflare D1 request failed: {error}"))?;
-    let status = response.status();
-    let retry_after = response
-        .headers()
-        .get(reqwest::header::RETRY_AFTER)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    let envelope: D1ListResponse = response
-        .json()
-        .await
-        .map_err(|error| format!("Cloudflare D1 returned an invalid response: {error}"))?;
-    if status == StatusCode::TOO_MANY_REQUESTS {
-        let suffix = retry_after
-            .map(|value| format!(" Retry after {value} seconds."))
-            .unwrap_or_default();
-        return Err(format!("Cloudflare API rate limit exceeded.{suffix}"));
-    }
+    let (status, envelope): (_, D1ListResponse) = read_response(response).await?;
     if !status.is_success() || !envelope.success {
         return Err(format_api_errors(&envelope.errors, status));
     }
@@ -481,6 +448,31 @@ async fn list_databases_at_base(
         page: envelope.result_info.page,
         total_pages: envelope.result_info.total_pages,
     })
+}
+
+async fn read_response<T: DeserializeOwned>(
+    response: reqwest::Response,
+) -> Result<(StatusCode, T), String> {
+    let status = response.status();
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("Failed to read Cloudflare D1 response: {error}"))?;
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        let suffix = retry_after
+            .map(|value| format!(" Retry after {value} seconds."))
+            .unwrap_or_default();
+        return Err(format!("Cloudflare API rate limit exceeded.{suffix}"));
+    }
+    let envelope = serde_json::from_str(&body).map_err(|error| {
+        format!("Cloudflare D1 returned an invalid response ({status}): {error}")
+    })?;
+    Ok((status, envelope))
 }
 
 fn api_base_url() -> String {
@@ -618,7 +610,7 @@ mod tests {
     };
     use crate::database::DatabaseDriver;
     use axum::extract::State;
-    use axum::http::{HeaderMap, Uri};
+    use axum::http::{header::RETRY_AFTER, HeaderMap, StatusCode, Uri};
     use axum::routing::{get, post};
     use axum::{Json, Router};
     use serde_json::json;
@@ -709,9 +701,9 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let driver = D1Driver::with_api_base_url(
             D1Config {
-                account_id: "account-id".to_string(),
+                account_id: " account-id ".to_string(),
                 database_id: "database-id".to_string(),
-                api_token: "secret-token".to_string(),
+                api_token: " secret-token\n".to_string(),
             },
             format!("http://{address}/client/v4"),
         );
@@ -723,6 +715,39 @@ mod tests {
         assert_eq!(result.results, vec![json!({"ok": 1})]);
         assert_eq!(headers.get("authorization").unwrap(), "Bearer secret-token");
         assert_eq!(body, json!({"sql": "SELECT 1 AS ok"}));
+    }
+
+    #[tokio::test]
+    async fn reports_non_json_query_rate_limits() {
+        let app = Router::new().route(
+            "/client/v4/accounts/account-id/d1/database/database-id/query",
+            post(|| async {
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(RETRY_AFTER, "7")],
+                    "slow down",
+                )
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let driver = D1Driver::with_api_base_url(
+            D1Config {
+                account_id: "account-id".to_string(),
+                database_id: "database-id".to_string(),
+                api_token: "secret-token".to_string(),
+            },
+            format!("http://{address}/client/v4"),
+        );
+
+        let error = driver.query("SELECT 1", vec![]).await.unwrap_err();
+        server.abort();
+
+        assert_eq!(
+            error,
+            "Cloudflare API rate limit exceeded. Retry after 7 seconds."
+        );
     }
 
     #[tokio::test]
@@ -753,8 +778,8 @@ mod tests {
 
         let result = list_databases_at_base(
             &format!("http://{address}/client/v4"),
-            "account-id",
-            "secret-token",
+            " account-id ",
+            " secret-token\n",
             2,
         )
         .await
@@ -767,6 +792,38 @@ mod tests {
         assert_eq!(result.databases[0].uuid, "database-id");
         assert_eq!(headers.get("authorization").unwrap(), "Bearer secret-token");
         assert_eq!(uri.query(), Some("page=2&per_page=50"));
+    }
+
+    #[tokio::test]
+    async fn reports_non_json_database_list_rate_limits() {
+        let app = Router::new().route(
+            "/client/v4/accounts/account-id/d1/database",
+            get(|| async {
+                (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(RETRY_AFTER, "11")],
+                    "slow down",
+                )
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let error = list_databases_at_base(
+            &format!("http://{address}/client/v4"),
+            "account-id",
+            "secret-token",
+            1,
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+
+        assert_eq!(
+            error,
+            "Cloudflare API rate limit exceeded. Retry after 11 seconds."
+        );
     }
 
     #[tokio::test]

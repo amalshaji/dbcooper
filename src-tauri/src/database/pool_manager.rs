@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use super::driver_factory::create_driver_with_ssh;
 pub use super::driver_factory::DriverConfig as ConnectionConfig;
 use super::mutation::MutationPlan;
-use super::DatabaseDriver;
+use super::{DatabaseDriver, DatabaseType};
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
@@ -228,7 +228,8 @@ impl PoolManager {
     pub async fn allows_reconnect_retry(&self, uuid: &str) -> bool {
         self.get_config(uuid)
             .await
-            .is_some_and(|config| !matches!(config.db_type.as_str(), "d1" | "cloudflare-d1"))
+            .and_then(|config| DatabaseType::try_from(config.db_type.as_str()).ok())
+            .is_some_and(DatabaseType::replays_failed_reads_after_reconnect)
     }
 
     /// List tables using the pooled connection

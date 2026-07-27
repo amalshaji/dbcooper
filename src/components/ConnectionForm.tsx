@@ -29,6 +29,7 @@ import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
+import { mergeD1ConnectionFields } from "@/lib/connectionFormState";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -442,12 +443,9 @@ export function ConnectionForm({
 								apiToken={formData.password}
 								databaseId={formData.database}
 								onChange={(values) =>
-									setFormData({
-										...formData,
-										username: values.accountId ?? formData.username,
-										password: values.apiToken ?? formData.password,
-										database: values.databaseId ?? formData.database,
-									})
+									setFormData((current) =>
+										mergeD1ConnectionFields(current, values),
+									)
 								}
 								listDatabases={api.d1.listDatabases}
 							/>

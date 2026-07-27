@@ -357,6 +357,14 @@ impl DatabaseType {
             Self::D1 => 443,
         }
     }
+
+    pub fn qualifies_tables_with_schema(self) -> bool {
+        !matches!(self, Self::Sqlite | Self::D1)
+    }
+
+    pub fn replays_failed_reads_after_reconnect(self) -> bool {
+        self != Self::D1
+    }
 }
 
 impl TryFrom<&str> for DatabaseType {
@@ -411,6 +419,16 @@ mod database_type_tests {
         assert_eq!(DatabaseType::Redis.default_port(), 6379);
         assert_eq!(DatabaseType::Clickhouse.default_port(), 8123);
         assert_eq!(DatabaseType::D1.default_port(), 443);
+    }
+
+    #[test]
+    fn owns_schema_qualification_and_replay_capabilities() {
+        assert!(!DatabaseType::Sqlite.qualifies_tables_with_schema());
+        assert!(!DatabaseType::D1.qualifies_tables_with_schema());
+        assert!(DatabaseType::Postgres.qualifies_tables_with_schema());
+
+        assert!(!DatabaseType::D1.replays_failed_reads_after_reconnect());
+        assert!(DatabaseType::Postgres.replays_failed_reads_after_reconnect());
     }
 
     #[test]

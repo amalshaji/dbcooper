@@ -12,7 +12,7 @@ use crate::database::sql_policy::{
     ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
     validate_raw_sql_value,
 };
-use crate::database::{DatabaseDriver, RedisConfig};
+use crate::database::{DatabaseDriver, DatabaseType, RedisConfig};
 use crate::db::models::{
     Connection, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
     TestConnectionResult,
@@ -113,6 +113,19 @@ fn create_driver(
         ssh_key_path: None,
         ssh_use_key: false,
     })
+}
+
+fn table_reference(db_type: &str, schema: &str, table: &str) -> Result<String, String> {
+    let engine = DatabaseType::try_from(db_type)?;
+    if engine.qualifies_tables_with_schema() {
+        Ok(format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(schema),
+            escape_sql_identifier(table)
+        ))
+    } else {
+        Ok(format!("\"{}\"", escape_sql_identifier(table)))
+    }
 }
 
 #[tauri::command]
@@ -319,18 +332,7 @@ pub async fn update_table_row(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if matches!(
-        db_type.as_str(),
-        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
-    ) {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build SET clause
     let set_parts: Vec<String> = updates
@@ -392,18 +394,7 @@ pub async fn update_table_row_with_raw_sql(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if matches!(
-        db_type.as_str(),
-        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
-    ) {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the updates array
     let mut set_parts: Vec<String> = Vec::new();
@@ -492,18 +483,7 @@ pub async fn delete_table_row(
     )?;
 
     // Build the DELETE query
-    let table_ref = if matches!(
-        db_type.as_str(),
-        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
-    ) {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build WHERE clause for primary key
     let where_parts: Vec<String> = primary_key_columns
@@ -546,18 +526,7 @@ pub async fn insert_table_row(
     )?;
 
     // Build the INSERT query
-    let table_ref = if matches!(
-        db_type.as_str(),
-        "sqlite" | "sqlite3" | "d1" | "cloudflare-d1"
-    ) {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the values array
     // Each value should be an object with: column, value, isRawSql

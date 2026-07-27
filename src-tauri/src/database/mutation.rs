@@ -179,14 +179,14 @@ fn identifier(value: &str, engine: DatabaseType) -> String {
 }
 
 fn table_reference(schema: &str, table: &str, engine: DatabaseType) -> String {
-    if matches!(engine, DatabaseType::Sqlite | DatabaseType::D1) {
-        identifier(table, engine)
-    } else {
+    if engine.qualifies_tables_with_schema() {
         format!(
             "{}.{}",
             identifier(schema, engine),
             identifier(table, engine)
         )
+    } else {
+        identifier(table, engine)
     }
 }
 
