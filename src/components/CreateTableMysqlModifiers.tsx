@@ -28,11 +28,25 @@ export function CreateTableMysqlModifiers({
 	const update = (updates: Partial<MysqlColumnModifiersDraft>) =>
 		onChange({ ...modifiers, ...updates });
 	const normalizedType = dataType.toUpperCase();
+	const supportsLength = capabilities.lengthTypes.includes(normalizedType);
+	const supportsDecimal = capabilities.decimalTypes.includes(normalizedType);
+	const supportsUnsigned = capabilities.unsignedTypes.includes(normalizedType);
+	const supportsAutoIncrement =
+		capabilities.autoIncrementTypes.includes(normalizedType);
+
+	if (
+		!supportsLength &&
+		!supportsDecimal &&
+		!supportsUnsigned &&
+		!supportsAutoIncrement
+	) {
+		return null;
+	}
 
 	return (
-		<div className="flex flex-wrap items-end gap-3 rounded-md bg-muted/40 p-2.5">
-			{capabilities.lengthTypes.includes(normalizedType) && (
-				<div className="w-24 space-y-1.5">
+		<div className="grid gap-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
+			{supportsLength && (
+				<div className="space-y-1.5">
 					<Label htmlFor={`create-table-length-${columnId}`}>Length</Label>
 					<Input
 						id={`create-table-length-${columnId}`}
@@ -43,9 +57,9 @@ export function CreateTableMysqlModifiers({
 					/>
 				</div>
 			)}
-			{capabilities.decimalTypes.includes(normalizedType) && (
+			{supportsDecimal && (
 				<>
-					<div className="w-24 space-y-1.5">
+					<div className="space-y-1.5">
 						<Label htmlFor={`create-table-precision-${columnId}`}>Precision</Label>
 						<Input
 							id={`create-table-precision-${columnId}`}
@@ -56,7 +70,7 @@ export function CreateTableMysqlModifiers({
 							onChange={(event) => update({ precision: event.target.value })}
 						/>
 					</div>
-					<div className="w-24 space-y-1.5">
+					<div className="space-y-1.5">
 						<Label htmlFor={`create-table-scale-${columnId}`}>Scale</Label>
 						<Input
 							id={`create-table-scale-${columnId}`}
@@ -69,25 +83,29 @@ export function CreateTableMysqlModifiers({
 					</div>
 				</>
 			)}
-			{capabilities.unsignedTypes.includes(normalizedType) && (
-				<Label>
-					<Switch
-						size="sm"
-						checked={modifiers.unsigned}
-						onCheckedChange={(unsigned) => update({ unsigned })}
-					/>
-					Unsigned
-				</Label>
-			)}
-			{capabilities.autoIncrementTypes.includes(normalizedType) && (
-				<Label>
-					<Switch
-						size="sm"
-						checked={modifiers.autoIncrement}
-						onCheckedChange={onAutoIncrementChange}
-					/>
-					Auto increment
-				</Label>
+			{(supportsUnsigned || supportsAutoIncrement) && (
+				<div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2">
+					{supportsUnsigned && (
+						<Label>
+							<Switch
+								size="sm"
+								checked={modifiers.unsigned}
+								onCheckedChange={(unsigned) => update({ unsigned })}
+							/>
+							Unsigned
+						</Label>
+					)}
+					{supportsAutoIncrement && (
+						<Label>
+							<Switch
+								size="sm"
+								checked={modifiers.autoIncrement}
+								onCheckedChange={onAutoIncrementChange}
+							/>
+							Auto increment
+						</Label>
+					)}
+				</div>
 			)}
 		</div>
 	);
