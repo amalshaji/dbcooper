@@ -103,7 +103,7 @@ To create a D1 connection:
 1. Open the Cloudflare dashboard **Account home**, find the account, open its menu, and choose **Copy account ID**. See Cloudflare's [Account ID guide](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/).
 2. Go to **My Profile → API Tokens → Create Token → Create Custom Token**. Under permissions, choose **Account → D1 → Read** for browsing and querying, or **Edit** if DBcooper should edit rows or create tables. Scope the token to the account from step 1. See Cloudflare's [API token guide](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
 3. Create the token and copy its secret immediately. Cloudflare shows the secret only once, so store it securely.
-4. In **New Connection**, choose **Cloudflare D1**, enter the Account ID and token, then load the account's databases or paste a D1 database UUID manually.
+4. In **New Connection**, choose **Cloudflare D1**, enter the Account ID and token, select **Load databases**, then choose a database from the list.
 
 The in-app connection form links to the same [Cloudflare D1 setup guide](https://dbcooper.amal.sh/#cloudflare-d1-setup).
 

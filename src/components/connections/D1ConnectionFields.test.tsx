@@ -17,15 +17,36 @@ mock.module("@/components/ui/input", () => ({
 	Input: (props: ComponentProps<"input">) => <input {...props} />,
 }));
 mock.module("@/components/ui/select", () => ({
-	Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+	Select: ({
+		children,
+		value,
+		onValueChange,
+		required,
+	}: {
+		children: ReactNode;
+		value: string | null;
+		onValueChange: (value: string) => void;
+		required?: boolean;
+	}) => (
+		<select
+			aria-label="Database"
+			value={value ?? ""}
+			required={required}
+			onChange={(event) => onValueChange(event.target.value)}
+		>
+			<option value="">Choose a database</option>
+			{children}
+		</select>
+	),
 	SelectContent: ({ children }: { children: ReactNode }) => (
-		<div>{children}</div>
+		<>{children}</>
 	),
-	SelectGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-	SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-	SelectTrigger: ({ children }: { children: ReactNode }) => (
-		<button type="button">{children}</button>
+	SelectGroup: ({ children }: { children: ReactNode }) => <>{children}</>,
+	SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
+		<option value={value}>{children}</option>
 	),
+	SelectTrigger: () => null,
+	SelectValue: () => null,
 }));
 mock.module("@/components/ui/spinner", () => ({
 	Spinner: () => <span data-testid="spinner" />,
@@ -37,7 +58,7 @@ const { D1ConnectionFields } = await import("./D1ConnectionFields");
 
 afterEach(cleanup);
 
-test("loads D1 databases explicitly while preserving manual database ID entry", async () => {
+test("selects a loaded D1 database without exposing its UUID field", async () => {
 	const listDatabases = mock(async () => ({
 		databases: [
 			{ uuid: "db-1", name: "production", created_at: null },
@@ -53,13 +74,18 @@ test("loads D1 databases explicitly while preserving manual database ID entry", 
 		<D1ConnectionFields
 			accountId="account-1"
 			apiToken="token-1"
-			databaseId="manual-id"
+			databaseId=""
 			onChange={onChange}
 			listDatabases={listDatabases}
 		/>,
 	);
 
-	expect(screen.getByLabelText("Database ID")).not.toBeNull();
+	expect(screen.queryByLabelText("Database ID")).toBeNull();
+	expect(screen.queryByPlaceholderText("D1 database UUID")).toBeNull();
+	const databaseSelect = screen.getByRole("combobox", {
+		name: "Database",
+	}) as HTMLSelectElement;
+	expect(databaseSelect.required).toBe(true);
 	expect(
 		screen
 			.getByRole("link", { name: "How to get credentials" })
@@ -71,5 +97,13 @@ test("loads D1 databases explicitly while preserving manual database ID entry", 
 
 	expect(await screen.findByText("production")).not.toBeNull();
 	expect(screen.getByText("staging")).not.toBeNull();
+	expect(screen.queryByText("db-1")).toBeNull();
 	expect(listDatabases).toHaveBeenCalledWith("account-1", "token-1", 1);
+
+	await user.selectOptions(
+		databaseSelect,
+		"db-2",
+	);
+
+	expect(onChange).toHaveBeenCalledWith({ databaseId: "db-2" });
 });

@@ -9,6 +9,7 @@ import {
 	SelectGroup,
 	SelectItem,
 	SelectTrigger,
+	SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import type { D1DatabaseList } from "@/lib/tauri";
@@ -92,7 +93,9 @@ export function D1ConnectionFields({
 					id="connection-account-id"
 					required
 					value={accountId}
-					onChange={(event) => onChange({ accountId: event.target.value })}
+					onChange={(event) =>
+						onChange({ accountId: event.target.value, databaseId: "" })
+					}
 					placeholder="Account ID"
 				/>
 			</Field>
@@ -107,7 +110,9 @@ export function D1ConnectionFields({
 						type={showToken ? "text" : "password"}
 						required
 						value={apiToken}
-						onChange={(event) => onChange({ apiToken: event.target.value })}
+						onChange={(event) =>
+							onChange({ apiToken: event.target.value, databaseId: "" })
+						}
 						placeholder="Token with D1 Read or D1 Edit permission"
 						className="pr-10"
 					/>
@@ -128,7 +133,7 @@ export function D1ConnectionFields({
 
 			<Field>
 				<div className="flex items-center justify-between gap-3">
-					<FieldLabel htmlFor="connection-database">Database ID</FieldLabel>
+					<FieldLabel htmlFor="connection-database">Database</FieldLabel>
 					<Button
 						type="button"
 						variant="outline"
@@ -140,46 +145,48 @@ export function D1ConnectionFields({
 						Load databases
 					</Button>
 				</div>
-				<Input
-					id="connection-database"
+				<Select
+					name="database"
 					required
-					value={databaseId}
-					onChange={(event) => onChange({ databaseId: event.target.value })}
-					placeholder="D1 database UUID"
-				/>
-				{databases.length > 0 && (
-					<Select
-						items={databases.map((database) => ({
-							value: database.uuid,
-							label: database.name,
-						}))}
-						value={
-							databases.some((database) => database.uuid === databaseId)
-								? databaseId
-								: null
-						}
-						onValueChange={(value) => value && onChange({ databaseId: value })}
+					items={databases.map((database) => ({
+						value: database.uuid,
+						label: database.name,
+					}))}
+					value={
+						databases.some((database) => database.uuid === databaseId)
+							? databaseId
+							: null
+					}
+					onValueChange={(value) => value && onChange({ databaseId: value })}
+				>
+					<SelectTrigger
+						id="connection-database"
+						className="w-full"
+						disabled={databases.length === 0 || isLoading}
 					>
-						<SelectTrigger
-							className="w-full"
-							aria-label="Available D1 databases"
-						>
-							<span className="truncate">Choose a loaded database</span>
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								{databases.map((database) => (
-									<SelectItem key={database.uuid} value={database.uuid}>
-										<span className="truncate">{database.name}</span>
-										<span className="text-muted-foreground">
-											{database.uuid}
-										</span>
-									</SelectItem>
-								))}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-				)}
+						<SelectValue>
+							{(value) =>
+								databases.find((database) => database.uuid === value)?.name ??
+								(isLoading
+									? "Loading databases…"
+									: databases.length > 0
+										? "Choose a database"
+										: page > 0
+											? "No databases found"
+											: "Load databases to choose")
+							}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						<SelectGroup>
+							{databases.map((database) => (
+								<SelectItem key={database.uuid} value={database.uuid}>
+									{database.name}
+								</SelectItem>
+							))}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
 				{page < totalPages && (
 					<Button
 						type="button"
