@@ -2,7 +2,7 @@ use super::model::{
     detect_engine, DockerContainerSummary, DockerDatabaseEngine, CONNECTION_LABEL_KEY,
     MANAGED_LABEL_KEY,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -31,10 +31,18 @@ pub(crate) struct ContainerConfig {
     pub(crate) image: String,
     #[serde(rename = "Env", default)]
     pub(crate) env: Vec<String>,
-    #[serde(rename = "Cmd", default)]
+    #[serde(rename = "Cmd", default, deserialize_with = "deserialize_null_default")]
     pub(crate) command: Vec<String>,
     #[serde(rename = "Labels", default)]
     pub(crate) labels: HashMap<String, String>,
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -427,6 +435,18 @@ mod tests {
 
         assert_eq!(inspect.host_port(5432), None);
         assert_eq!(inspect.exposed_ports(), vec![5432]);
+    }
+
+    #[test]
+    fn treats_null_container_command_as_empty() {
+        let inspect: ContainerInspect = serde_json::from_str(
+            r#"{
+                "Config": { "Cmd": null }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(inspect.command_option("--requirepass"), "");
     }
 
     #[test]
