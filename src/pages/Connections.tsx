@@ -21,7 +21,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	api,
 	type Connection,
@@ -29,6 +29,26 @@ import {
 	type ConnectionsExport,
 	type DockerConnectionState,
 } from "@/lib/tauri";
+
+function ConnectionCardSkeleton() {
+	return (
+		<div
+			data-slot="connection-card-skeleton"
+			className="workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm"
+			aria-hidden="true"
+		>
+			<Skeleton className="absolute inset-y-3 left-0 w-0.5 rounded-r-full" />
+			<div className="flex items-center gap-3 pl-1">
+				<Skeleton className="size-9 shrink-0 rounded-md" />
+				<div className="min-w-0 flex-1 space-y-1.5">
+					<Skeleton className="h-4 w-32 rounded" />
+					<Skeleton className="h-3 w-44 max-w-full rounded" />
+				</div>
+				<Skeleton className="size-7 shrink-0 rounded-md" />
+			</div>
+		</div>
+	);
+}
 
 export function Connections() {
 	const navigate = useNavigate();
@@ -259,19 +279,6 @@ export function Connections() {
 		}
 	};
 
-	if (loading) {
-		return (
-			<div className="workspace-canvas flex min-h-screen items-center justify-center">
-				<div className="workspace-panel flex min-w-56 items-center rounded-lg border px-4 py-3 shadow-sm">
-					<Spinner className="size-4" />
-					<p className="ml-3 text-sm text-muted-foreground">
-						Loading connections…
-					</p>
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div className="workspace-canvas flex min-h-screen flex-col">
 			<header
@@ -280,8 +287,16 @@ export function Connections() {
 			>
 				<div className="flex items-center gap-2 pl-4">
 					<h1 className="text-sm font-semibold text-foreground">Connections</h1>
-					<Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-						{connections.length}
+					<Badge
+						variant="secondary"
+						className="h-5 min-w-5 px-1.5 text-[10px]"
+						aria-label={loading ? "Loading connection count" : undefined}
+					>
+						{loading ? (
+							<Skeleton className="h-2.5 w-2.5 rounded-sm" aria-hidden="true" />
+						) : (
+							connections.length
+						)}
 					</Badge>
 				</div>
 				<div className="flex items-center gap-1">
@@ -311,7 +326,7 @@ export function Connections() {
 
 			<main className="flex-1 overflow-auto p-5 md:p-8">
 				<div className="mx-auto max-w-5xl">
-					{connections.length === 0 ? (
+					{!loading && connections.length === 0 ? (
 						<div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
 							<EmptyState
 								title="No connections yet"
@@ -355,11 +370,16 @@ export function Connections() {
 										onClick={() => setConnectDockerOpen(true)}
 										size="sm"
 										variant="outline"
+										disabled={loading}
 									>
 										<Cube className="size-4" />
 										Connect Docker
 									</Button>
-									<Button onClick={() => setCreateDatabaseOpen(true)} size="sm">
+									<Button
+										onClick={() => setCreateDatabaseOpen(true)}
+										size="sm"
+										disabled={loading}
+									>
 										<Plus className="size-4" weight="bold" />
 										Create database
 									</Button>
@@ -367,6 +387,7 @@ export function Connections() {
 										onClick={handleImportConnections}
 										size="sm"
 										variant="outline"
+										disabled={loading}
 									>
 										<UploadSimple className="size-4" />
 										Import
@@ -375,6 +396,7 @@ export function Connections() {
 										onClick={() => setIsFormOpen(true)}
 										size="sm"
 										variant="outline"
+										disabled={loading}
 									>
 										<Plus className="size-4" weight="bold" />
 										New connection
@@ -382,25 +404,41 @@ export function Connections() {
 								</div>
 							</div>
 
-							<div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-								{connections.map((connection) => (
-									<ConnectionCard
-										key={connection.id}
-										connection={connection}
-										dockerState={dockerStates[connection.uuid]}
-										onOpen={() => navigate(`/connections/${connection.uuid}`)}
-										onCopyConnectionString={() =>
-											handleCopyConnectionString(connection)
-										}
-										onDockerAction={(action) =>
-											handleDockerAction(connection, action)
-										}
-										onEdit={() => handleEditConnection(connection)}
-										onDuplicate={() => handleDuplicateConnection(connection)}
-										onExport={() => handleExportConnection(connection)}
-										onDelete={() => handleDeleteClick(connection)}
-									/>
-								))}
+							<div
+								className="grid grid-cols-1 gap-2.5 lg:grid-cols-2"
+								role={loading ? "status" : undefined}
+								aria-label={loading ? "Loading connections" : undefined}
+								aria-busy={loading || undefined}
+							>
+								{loading ? (
+									<>
+										<span className="sr-only">Loading connections</span>
+										{Array.from({ length: 4 }, (_, index) => (
+											<ConnectionCardSkeleton key={index} />
+										))}
+									</>
+								) : (
+									connections.map((connection) => (
+										<ConnectionCard
+											key={connection.id}
+											connection={connection}
+											dockerState={dockerStates[connection.uuid]}
+											onOpen={() => navigate(`/connections/${connection.uuid}`)}
+											onCopyConnectionString={() =>
+												handleCopyConnectionString(connection)
+											}
+											onDockerAction={(action) =>
+												handleDockerAction(connection, action)
+											}
+											onEdit={() => handleEditConnection(connection)}
+											onDuplicate={() =>
+												handleDuplicateConnection(connection)
+											}
+											onExport={() => handleExportConnection(connection)}
+											onDelete={() => handleDeleteClick(connection)}
+										/>
+									))
+								)}
 							</div>
 						</div>
 					)}
