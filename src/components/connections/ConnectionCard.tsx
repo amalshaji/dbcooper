@@ -13,11 +13,16 @@ import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import type { Connection } from "@/lib/tauri";
+import { cn } from "@/lib/utils";
 import type { DockerConnectionState } from "@/types/docker";
 
 type DockerAction = "start" | "stop" | "restart";
+
+const CONNECTION_CARD_FRAME_CLASS =
+	"workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm";
 
 interface ConnectionCardProps {
 	connection: Connection;
@@ -29,6 +34,26 @@ interface ConnectionCardProps {
 	onDuplicate: () => void;
 	onExport: () => void;
 	onDelete: () => void;
+}
+
+export function ConnectionCardSkeleton() {
+	return (
+		<div
+			data-slot="connection-card-skeleton"
+			className={CONNECTION_CARD_FRAME_CLASS}
+			aria-hidden="true"
+		>
+			<Skeleton className="absolute inset-y-3 left-0 w-0.5 rounded-r-full" />
+			<div className="flex items-center gap-3 pl-1">
+				<Skeleton className="size-9 shrink-0 rounded-md" />
+				<div className="min-w-0 flex-1 space-y-1.5">
+					<Skeleton className="h-4 w-32 rounded" />
+					<Skeleton className="h-3 w-44 max-w-full rounded" />
+				</div>
+				<Skeleton className="size-7 shrink-0 rounded-md" />
+			</div>
+		</div>
+	);
 }
 
 function dbTypeConfig(type: string) {
@@ -117,7 +142,12 @@ export function ConnectionCard({
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger>
-				<div className="group workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40">
+				<div
+					className={cn(
+						CONNECTION_CARD_FRAME_CLASS,
+						"group transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40",
+					)}
+				>
 					<button
 						type="button"
 						onClick={onOpen}

@@ -9,11 +9,14 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ConnectionForm } from "@/components/ConnectionForm";
-import { ConnectionCard } from "@/components/connections/ConnectionCard";
+import {
+	ConnectionCard,
+	ConnectionCardSkeleton,
+} from "@/components/connections/ConnectionCard";
 import { DeleteConnectionDialog } from "@/components/connections/DeleteConnectionDialog";
 import { ConnectDockerDialog } from "@/components/docker/ConnectDockerDialog";
 import { CreateDatabaseDialog } from "@/components/docker/CreateDatabaseDialog";
@@ -30,22 +33,30 @@ import {
 	type DockerConnectionState,
 } from "@/lib/tauri";
 
-function ConnectionCardSkeleton() {
+function ConnectionGrid({
+	loading,
+	children,
+}: {
+	loading: boolean;
+	children: ReactNode;
+}) {
 	return (
 		<div
-			data-slot="connection-card-skeleton"
-			className="workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm"
-			aria-hidden="true"
+			className="grid grid-cols-1 gap-2.5 lg:grid-cols-2"
+			role={loading ? "status" : undefined}
+			aria-label={loading ? "Loading connections" : undefined}
+			aria-busy={loading || undefined}
 		>
-			<Skeleton className="absolute inset-y-3 left-0 w-0.5 rounded-r-full" />
-			<div className="flex items-center gap-3 pl-1">
-				<Skeleton className="size-9 shrink-0 rounded-md" />
-				<div className="min-w-0 flex-1 space-y-1.5">
-					<Skeleton className="h-4 w-32 rounded" />
-					<Skeleton className="h-3 w-44 max-w-full rounded" />
-				</div>
-				<Skeleton className="size-7 shrink-0 rounded-md" />
-			</div>
+			{loading ? (
+				<>
+					<span className="sr-only">Loading connections</span>
+					{Array.from({ length: 4 }, (_, index) => (
+						<ConnectionCardSkeleton key={index} />
+					))}
+				</>
+			) : (
+				children
+			)}
 		</div>
 	);
 }
@@ -370,16 +381,11 @@ export function Connections() {
 										onClick={() => setConnectDockerOpen(true)}
 										size="sm"
 										variant="outline"
-										disabled={loading}
 									>
 										<Cube className="size-4" />
 										Connect Docker
 									</Button>
-									<Button
-										onClick={() => setCreateDatabaseOpen(true)}
-										size="sm"
-										disabled={loading}
-									>
+									<Button onClick={() => setCreateDatabaseOpen(true)} size="sm">
 										<Plus className="size-4" weight="bold" />
 										Create database
 									</Button>
@@ -387,7 +393,6 @@ export function Connections() {
 										onClick={handleImportConnections}
 										size="sm"
 										variant="outline"
-										disabled={loading}
 									>
 										<UploadSimple className="size-4" />
 										Import
@@ -396,7 +401,6 @@ export function Connections() {
 										onClick={() => setIsFormOpen(true)}
 										size="sm"
 										variant="outline"
-										disabled={loading}
 									>
 										<Plus className="size-4" weight="bold" />
 										New connection
@@ -404,42 +408,26 @@ export function Connections() {
 								</div>
 							</div>
 
-							<div
-								className="grid grid-cols-1 gap-2.5 lg:grid-cols-2"
-								role={loading ? "status" : undefined}
-								aria-label={loading ? "Loading connections" : undefined}
-								aria-busy={loading || undefined}
-							>
-								{loading ? (
-									<>
-										<span className="sr-only">Loading connections</span>
-										{Array.from({ length: 4 }, (_, index) => (
-											<ConnectionCardSkeleton key={index} />
-										))}
-									</>
-								) : (
-									connections.map((connection) => (
-										<ConnectionCard
-											key={connection.id}
-											connection={connection}
-											dockerState={dockerStates[connection.uuid]}
-											onOpen={() => navigate(`/connections/${connection.uuid}`)}
-											onCopyConnectionString={() =>
-												handleCopyConnectionString(connection)
-											}
-											onDockerAction={(action) =>
-												handleDockerAction(connection, action)
-											}
-											onEdit={() => handleEditConnection(connection)}
-											onDuplicate={() =>
-												handleDuplicateConnection(connection)
-											}
-											onExport={() => handleExportConnection(connection)}
-											onDelete={() => handleDeleteClick(connection)}
-										/>
-									))
-								)}
-							</div>
+							<ConnectionGrid loading={loading}>
+								{connections.map((connection) => (
+									<ConnectionCard
+										key={connection.id}
+										connection={connection}
+										dockerState={dockerStates[connection.uuid]}
+										onOpen={() => navigate(`/connections/${connection.uuid}`)}
+										onCopyConnectionString={() =>
+											handleCopyConnectionString(connection)
+										}
+										onDockerAction={(action) =>
+											handleDockerAction(connection, action)
+										}
+										onEdit={() => handleEditConnection(connection)}
+										onDuplicate={() => handleDuplicateConnection(connection)}
+										onExport={() => handleExportConnection(connection)}
+										onDelete={() => handleDeleteClick(connection)}
+									/>
+								))}
+							</ConnectionGrid>
 						</div>
 					)}
 				</div>

@@ -1,14 +1,18 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { ComponentProps, ReactNode } from "react";
-import { DOCKER_DATABASE_ENGINES } from "../types/docker";
+import type { Connection } from "../lib/tauri";
+import {
+	DOCKER_DATABASE_ENGINES,
+	type DockerConnectionState,
+} from "../types/docker";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
-let listConnections: () => Promise<unknown[]> = () =>
-	new Promise<unknown[]>(() => {});
-let listDockerStates: () => Promise<unknown[]> = () =>
-	new Promise<unknown[]>(() => {});
+const pending = <T,>() => new Promise<T>(() => {});
+
+let listConnections: () => Promise<Connection[]> = () => pending();
+let listDockerStates: () => Promise<DockerConnectionState[]> = () => pending();
 
 mock.module("@tauri-apps/plugin-dialog", () => ({
 	open: async () => null,
@@ -32,8 +36,11 @@ mock.module("@/components/ConnectionForm", () => ({
 	ConnectionForm: () => null,
 }));
 mock.module("@/components/connections/ConnectionCard", () => ({
-	ConnectionCard: ({ connection }: { connection: { name: string } }) => (
+	ConnectionCard: ({ connection }: { connection: Connection }) => (
 		<div>{connection.name}</div>
+	),
+	ConnectionCardSkeleton: () => (
+		<div data-slot="connection-card-skeleton" aria-hidden="true" />
 	),
 }));
 mock.module("@/components/UpdateChecker", () => ({
@@ -79,9 +86,6 @@ mock.module("@/components/ui/skeleton", () => ({
 		<div data-slot="skeleton" className={className} {...props} />
 	),
 }));
-mock.module("@/components/ui/spinner", () => ({
-	Spinner: () => <span data-testid="spinner" />,
-}));
 mock.module("@/lib/tauri", () => ({
 	DOCKER_DATABASE_ENGINES,
 	api: {
@@ -100,8 +104,8 @@ const { Connections } = await import("./Connections");
 
 afterEach(() => {
 	cleanup();
-	listConnections = () => new Promise<unknown[]>(() => {});
-	listDockerStates = () => new Promise<unknown[]>(() => {});
+	listConnections = () => pending();
+	listDockerStates = () => pending();
 });
 
 function renderConnections() {
@@ -112,12 +116,10 @@ function renderConnections() {
 	);
 }
 
-test("keeps the page layout visible while connections load", () => {
+test("keeps the page shell interactive while connections load", () => {
 	renderConnections();
 
-	expect(
-		screen.getByRole("heading", { name: "Connections" }),
-	).not.toBeNull();
+	expect(screen.getByRole("heading", { name: "Connections" })).not.toBeNull();
 	expect(
 		screen.getByRole("heading", { name: "Your databases" }),
 	).not.toBeNull();
@@ -127,7 +129,17 @@ test("keeps the page layout visible while connections load", () => {
 	expect(
 		document.querySelectorAll('[data-slot="connection-card-skeleton"]'),
 	).toHaveLength(4);
-	expect(screen.queryByTestId("spinner")).toBeNull();
+
+	for (const name of [
+		"Connect Docker",
+		"Create database",
+		"Import",
+		"New connection",
+	]) {
+		expect(
+			(screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+		).toBe(false);
+	}
 });
 
 test("shows the existing empty state after loading finishes", async () => {
@@ -143,10 +155,6 @@ test("shows the existing empty state after loading finishes", async () => {
 	expect(
 		screen.getByRole("button", { name: "Create database" }),
 	).not.toBeNull();
-	expect(
-		screen.getByRole("button", { name: "Connect Docker" }),
-	).not.toBeNull();
-	expect(
-		screen.getByRole("button", { name: "New connection" }),
-	).not.toBeNull();
+	expect(screen.getByRole("button", { name: "Connect Docker" })).not.toBeNull();
+	expect(screen.getByRole("button", { name: "New connection" })).not.toBeNull();
 });
