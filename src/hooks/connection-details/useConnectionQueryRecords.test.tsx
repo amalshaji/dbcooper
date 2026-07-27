@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import type { SavedQuery } from "../../types/savedQuery";
+import type { SavedQuery } from "../../lib/tauri";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
@@ -89,6 +89,11 @@ test("loads only the selected record panel and clears history atomically", async
 		expect(result.current.history.items).toEqual([historyEntry]),
 	);
 	expect(historyCalls).toBe(1);
+
+	await act(async () => {
+		result.current.history.record("SELECT 2", { status: "success" });
+	});
+	await waitFor(() => expect(historyCalls).toBe(2));
 
 	await act(async () => result.current.history.clear());
 	expect(clearCalls).toBe(1);

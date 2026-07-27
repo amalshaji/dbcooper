@@ -16,7 +16,7 @@ import {
 	captureSavedViewState,
 	hasUnappliedFilterDraft,
 } from "@/lib/savedViews";
-import type { Connection } from "@/lib/tauri";
+import type { SqlConnection } from "@/types/connection";
 import type { TableDataTab } from "@/types/tabTypes";
 import { ColumnLayoutPopover } from "./ColumnLayoutPopover";
 import { SavedViewsMenu } from "./SavedViewsMenu";
@@ -25,7 +25,7 @@ import { TableFilterBar } from "./TableFilterBar";
 
 interface TableDataWorkspaceProps {
 	tab: TableDataTab;
-	connection: Connection;
+	connection: SqlConnection;
 	controller: TableDataWorkspaceController;
 	onOpenTableDataWithFilter: (
 		tableName: string,
@@ -40,8 +40,6 @@ export function TableDataWorkspace({
 	controller,
 	onOpenTableDataWithFilter,
 }: TableDataWorkspaceProps) {
-	if (connection.type === "redis") return null;
-
 	const pendingInlineChangeCount = Object.keys(
 		controller.inlineEdits.byTab[tab.id] ?? {},
 	).length;

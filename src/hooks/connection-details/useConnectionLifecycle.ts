@@ -244,3 +244,7 @@ export function useConnectionLifecycle({
 		},
 	};
 }
+
+export type ConnectionLifecycleController = ReturnType<
+	typeof useConnectionLifecycle
+>;

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { useCallback, useState } from "react";
-import type { Connection } from "../../types/connection";
+import type { SqlConnection } from "../../types/connection";
 import type { Tab, TableDataTab } from "../../types/tabTypes";
 import type { TableDataResponse } from "../../types/tableData";
 
@@ -55,7 +55,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-const connection: Connection = {
+const connection: SqlConnection = {
 	id: 1,
 	uuid: "connection-1",
 	type: "postgres",
@@ -131,6 +131,8 @@ function renderController() {
 		const [tabs, setTabs] = useState<Tab[]>([first, second]);
 		const [activeTabId, setActiveTabId] = useState(first.id);
 		const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+		const activeTableDataTab =
+			activeTab?.type === "table-data" ? activeTab : null;
 		const updateTableDataTab = useCallback(
 			(tabId: string, changes: Partial<Omit<TableDataTab, "id" | "type">>) => {
 				setTabs((currentTabs) =>
@@ -146,7 +148,7 @@ function renderController() {
 		const controller = useTableDataController({
 			uuid: connection.uuid,
 			connection,
-			activeTab,
+			activeTab: activeTableDataTab,
 			updateTableDataTab,
 		});
 		return { tabs, controller, selectTab: setActiveTabId };

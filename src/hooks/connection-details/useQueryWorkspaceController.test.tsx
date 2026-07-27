@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { useCallback, useState } from "react";
-import type { Connection } from "../../types/connection";
-import type { SavedQuery } from "../../types/savedQuery";
+import type { SavedQuery } from "../../lib/tauri";
+import type { SqlConnection } from "../../types/connection";
 import type { QueryTab, Tab } from "../../types/tabTypes";
 
 if (!globalThis.document) GlobalRegistrator.register();
@@ -85,7 +85,7 @@ function queryTab(id: string, query: string): QueryTab {
 	};
 }
 
-const connection: Connection = {
+const connection: SqlConnection = {
 	id: 1,
 	uuid: "connection-1",
 	type: "postgres",
@@ -117,6 +117,7 @@ function renderController() {
 		const [activeTabId, setActiveTabId] = useState(first.id);
 		const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 		const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;
+		const activeQueryTab = activeTab?.type === "query" ? activeTab : null;
 		const updateQueryTab = useCallback(
 			(tabId: string, changes: Partial<Omit<QueryTab, "id" | "type">>) => {
 				setTabs((currentTabs) =>
@@ -132,7 +133,7 @@ function renderController() {
 		const controller = useQueryWorkspaceController({
 			uuid: connection.uuid,
 			connection,
-			activeTab,
+			activeTab: activeQueryTab,
 			updateQueryTab,
 			onSavedQueryCreated: (query) =>
 				setSavedQueries((current) => [query, ...current]),

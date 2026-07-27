@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { QueryWorkspaceController } from "../hooks/connection-details/useQueryWorkspaceController";
-import type { Connection } from "../types/connection";
+import type { SqlConnection } from "../types/connection";
 import type { QueryTab } from "../types/tabTypes";
 
 mock.module("@/components/SqlEditor", () => ({
@@ -73,7 +73,7 @@ const { QueryWorkspace } = await import(
 	"../components/connection-details/QueryWorkspace"
 );
 
-const connection: Connection = {
+const connection: SqlConnection = {
 	id: 1,
 	uuid: "connection-1",
 	type: "postgres",

@@ -33,13 +33,13 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { getSqlFormatterLanguage } from "@/lib/databaseCapabilities";
-import type { Connection } from "@/lib/tauri";
+import type { SqlConnection } from "@/types/connection";
 import type { DatabaseTable } from "@/types/table";
 import type { QueryTab, TableColumn } from "@/types/tabTypes";
 import type { QueryWorkspaceController } from "@/hooks/connection-details/useQueryWorkspaceController";
 interface QueryWorkspaceProps {
 	tab: QueryTab;
-	connection: Connection;
+	connection: SqlConnection;
 	tables: DatabaseTable[];
 	tableColumns: Record<string, TableColumn[]>;
 	controller: QueryWorkspaceController;

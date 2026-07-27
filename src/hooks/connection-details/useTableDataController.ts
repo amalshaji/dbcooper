@@ -9,8 +9,9 @@ import {
 import type { UpdateTab } from "../../lib/connection-details/tabState";
 import { getFilterRequest } from "../../lib/resultFilters";
 import type { TableColumnLayout } from "../../lib/savedViews";
-import { api, type Connection } from "../../lib/tauri";
-import type { SortConfig, Tab, TableDataTab } from "../../types/tabTypes";
+import { api } from "../../lib/tauri";
+import type { SqlConnection } from "../../types/connection";
+import type { SortConfig, TableDataTab } from "../../types/tabTypes";
 
 export interface PendingInlineCellEdit {
 	row: Record<string, unknown>;
@@ -31,8 +32,8 @@ export interface RowMutationValue {
 
 export interface UseTableDataControllerOptions {
 	uuid: string | undefined;
-	connection: Connection | null;
-	activeTab: Tab | null;
+	connection: SqlConnection;
+	activeTab: TableDataTab | null;
 	updateTableDataTab: UpdateTab<TableDataTab>;
 }
 
@@ -56,9 +57,6 @@ export function useTableDataController({
 	const [savingInlineEdits, setSavingInlineEdits] = useState(false);
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
 	const [insertingRow, setInsertingRow] = useState(false);
-
-	const activeTableDataTab =
-		activeTab?.type === "table-data" ? activeTab : null;
 
 	const requestTableData = useCallback(
 		async (tab: TableDataTab) => {
@@ -103,28 +101,28 @@ export function useTableDataController({
 		clearFilter: clearTableFilter,
 		filterCell: handleCellFilter,
 	} = useTableDataFilters({
-		tab: activeTableDataTab,
+		tab: activeTab,
 		updateTab: updateTableDataTab,
 		fetchTableData,
 	});
 
 	const handleApplySavedView = useSavedViewApplication({
-		tab: activeTableDataTab,
+		tab: activeTab,
 		requestTableData,
 		updateTab: updateTableDataTab,
 	});
 
 	const handleRefreshTableData = useCallback(async () => {
-		if (!activeTab || activeTab.type !== "table-data" || !uuid) return;
-		const tab = activeTab as TableDataTab;
+		if (!activeTab || !uuid) return;
+		const tab = activeTab;
 		updateTableDataTab(tab.id, { currentPage: 1 });
 		fetchTableData({ ...tab, currentPage: 1 });
 	}, [activeTab, uuid, updateTableDataTab, fetchTableData]);
 
 	const handlePageChange = useCallback(
 		(page: number) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			const tab = activeTab as TableDataTab;
+			if (!activeTab) return;
+			const tab = activeTab;
 			updateTableDataTab(tab.id, { currentPage: page });
 			fetchTableData({ ...tab, currentPage: page });
 		},
@@ -133,8 +131,8 @@ export function useTableDataController({
 
 	const handleSortChange = useCallback(
 		(sort: SortConfig | null) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
-			const tab = activeTab as TableDataTab;
+			if (!activeTab) return;
+			const tab = activeTab;
 			updateTableDataTab(tab.id, { sort, currentPage: 1 });
 			fetchTableData({ ...tab, sort, currentPage: 1 });
 		},
@@ -157,32 +155,26 @@ export function useTableDataController({
 	}, []);
 	const handleActiveViewChange = useCallback(
 		(savedViewId: number | null) => {
-			if (activeTableDataTab) {
-				updateTableDataTab(activeTableDataTab.id, { savedViewId });
+			if (activeTab) {
+				updateTableDataTab(activeTab.id, { savedViewId });
 			}
 		},
-		[activeTableDataTab, updateTableDataTab],
+		[activeTab, updateTableDataTab],
 	);
 	const handleColumnLayoutChange = useCallback(
 		(columnLayout: TableColumnLayout) => {
-			if (activeTableDataTab) {
-				updateTableDataTab(activeTableDataTab.id, { columnLayout });
+			if (activeTab) {
+				updateTableDataTab(activeTab.id, { columnLayout });
 			}
 		},
-		[activeTableDataTab, updateTableDataTab],
+		[activeTab, updateTableDataTab],
 	);
 
 	const handleSaveRow = useCallback(
 		async (updates: RowMutationValue[]) => {
-			if (
-				!connection ||
-				!activeTab ||
-				activeTab.type !== "table-data" ||
-				!editingRow
-			)
-				return;
+			if (!activeTab || !editingRow) return;
 
-			const tab = activeTab as TableDataTab;
+			const tab = activeTab;
 			const [schema, tableName] = tab.tableName.split(".");
 			const primaryKeyColumns = tab.columns
 				.filter((column) => column.primary_key)
@@ -238,9 +230,9 @@ export function useTableDataController({
 			columnName: string,
 			value: unknown,
 		) => {
-			if (!activeTab || activeTab.type !== "table-data") return;
+			if (!activeTab) return;
 
-			const tab = activeTab as TableDataTab;
+			const tab = activeTab;
 			const column = tab.columns.find((item) => item.name === columnName);
 			if (!column || column.primary_key) {
 				throw new Error("This column cannot be edited inline");
@@ -275,9 +267,9 @@ export function useTableDataController({
 	);
 
 	const handleSaveInlineChanges = useCallback(async () => {
-		if (!connection || !activeTab || activeTab.type !== "table-data") return;
+		if (!activeTab) return;
 
-		const tab = activeTab as TableDataTab;
+		const tab = activeTab;
 		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
 		if (pendingEdits.length === 0) return;
 
@@ -359,9 +351,9 @@ export function useTableDataController({
 	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
-		if (!activeTab || activeTab.type !== "table-data") return;
+		if (!activeTab) return;
 
-		const tab = activeTab as TableDataTab;
+		const tab = activeTab;
 		const pendingEdits = pendingInlineEditsByTab[tab.id];
 		if (!pendingEdits || Object.keys(pendingEdits).length === 0) return;
 
@@ -374,15 +366,9 @@ export function useTableDataController({
 	}, [activeTab, pendingInlineEditsByTab]);
 
 	const handleDeleteRow = useCallback(async () => {
-		if (
-			!connection ||
-			!activeTab ||
-			activeTab.type !== "table-data" ||
-			!editingRow
-		)
-			return;
+		if (!activeTab || !editingRow) return;
 
-		const tab = activeTab as TableDataTab;
+		const tab = activeTab;
 		const [schema, tableName] = tab.tableName.split(".");
 		const primaryKeyColumns = tab.columns
 			.filter((column) => column.primary_key)
@@ -427,9 +413,9 @@ export function useTableDataController({
 
 	const handleInsertRow = useCallback(
 		async (values: RowMutationValue[]) => {
-			if (!connection || !activeTab || activeTab.type !== "table-data") return;
+			if (!activeTab) return;
 
-			const tab = activeTab as TableDataTab;
+			const tab = activeTab;
 			const [schema, tableName] = tab.tableName.split(".");
 			setInsertingRow(true);
 

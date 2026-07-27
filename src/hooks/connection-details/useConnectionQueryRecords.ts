@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type QueryHistory } from "../../lib/tauri";
-import type { SavedQuery } from "../../types/savedQuery";
+import { api, type QueryHistory, type SavedQuery } from "../../lib/tauri";
 
 export interface HistoryRecordOptions {
 	status: "success" | "error";
@@ -29,7 +28,7 @@ export function useConnectionQueryRecords({
 		const fetchSavedQueries = async () => {
 			setLoadingQueries(true);
 			try {
-				setSavedQueries((await api.queries.list(uuid)) as SavedQuery[]);
+				setSavedQueries(await api.queries.list(uuid));
 			} catch (error) {
 				console.error("Failed to fetch saved queries:", error);
 			} finally {

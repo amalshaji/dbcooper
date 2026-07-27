@@ -7,6 +7,8 @@ if (!globalThis.document) GlobalRegistrator.register();
 let disconnectCalls: string[] = [];
 let connectCalls: string[] = [];
 let schemaCalls: string[] = [];
+let currentConnection: Connection;
+let connectResults: Array<{ status: string; error: string | null }> = [];
 
 const connection: Connection = {
 	id: 1,
@@ -46,12 +48,17 @@ mock.module("../../lib/duckdbHelper", () => ({
 mock.module("../../lib/tauri", () => ({
 	api: {
 		connections: {
-			getByUuid: async () => connection,
+			getByUuid: async () => currentConnection,
 		},
 		pool: {
 			connect: async (uuid: string) => {
 				connectCalls.push(uuid);
-				return { status: "connected", error: null };
+				return (
+					connectResults.shift() ?? {
+						status: "connected",
+						error: null,
+					}
+				);
 			},
 			disconnect: async (uuid: string) => {
 				disconnectCalls.push(uuid);
@@ -85,13 +92,17 @@ mock.module("../../lib/tauri", () => ({
 	},
 }));
 
-const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
+const { act, cleanup, renderHook, waitFor } = await import(
+	"@testing-library/react"
+);
 const { useConnectionLifecycle } = await import("./useConnectionLifecycle");
 
 beforeEach(() => {
 	disconnectCalls = [];
 	connectCalls = [];
 	schemaCalls = [];
+	currentConnection = connection;
+	connectResults = [{ status: "connected", error: null }];
 });
 
 afterEach(cleanup);
@@ -120,4 +131,43 @@ test("connects, loads schema atomically, and disconnects on unmount", async () =
 
 	unmount();
 	expect(disconnectCalls).toEqual([connection.uuid]);
+});
+
+test("connects Redis without loading a relational schema", async () => {
+	currentConnection = { ...connection, type: "redis", db_type: "redis" };
+	const navigate = () => {};
+	const { result } = renderHook(() =>
+		useConnectionLifecycle({ uuid: connection.uuid, navigate }),
+	);
+
+	await waitFor(() => expect(result.current.opening.phase).toBe("complete"));
+
+	expect(result.current.connection.status).toBe("connected");
+	expect(schemaCalls).toEqual([]);
+});
+
+test("surfaces an initial failure and reconnects through one lifecycle command", async () => {
+	connectResults = [
+		{ status: "error", error: "database unavailable" },
+		{ status: "connected", error: null },
+	];
+	const navigate = () => {};
+	const { result } = renderHook(() =>
+		useConnectionLifecycle({ uuid: connection.uuid, navigate }),
+	);
+
+	await waitFor(() => expect(result.current.opening.phase).toBe("complete"));
+	expect(result.current.connection).toMatchObject({
+		status: "disconnected",
+		error: "database unavailable",
+		hasEverConnected: false,
+	});
+
+	await act(async () => result.current.commands.reconnect());
+	expect(result.current.connection).toMatchObject({
+		status: "connected",
+		error: null,
+		hasEverConnected: true,
+	});
+	expect(schemaCalls).toEqual([connection.uuid]);
 });

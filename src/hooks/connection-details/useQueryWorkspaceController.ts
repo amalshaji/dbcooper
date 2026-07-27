@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { api, type Connection } from "../../lib/tauri";
+import { api, type SavedQuery } from "../../lib/tauri";
 import {
 	buildWrappedQuery,
 	isWrappableQuery,
@@ -12,14 +12,14 @@ import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
 } from "../../lib/sqlParser";
-import type { SavedQuery } from "../../types/savedQuery";
-import type { QueryTab, SortConfig, Tab } from "../../types/tabTypes";
+import type { QueryTab, SortConfig } from "../../types/tabTypes";
+import type { SqlConnection } from "../../types/connection";
 import type { HistoryRecordOptions } from "./useConnectionQueryRecords";
 
 interface UseQueryWorkspaceControllerOptions {
 	uuid: string | undefined;
-	connection: Connection | null;
-	activeTab: Tab | null;
+	connection: SqlConnection;
+	activeTab: QueryTab | null;
 	updateQueryTab: UpdateTab<QueryTab>;
 	onSavedQueryCreated: (query: SavedQuery) => void;
 	onSavedQueryUpdated: (query: SavedQuery) => void;
@@ -74,7 +74,7 @@ export function useQueryWorkspaceController({
 				tab.resultBaseQuery,
 				nextFilter,
 				nextSort,
-				connection?.db_type || connection?.type,
+				connection.db_type,
 			);
 
 			try {
@@ -113,19 +113,19 @@ export function useQueryWorkspaceController({
 				});
 			}
 		},
-		[uuid, updateQueryTab, connection?.db_type, connection?.type],
+		[uuid, updateQueryTab, connection.db_type],
 	);
 
 	const handleQueryFilterInputChange = useCallback(
 		(value: string) => {
-			if (activeTab?.type !== "query") return;
+			if (!activeTab) return;
 			updateQueryTab(activeTab.id, { filterInput: value });
 		},
 		[activeTab, updateQueryTab],
 	);
 
 	const handleApplyQueryFilter = useCallback(() => {
-		if (activeTab?.type !== "query") return;
+		if (!activeTab) return;
 		updateQueryTab(activeTab.id, {
 			filter: activeTab.filterInput,
 			executing: true,
@@ -139,7 +139,7 @@ export function useQueryWorkspaceController({
 	}, [activeTab, updateQueryTab, runQueryResultViewQuery]);
 
 	const handleClearQueryFilter = useCallback(() => {
-		if (activeTab?.type !== "query") return;
+		if (!activeTab) return;
 		updateQueryTab(activeTab.id, {
 			filter: "",
 			filterInput: "",
@@ -151,7 +151,7 @@ export function useQueryWorkspaceController({
 
 	const handleQuerySortChange = useCallback(
 		(sort: SortConfig | null) => {
-			if (activeTab?.type !== "query") return;
+			if (!activeTab) return;
 			updateQueryTab(activeTab.id, {
 				sort,
 				executing: true,
@@ -163,7 +163,7 @@ export function useQueryWorkspaceController({
 	);
 
 	const handleRunQuery = useCallback(async () => {
-		if (activeTab?.type !== "query" || !uuid) return;
+		if (!activeTab || !uuid) return;
 		if (!activeTab.query.trim()) {
 			toast.error("Cannot execute empty query");
 			return;
@@ -250,7 +250,7 @@ export function useQueryWorkspaceController({
 	}, [activeTab, uuid, updateQueryTab, cursorLine, cursorChar, recordHistory]);
 
 	const handleRunAllQueries = useCallback(async () => {
-		if (activeTab?.type !== "query" || !uuid || !activeTab.query.trim()) return;
+		if (!activeTab || !uuid || !activeTab.query.trim()) return;
 		const statements = parseSqlStatements(activeTab.query);
 		if (statements.length === 0) return;
 
@@ -342,7 +342,7 @@ export function useQueryWorkspaceController({
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
-			if (activeTab?.type !== "query") return;
+			if (!activeTab) return;
 			updateQueryTab(activeTab.id, { query });
 		},
 		[activeTab, updateQueryTab],
@@ -350,7 +350,7 @@ export function useQueryWorkspaceController({
 
 	const handleInsertQueryText = useCallback(
 		(text: string) => {
-			if (activeTab?.type !== "query") return;
+			if (!activeTab) return;
 			const needsSpace =
 				activeTab.query.length > 0 &&
 				!activeTab.query.endsWith(" ") &&
@@ -377,7 +377,7 @@ export function useQueryWorkspaceController({
 	};
 
 	const handleSaveQuery = async () => {
-		if (activeTab?.type !== "query" || !uuid) return;
+		if (!activeTab || !uuid) return;
 		if (!activeTab.query.trim() || !saveQueryName.trim()) return;
 
 		try {
@@ -386,7 +386,7 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				onSavedQueryUpdated(updatedQuery as SavedQuery);
+				onSavedQueryUpdated(updatedQuery);
 				updateQueryTab(activeTab.id, {
 					savedQueryName: updatedQuery.name,
 					title: updatedQuery.name,
@@ -397,7 +397,7 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				onSavedQueryCreated(newQuery as SavedQuery);
+				onSavedQueryCreated(newQuery);
 				updateQueryTab(activeTab.id, {
 					savedQueryId: newQuery.id,
 					savedQueryName: newQuery.name,
@@ -437,7 +437,7 @@ export function useQueryWorkspaceController({
 	}, []);
 
 	const handleExportCSV = useCallback(async () => {
-		if (activeTab?.type !== "query" || !activeTab.results?.length) return;
+		if (!activeTab?.results?.length) return;
 		const { save } = await import("@tauri-apps/plugin-dialog");
 		const { writeTextFile } = await import("@tauri-apps/plugin-fs");
 		const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
@@ -467,7 +467,7 @@ export function useQueryWorkspaceController({
 	}, [activeTab]);
 
 	const handleSaveQueryFromPalette = useCallback(() => {
-		if (activeTab?.type !== "query" || !activeTab.query.trim()) return;
+		if (!activeTab || !activeTab.query.trim()) return;
 		if (activeTab.savedQueryName) setSaveQueryName(activeTab.savedQueryName);
 		setShowSaveDialog(true);
 	}, [activeTab]);

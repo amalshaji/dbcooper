@@ -1,11 +1,11 @@
 import { useCallback, useEffect } from "react";
-import type { Connection } from "@/lib/tauri";
+import type { SqlConnection } from "@/types/connection";
 import type { Tab } from "@/types/tabTypes";
 
 interface UseConnectionShortcutsOptions {
 	activeTab: Tab | null;
 	tabsLength: number;
-	connection: Connection | null;
+	connection: SqlConnection;
 	setSidebarTab: (tab: "objects" | "queries" | "history") => void;
 	navigate: (path: string) => void;
 	handleNewQuery: () => void;
@@ -135,29 +135,20 @@ export function useConnectionShortcuts({
 				event.key === "v" &&
 				(event.metaKey || event.ctrlKey) &&
 				event.shiftKey &&
-				connection?.type !== "redis" &&
-				connection?.db_type !== "clickhouse"
+				connection.db_type !== "clickhouse"
 			) {
 				event.preventDefault();
 				handleOpenSchemaVisualizer();
 				return;
 			}
 
-			if (
-				event.key === "1" &&
-				(event.metaKey || event.ctrlKey) &&
-				connection?.type !== "redis"
-			) {
+			if (event.key === "1" && (event.metaKey || event.ctrlKey)) {
 				event.preventDefault();
 				setSidebarTab("objects");
 				return;
 			}
 
-			if (
-				event.key === "2" &&
-				(event.metaKey || event.ctrlKey) &&
-				connection?.type !== "redis"
-			) {
+			if (event.key === "2" && (event.metaKey || event.ctrlKey)) {
 				event.preventDefault();
 				setSidebarTab("queries");
 				return;

@@ -34,7 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { TabsContent } from "@/components/ui/tabs";
 import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import type { Connection, QueryHistory } from "@/lib/tauri";
-import type { SavedQuery } from "@/types/savedQuery";
+import type { SavedQuery } from "@/lib/tauri";
 
 export function ConnectionSidebarHeader({
 	connection,
