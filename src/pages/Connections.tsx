@@ -320,15 +320,18 @@ export function Connections() {
 								actions={[
 									{
 										label: "Create database",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setCreateDatabaseOpen(true),
 									},
 									{
 										label: "Connect Docker",
+										icon: <Cube className="size-4" />,
 										onClick: () => setConnectDockerOpen(true),
 										variant: "outline",
 									},
 									{
 										label: "New connection",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setIsFormOpen(true),
 										variant: "outline",
 									},
