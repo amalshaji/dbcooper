@@ -1,18 +1,23 @@
-import { useCallback, useState } from "react";
+import {
+	type Dispatch,
+	type SetStateAction,
+	useCallback,
+	useState,
+} from "react";
 import { toast } from "sonner";
-import { api, type Connection } from "@/lib/tauri";
+import { api, type Connection } from "../../lib/tauri";
 import {
 	buildWrappedQuery,
 	isWrappableQuery,
 	serializeRowsToCsv,
 	stripTrailingSemicolon,
-} from "@/lib/connection-details/queryTableState";
+} from "../../lib/connection-details/queryTableState";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
-} from "@/lib/sqlParser";
-import type { SavedQuery } from "@/types/savedQuery";
-import type { QueryTab, SortConfig, Tab } from "@/types/tabTypes";
+} from "../../lib/sqlParser";
+import type { SavedQuery } from "../../types/savedQuery";
+import type { QueryTab, SortConfig, Tab } from "../../types/tabTypes";
 import type { HistoryRecordOptions } from "./useConnectionLifecycle";
 
 type UpdateQueryTab = (
@@ -25,8 +30,7 @@ interface UseQueryWorkspaceControllerOptions {
 	connection: Connection | null;
 	activeTab: Tab | null;
 	updateQueryTab: UpdateQueryTab;
-	savedQueries: SavedQuery[];
-	setSavedQueries: (queries: SavedQuery[]) => void;
+	setSavedQueries: Dispatch<SetStateAction<SavedQuery[]>>;
 	recordHistory: (query: string, options: HistoryRecordOptions) => void;
 	handleOpenQuery: (
 		query: string,
@@ -40,7 +44,6 @@ export function useQueryWorkspaceController({
 	connection,
 	activeTab,
 	updateQueryTab,
-	savedQueries,
 	setSavedQueries,
 	recordHistory,
 	handleOpenQuery,
@@ -51,6 +54,14 @@ export function useQueryWorkspaceController({
 	const [cursorChar, setCursorChar] = useState(0);
 	const [queryToDelete, setQueryToDelete] = useState<SavedQuery | null>(null);
 	const [showQueryDeleteDialog, setShowQueryDeleteDialog] = useState(false);
+	const closeSaveDialog = useCallback(() => {
+		setShowSaveDialog(false);
+		setSaveQueryName("");
+	}, []);
+	const handleCursorActivity = useCallback((line: number, char: number) => {
+		setCursorLine(line);
+		setCursorChar(char);
+	}, []);
 
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
@@ -107,7 +118,7 @@ export function useQueryWorkspaceController({
 				});
 			}
 		},
-			[uuid, updateQueryTab, connection?.db_type, connection?.type],
+		[uuid, updateQueryTab, connection?.db_type, connection?.type],
 	);
 
 	const handleQueryFilterInputChange = useCallback(
@@ -380,8 +391,8 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				setSavedQueries(
-					savedQueries.map((query) =>
+				setSavedQueries((currentQueries) =>
+					currentQueries.map((query) =>
 						query.id === activeTab.savedQueryId
 							? (updatedQuery as SavedQuery)
 							: query,
@@ -397,7 +408,10 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
+				setSavedQueries((currentQueries) => [
+					newQuery as SavedQuery,
+					...currentQueries,
+				]);
 				updateQueryTab(activeTab.id, {
 					savedQueryId: newQuery.id,
 					savedQueryName: newQuery.name,
@@ -422,8 +436,8 @@ export function useQueryWorkspaceController({
 		if (!queryToDelete) return;
 		try {
 			await api.queries.delete(queryToDelete.id);
-			setSavedQueries(
-				savedQueries.filter((query) => query.id !== queryToDelete.id),
+			setSavedQueries((currentQueries) =>
+				currentQueries.filter((query) => query.id !== queryToDelete.id),
 			);
 			setShowQueryDeleteDialog(false);
 			setQueryToDelete(null);
@@ -471,29 +485,41 @@ export function useQueryWorkspaceController({
 	}, [activeTab]);
 
 	return {
-		saveQueryName,
-		setSaveQueryName,
-		showSaveDialog,
-		setShowSaveDialog,
-		setCursorLine,
-		setCursorChar,
-		queryToDelete,
-		showQueryDeleteDialog,
-		setShowQueryDeleteDialog,
-		handleQueryFilterInputChange,
-		handleApplyQueryFilter,
-		handleClearQueryFilter,
-		handleQuerySortChange,
-		handleRunQuery,
-		handleRunAllQueries,
-		handleQueryChange,
-		handleInsertQueryText,
-		handleCopyQueryError,
-		handleLoadQuery,
-		handleSaveQuery,
-		handleDeleteQuery,
-		confirmDeleteQuery,
-		handleExportCSV,
-		handleSaveQueryFromPalette,
+		workspace: {
+			saveDialog: { open: showSaveDialog, name: saveQueryName },
+			changeSaveQueryName: setSaveQueryName,
+			openSaveDialog: handleSaveQueryFromPalette,
+			closeSaveDialog,
+			saveQuery: handleSaveQuery,
+			changeQuery: handleQueryChange,
+			runQuery: handleRunQuery,
+			runAllQueries: handleRunAllQueries,
+			handleCursorActivity,
+			copyQueryError: handleCopyQueryError,
+			exportCsv: handleExportCSV,
+			changeFilterInput: handleQueryFilterInputChange,
+			applyFilter: handleApplyQueryFilter,
+			clearFilter: handleClearQueryFilter,
+			changeSort: handleQuerySortChange,
+		},
+		savedQueries: {
+			queryToDelete,
+			deleteDialogOpen: showQueryDeleteDialog,
+			setDeleteDialogOpen: setShowQueryDeleteDialog,
+			load: handleLoadQuery,
+			requestDelete: handleDeleteQuery,
+			confirmDelete: confirmDeleteQuery,
+		},
+		insertQueryText: handleInsertQueryText,
+		commands: {
+			runQuery: handleRunQuery,
+			openSaveDialog: handleSaveQueryFromPalette,
+			exportCsv: handleExportCSV,
+			clearFilter: handleClearQueryFilter,
+		},
 	};
 }
+
+export type QueryWorkspaceController = ReturnType<
+	typeof useQueryWorkspaceController
+>["workspace"];

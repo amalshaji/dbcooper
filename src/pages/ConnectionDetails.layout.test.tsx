@@ -1,12 +1,18 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { QueryWorkspaceController } from "../hooks/connection-details/useQueryWorkspaceController";
+import type { Connection } from "../types/connection";
+import type { QueryTab } from "../types/tabTypes";
 
 mock.module("@/components/SqlEditor", () => ({
 	SqlEditor: () => <div data-testid="sql-editor" />,
 }));
 mock.module("@/components/DataTable", () => ({
 	DataTable: () => <div data-testid="data-table" />,
+}));
+mock.module("@/components/QueryResultSheet", () => ({
+	QueryResultSheet: () => null,
 }));
 mock.module("@/components/ui/button", () => ({
 	Button: ({ children, ...props }: ComponentProps<"button">) => (
@@ -67,12 +73,31 @@ const { QueryWorkspace } = await import(
 	"../components/connection-details/QueryWorkspace"
 );
 
-const connection = {
+const connection: Connection = {
+	id: 1,
+	uuid: "connection-1",
 	type: "postgres",
+	name: "Postgres",
+	host: "localhost",
+	port: 5432,
+	database: "app",
+	username: "postgres",
+	password: "",
+	ssl: 0,
 	db_type: "postgres",
-} as never;
+	file_path: null,
+	ssh_enabled: 0,
+	ssh_host: "",
+	ssh_port: 22,
+	ssh_user: "",
+	ssh_password: "",
+	ssh_key_path: "",
+	ssh_use_key: 0,
+	created_at: "2026-07-27 00:00:00",
+	updated_at: "2026-07-27 00:00:00",
+};
 
-const tab = {
+const tab: QueryTab = {
 	id: "query-test",
 	type: "query",
 	title: "New Query",
@@ -90,7 +115,25 @@ const tab = {
 	filter: "",
 	sort: null,
 	resultBaseQuery: null,
-} as never;
+};
+
+const controller: QueryWorkspaceController = {
+	saveDialog: { open: false, name: "" },
+	changeSaveQueryName: () => {},
+	openSaveDialog: () => {},
+	closeSaveDialog: () => {},
+	saveQuery: async () => {},
+	changeQuery: () => {},
+	runQuery: async () => {},
+	runAllQueries: async () => {},
+	handleCursorActivity: () => {},
+	copyQueryError: async () => {},
+	exportCsv: async () => {},
+	changeFilterInput: () => {},
+	applyFilter: () => {},
+	clearFilter: () => {},
+	changeSort: () => {},
+};
 
 function renderQueryWorkspace() {
 	return renderToStaticMarkup(
@@ -99,26 +142,8 @@ function renderQueryWorkspace() {
 			connection={connection}
 			tables={[]}
 			tableColumns={{}}
-			queryColumns={[]}
-			showSaveDialog={false}
-			saveQueryName=""
-			setSaveQueryName={() => {}}
-			setShowSaveDialog={() => {}}
-			handleSaveQuery={() => {}}
-			handleQueryChange={() => {}}
-			handleRunQuery={() => {}}
-			handleRunAllQueries={() => {}}
+			controller={controller}
 			getEditorAiProps={() => undefined}
-			setCursorLine={() => {}}
-			setCursorChar={() => {}}
-			handleCopyQueryError={() => {}}
-			handleExportCSV={() => {}}
-			handleQueryFilterInputChange={() => {}}
-			handleApplyQueryFilter={() => {}}
-			handleClearFilter={() => {}}
-			handleQuerySortChange={() => {}}
-			setSelectedQueryRow={() => {}}
-			setQueryResultSheetOpen={() => {}}
 		/>,
 	);
 }

@@ -42,9 +42,7 @@ import {
 	Plus,
 	ClockCounterClockwise,
 } from "@phosphor-icons/react";
-import type { ColumnDef } from "@tanstack/react-table";
 import { Spinner } from "@/components/ui/spinner";
-import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useQueryAiGeneration } from "@/hooks/useQueryAiGeneration";
@@ -164,13 +162,6 @@ export function ConnectionDetails() {
 		isConfigured: aiConfigured,
 	});
 
-	// Query result sheet state
-	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
-	const [selectedQueryRow, setSelectedQueryRow] = useState<{
-		row: Record<string, unknown>;
-		index: number;
-	} | null>(null);
-
 	// Command palette state
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
@@ -268,37 +259,11 @@ export function ConnectionDetails() {
 		fetchTableData,
 		cancelTabGeneration,
 	});
-	const {
-		saveQueryName,
-		setSaveQueryName,
-		showSaveDialog,
-		setShowSaveDialog,
-		setCursorLine,
-		setCursorChar,
-		queryToDelete,
-		showQueryDeleteDialog,
-		setShowQueryDeleteDialog,
-		handleQueryFilterInputChange,
-		handleApplyQueryFilter,
-		handleClearQueryFilter,
-		handleQuerySortChange,
-		handleRunQuery,
-		handleRunAllQueries,
-		handleQueryChange,
-		handleInsertQueryText,
-		handleCopyQueryError,
-		handleLoadQuery,
-		handleSaveQuery,
-		handleDeleteQuery,
-		confirmDeleteQuery,
-		handleExportCSV,
-		handleSaveQueryFromPalette,
-	} = useQueryWorkspaceController({
+	const queryController = useQueryWorkspaceController({
 		uuid,
 		connection,
 		activeTab,
 		updateQueryTab,
-		savedQueries,
 		setSavedQueries,
 		recordHistory,
 		handleOpenQuery,
@@ -307,9 +272,9 @@ export function ConnectionDetails() {
 		if (activeTab?.type === "table-data") {
 			clearTableFilter();
 		} else if (activeTab?.type === "query") {
-			handleClearQueryFilter();
+			queryController.commands.clearFilter();
 		}
-	}, [activeTab, clearTableFilter, handleClearQueryFilter]);
+	}, [activeTab, clearTableFilter, queryController.commands]);
 	const { handleToggleSidebar } = useConnectionShortcuts({
 		activeTab,
 		tabsLength: tabs.length,
@@ -319,10 +284,10 @@ export function ConnectionDetails() {
 		handleNewQuery,
 		handleNextTab,
 		handlePreviousTab,
-		handleSaveQuery: handleSaveQueryFromPalette,
-		handleRunQuery,
+		handleSaveQuery: queryController.commands.openSaveDialog,
+		handleRunQuery: queryController.commands.runQuery,
 		handleRefreshTableData,
-		handleExportCSV,
+		handleExportCSV: queryController.commands.exportCsv,
 		handleClearFilter,
 		handleOpenSchemaVisualizer,
 	});
@@ -403,29 +368,6 @@ export function ConnectionDetails() {
 			}
 		}
 	};
-
-	// Memoized columns for query results
-	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-		if (!activeTab || activeTab.type !== "query") return [];
-		const tab = activeTab;
-		if (!tab.results || tab.results.length === 0) return [];
-
-		const firstRow = tab.results[0];
-		return Object.keys(firstRow).map((key) => ({
-			accessorKey: key,
-			header: key,
-			cell: ({ getValue }) => {
-				const value = getValue();
-				if (value === null)
-					return <span className="text-muted-foreground italic">null</span>;
-				const rawValue =
-					typeof value === "object" ? JSON.stringify(value) : String(value);
-				const displayValue =
-					rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
-				return <span title={rawValue}>{displayValue}</span>;
-			},
-		}));
-	}, [activeTab]);
 
 	if (loadingPhase !== "complete" || connection === null) {
 		return (
@@ -540,8 +482,8 @@ export function ConnectionDetails() {
 						onRowClick={handleRowClick}
 						onCellFilter={handleCellFilter}
 						onSortChange={handleSortChange}
-							onColumnLayoutChange={(columnLayout) =>
-								updateTableDataTab(tab.id, { columnLayout })
+						onColumnLayoutChange={(columnLayout) =>
+							updateTableDataTab(tab.id, { columnLayout })
 						}
 					/>
 				</CardContent>
@@ -559,26 +501,8 @@ export function ConnectionDetails() {
 			connection={connection}
 			tables={tables}
 			tableColumns={tableColumns}
-			queryColumns={queryColumns}
-			showSaveDialog={showSaveDialog}
-			saveQueryName={saveQueryName}
-			setSaveQueryName={setSaveQueryName}
-			setShowSaveDialog={setShowSaveDialog}
-			handleSaveQuery={handleSaveQuery}
-			handleQueryChange={handleQueryChange}
-			handleRunQuery={handleRunQuery}
-			handleRunAllQueries={handleRunAllQueries}
+			controller={queryController.workspace}
 			getEditorAiProps={getEditorAiProps}
-			setCursorLine={setCursorLine}
-			setCursorChar={setCursorChar}
-			handleCopyQueryError={handleCopyQueryError}
-			handleExportCSV={handleExportCSV}
-			handleQueryFilterInputChange={handleQueryFilterInputChange}
-			handleApplyQueryFilter={handleApplyQueryFilter}
-			handleClearFilter={handleClearFilter}
-			handleQuerySortChange={handleQuerySortChange}
-			setSelectedQueryRow={setSelectedQueryRow}
-			setQueryResultSheetOpen={setQueryResultSheetOpen}
 		/>
 	);
 
@@ -733,7 +657,7 @@ export function ConnectionDetails() {
 								onOpenTableStructure={handleOpenTableStructure}
 								onOpenFunctionDefinition={handleOpenFunctionDefinition}
 								activeQueryTab={activeTab?.type === "query" ? activeTab : null}
-								onInsertQueryText={handleInsertQueryText}
+								onInsertQueryText={queryController.insertQueryText}
 								createTable={
 									uuid && createTableDbType
 										? {
@@ -752,8 +676,8 @@ export function ConnectionDetails() {
 						<SavedQueriesPanel
 							loading={loadingQueries}
 							queries={savedQueries}
-							onLoad={handleLoadQuery}
-							onDelete={handleDeleteQuery}
+							onLoad={queryController.savedQueries.load}
+							onDelete={queryController.savedQueries.requestDelete}
 						/>
 						<QueryHistoryPanel
 							loading={loadingHistory}
@@ -798,22 +722,24 @@ export function ConnectionDetails() {
 
 			{/* Query Delete Confirmation Dialog */}
 			<AlertDialog
-				open={showQueryDeleteDialog}
-				onOpenChange={setShowQueryDeleteDialog}
+				open={queryController.savedQueries.deleteDialogOpen}
+				onOpenChange={queryController.savedQueries.setDeleteDialogOpen}
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete Saved Query?</AlertDialogTitle>
 						<AlertDialogDescription>
 							Are you sure you want to delete the saved query{" "}
-							<span className="font-semibold">"{queryToDelete?.name}"</span>?
-							This action cannot be undone.
+							<span className="font-semibold">
+								"{queryController.savedQueries.queryToDelete?.name}"
+							</span>
+							? This action cannot be undone.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction
-							onClick={confirmDeleteQuery}
+							onClick={queryController.savedQueries.confirmDelete}
 							variant="destructive"
 						>
 							Delete
@@ -856,17 +782,6 @@ export function ConnectionDetails() {
 				/>
 			)}
 
-			{/* Query Result Sheet */}
-			<QueryResultSheet
-				open={queryResultSheetOpen}
-				onOpenChange={(open) => {
-					setQueryResultSheetOpen(open);
-					if (!open) setSelectedQueryRow(null);
-				}}
-				row={selectedQueryRow?.row || null}
-				rowIndex={selectedQueryRow?.index}
-			/>
-
 			{/* Command Palette */}
 			<CommandPalette
 				open={commandPaletteOpen}
@@ -879,16 +794,16 @@ export function ConnectionDetails() {
 				onCloseTab={handleCloseTab}
 				onNextTab={handleNextTab}
 				onPreviousTab={handlePreviousTab}
-				onRunQuery={handleRunQuery}
-				onSaveQuery={handleSaveQueryFromPalette}
+				onRunQuery={queryController.commands.runQuery}
+				onSaveQuery={queryController.commands.openSaveDialog}
 				onRefresh={() => {
 					if (activeTab?.type === "query") {
-						handleRunQuery();
+						queryController.commands.runQuery();
 					} else if (activeTab?.type === "table-data") {
 						handleRefreshTableData();
 					}
 				}}
-				onExportCSV={handleExportCSV}
+				onExportCSV={queryController.commands.exportCsv}
 				onClearFilter={handleClearFilter}
 				onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
 				onOpenTableData={handleOpenTableData}

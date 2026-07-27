@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type React from "react";
 import { format as formatSQL } from "sql-formatter";
 import {
@@ -12,6 +13,7 @@ import {
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { DataTable } from "@/components/DataTable";
+import { QueryResultSheet } from "@/components/QueryResultSheet";
 import { SqlEditor } from "@/components/SqlEditor";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,39 +35,17 @@ import { Spinner } from "@/components/ui/spinner";
 import { getSqlFormatterLanguage } from "@/lib/databaseCapabilities";
 import type { Connection } from "@/lib/tauri";
 import type { DatabaseTable } from "@/types/table";
-import type { QueryTab, SortConfig, TableColumn } from "@/types/tabTypes";
+import type { QueryTab, TableColumn } from "@/types/tabTypes";
+import type { QueryWorkspaceController } from "@/hooks/connection-details/useQueryWorkspaceController";
 interface QueryWorkspaceProps {
 	tab: QueryTab;
 	connection: Connection;
 	tables: DatabaseTable[];
 	tableColumns: Record<string, TableColumn[]>;
-	queryColumns: ColumnDef<Record<string, unknown>>[];
-	showSaveDialog: boolean;
-	saveQueryName: string;
-	setSaveQueryName: (value: string) => void;
-	setShowSaveDialog: (value: boolean) => void;
-	handleSaveQuery: () => void | Promise<void>;
-	handleQueryChange: (query: string) => void;
-	handleRunQuery: () => void | Promise<void>;
-	handleRunAllQueries: () => void | Promise<void>;
+	controller: QueryWorkspaceController;
 	getEditorAiProps: (
 		tab: QueryTab,
 	) => React.ComponentProps<typeof SqlEditor>["ai"];
-	setCursorLine: (line: number) => void;
-	setCursorChar: (char: number) => void;
-	handleCopyQueryError: (errorMessage: string) => void | Promise<void>;
-	handleExportCSV: () => void | Promise<void>;
-	handleQueryFilterInputChange: (value: string) => void;
-	handleApplyQueryFilter: () => void;
-	handleClearFilter: () => void;
-	handleQuerySortChange: (sort: SortConfig | null) => void;
-	setSelectedQueryRow: React.Dispatch<
-		React.SetStateAction<{
-			row: Record<string, unknown>;
-			index: number;
-		} | null>
-	>;
-	setQueryResultSheetOpen: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 function formatQuerySuccessDetail(affectedRows: number | null): string {
@@ -79,27 +59,33 @@ export function QueryWorkspace({
 	connection,
 	tables,
 	tableColumns,
-	queryColumns,
-	showSaveDialog,
-	saveQueryName,
-	setSaveQueryName,
-	setShowSaveDialog,
-	handleSaveQuery,
-	handleQueryChange,
-	handleRunQuery,
-	handleRunAllQueries,
+	controller,
 	getEditorAiProps,
-	setCursorLine,
-	setCursorChar,
-	handleCopyQueryError,
-	handleExportCSV,
-	handleQueryFilterInputChange,
-	handleApplyQueryFilter,
-	handleClearFilter,
-	handleQuerySortChange,
-	setSelectedQueryRow,
-	setQueryResultSheetOpen,
 }: QueryWorkspaceProps) {
+	const [queryResultSheetOpen, setQueryResultSheetOpen] = useState(false);
+	const [selectedQueryRow, setSelectedQueryRow] = useState<{
+		row: Record<string, unknown>;
+		index: number;
+	} | null>(null);
+	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+		if (!tab.results?.length) return [];
+
+		return Object.keys(tab.results[0]).map((key) => ({
+			accessorKey: key,
+			header: key,
+			cell: ({ getValue }) => {
+				const value = getValue();
+				if (value === null) {
+					return <span className="text-muted-foreground italic">null</span>;
+				}
+				const rawValue =
+					typeof value === "object" ? JSON.stringify(value) : String(value);
+				const displayValue =
+					rawValue.length > 200 ? `${rawValue.slice(0, 200)}…` : rawValue;
+				return <span title={rawValue}>{displayValue}</span>;
+			},
+		}));
+	}, [tab.results]);
 	const renderQueryError = (errorMessage: string) => {
 		const trimmedError = errorMessage.trimEnd();
 
@@ -111,7 +97,7 @@ export function QueryWorkspace({
 						variant="ghost"
 						size="sm"
 						className="h-7 px-2 text-destructive hover:text-destructive"
-						onClick={() => handleCopyQueryError(trimmedError)}
+						onClick={() => controller.copyQueryError(trimmedError)}
 					>
 						<Copy className="w-4 h-4" />
 						Copy
@@ -126,7 +112,7 @@ export function QueryWorkspace({
 		);
 	};
 
-	const renderQueryContent = (tab: QueryTab) => (
+	return (
 		<div className="space-y-3">
 			<Card className="workspace-panel gap-2">
 				<CardHeader>
@@ -136,37 +122,35 @@ export function QueryWorkspace({
 							<CardDescription>Write and execute SQL queries</CardDescription>
 						</div>
 						<div className="flex items-center gap-2">
-							{showSaveDialog ? (
+							{controller.saveDialog.open ? (
 								<div className="flex items-center gap-2">
 									<Input
 										placeholder="Query name"
-										value={saveQueryName}
-										onChange={(e) => setSaveQueryName(e.target.value)}
+										value={controller.saveDialog.name}
+										onChange={(e) =>
+											controller.changeSaveQueryName(e.target.value)
+										}
 										className="w-40"
 										onKeyDown={(e) => {
 											if (e.key === "Enter") {
-												handleSaveQuery();
+												controller.saveQuery();
 											} else if (e.key === "Escape") {
-												setShowSaveDialog(false);
-												setSaveQueryName("");
+												controller.closeSaveDialog();
 											}
 										}}
 										autoFocus
 									/>
 									<Button
 										size="sm"
-										onClick={handleSaveQuery}
-										disabled={!saveQueryName.trim()}
+										onClick={controller.saveQuery}
+										disabled={!controller.saveDialog.name.trim()}
 									>
 										Save
 									</Button>
 									<Button
 										size="sm"
 										variant="ghost"
-										onClick={() => {
-											setShowSaveDialog(false);
-											setSaveQueryName("");
-										}}
+										onClick={controller.closeSaveDialog}
 									>
 										Cancel
 									</Button>
@@ -185,7 +169,7 @@ export function QueryWorkspace({
 													tabWidth: 2,
 													keywordCase: "upper",
 												});
-												handleQueryChange(formatted);
+												controller.changeQuery(formatted);
 												toast.success("SQL formatted");
 											} catch (error) {
 												toast.error("Failed to format SQL", {
@@ -204,13 +188,7 @@ export function QueryWorkspace({
 									<Button
 										size="sm"
 										variant="outline"
-										onClick={() => {
-											// Pre-populate name if this is an existing saved query
-											if (tab.savedQueryName) {
-												setSaveQueryName(tab.savedQueryName);
-											}
-											setShowSaveDialog(true);
-										}}
+										onClick={controller.openSaveDialog}
 										disabled={!tab.query.trim()}
 									>
 										<FloppyDisk className="w-4 h-4" />
@@ -219,7 +197,7 @@ export function QueryWorkspace({
 									<div className="flex">
 										<Button
 											size="sm"
-											onClick={handleRunQuery}
+											onClick={controller.runQuery}
 											disabled={tab.executing}
 											className="rounded-r-none border-r-0 -mr-1"
 										>
@@ -243,7 +221,7 @@ export function QueryWorkspace({
 												}
 											/>
 											<DropdownMenuContent align="end">
-												<DropdownMenuItem onClick={handleRunAllQueries}>
+												<DropdownMenuItem onClick={controller.runAllQueries}>
 													<PlayCircle className="w-4 h-4" />
 													Run all queries
 												</DropdownMenuItem>
@@ -258,8 +236,8 @@ export function QueryWorkspace({
 				<CardContent>
 					<SqlEditor
 						value={tab.query}
-						onChange={handleQueryChange}
-						onRunQuery={handleRunQuery}
+						onChange={controller.changeQuery}
+						onRunQuery={controller.runQuery}
 						height="300px"
 						// disabled={!tab.query.trim()}
 						tables={tables.map((t) => ({
@@ -268,10 +246,7 @@ export function QueryWorkspace({
 							columns: tableColumns[`${t.schema}.${t.name}`],
 						}))}
 						ai={getEditorAiProps(tab)}
-						onCursorActivity={(line, char) => {
-							setCursorLine(line);
-							setCursorChar(char);
-						}}
+						onCursorActivity={controller.handleCursorActivity}
 					/>
 				</CardContent>
 			</Card>
@@ -305,7 +280,11 @@ export function QueryWorkspace({
 							</CardDescription>
 						</div>
 						{tab.results && tab.results.length > 0 && (
-							<Button variant="outline" size="sm" onClick={handleExportCSV}>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={controller.exportCsv}
+							>
 								<DownloadSimple className="w-4 h-4" />
 								Download CSV
 							</Button>
@@ -338,11 +317,11 @@ export function QueryWorkspace({
 										placeholder="Filter query output (SQL WHERE clause)"
 										value={tab.filterInput}
 										onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-											handleQueryFilterInputChange(e.target.value)
+											controller.changeFilterInput(e.target.value)
 										}
 										onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
 											if (e.key === "Enter") {
-												handleApplyQueryFilter();
+												controller.applyFilter();
 											}
 										}}
 										className="flex-1 font-mono text-xs"
@@ -351,7 +330,7 @@ export function QueryWorkspace({
 										<Button
 											size="sm"
 											variant="outline"
-											onClick={handleClearFilter}
+											onClick={controller.clearFilter}
 											disabled={tab.executing}
 										>
 											Clear
@@ -382,7 +361,7 @@ export function QueryWorkspace({
 										sortable={!!tab.resultBaseQuery}
 										sort={tab.sort}
 										onSortChange={
-											tab.resultBaseQuery ? handleQuerySortChange : undefined
+											tab.resultBaseQuery ? controller.changeSort : undefined
 										}
 										onRowClick={(row) => {
 											const index = tab.results?.indexOf(row) ?? -1;
@@ -417,8 +396,15 @@ export function QueryWorkspace({
 					)}
 				</CardContent>
 			</Card>
+			<QueryResultSheet
+				open={queryResultSheetOpen}
+				onOpenChange={(open) => {
+					setQueryResultSheetOpen(open);
+					if (!open) setSelectedQueryRow(null);
+				}}
+				row={selectedQueryRow?.row || null}
+				rowIndex={selectedQueryRow?.index}
+			/>
 		</div>
 	);
-
-	return renderQueryContent(tab);
 }
