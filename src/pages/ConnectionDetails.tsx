@@ -33,6 +33,7 @@ import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
 import { useQueryAiGeneration } from "@/hooks/useQueryAiGeneration";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
+import { useConnectionQueryRecords } from "@/hooks/connection-details/useConnectionQueryRecords";
 import { useConnectionTabActions } from "@/hooks/connection-details/useConnectionTabActions";
 import { useQueryWorkspaceController } from "@/hooks/connection-details/useQueryWorkspaceController";
 import { useTableDataController } from "@/hooks/connection-details/useTableDataController";
@@ -65,6 +66,7 @@ import { getCreateTableDbType } from "@/lib/databaseCatalog";
 import {
 	applyTabPatch,
 	type DispatchTabPatch,
+	type UpdateTab,
 } from "@/lib/connection-details/tabState";
 
 const SchemaVisualizer = lazy(() =>
@@ -84,34 +86,15 @@ export function ConnectionDetails() {
 	const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
-	const {
-		connection,
-		tables,
-		setTables,
-		loadingPhase,
-		duckDbHelperProgress,
-		refreshingTables,
-		setRefreshingTables,
-		savedQueries,
-		setSavedQueries,
-		loadingQueries,
-		queryHistory,
-		setQueryHistory,
-		loadingHistory,
-		tableColumns,
-		setTableColumns,
-		schemaOverview,
-		setSchemaOverview,
-		loadingSchemaOverview,
-		connectionStatus,
-		setConnectionStatus,
-		connectionError,
-		hasEverConnected,
-		markConnected,
-		markDisconnected,
-		fetchSchemaOverviewData,
-		recordHistory,
-	} = useConnectionLifecycle({ uuid, navigate, sidebarTab, setTabs });
+	const lifecycle = useConnectionLifecycle({ uuid, navigate });
+	const queryRecords = useConnectionQueryRecords({
+		uuid,
+		activePanel: sidebarTab,
+	});
+	const connection = lifecycle.connection.value;
+	const tables = lifecycle.schema.tables;
+	const tableColumns = lifecycle.schema.tableColumns;
+	const schemaOverview = lifecycle.schema.overview;
 
 	// AI generation
 	const {
@@ -163,14 +146,12 @@ export function ConnectionDetails() {
 	const patchTab = useCallback<DispatchTabPatch>((patch) => {
 		setTabs((previous) => applyTabPatch(previous, patch));
 	}, []);
-	const updateTableDataTab = useCallback(
-		(tabId: string, changes: Partial<Omit<TableDataTab, "id" | "type">>) =>
-			patchTab({ type: "table-data", tabId, changes }),
+	const updateTableDataTab = useCallback<UpdateTab<TableDataTab>>(
+		(tabId, changes) => patchTab({ type: "table-data", tabId, changes }),
 		[patchTab],
 	);
-	const updateQueryTab = useCallback(
-		(tabId: string, changes: Partial<Omit<QueryTab, "id" | "type">>) =>
-			patchTab({ type: "query", tabId, changes }),
+	const updateQueryTab = useCallback<UpdateTab<QueryTab>>(
+		(tabId, changes) => patchTab({ type: "query", tabId, changes }),
 		[patchTab],
 	);
 	const tableDataController = useTableDataController({
@@ -208,8 +189,10 @@ export function ConnectionDetails() {
 		connection,
 		activeTab,
 		updateQueryTab,
-		setSavedQueries,
-		recordHistory,
+		onSavedQueryCreated: queryRecords.savedQueries.add,
+		onSavedQueryUpdated: queryRecords.savedQueries.replace,
+		onSavedQueryDeleted: queryRecords.savedQueries.remove,
+		recordHistory: queryRecords.history.record,
 		handleOpenQuery,
 	});
 	const handleClearFilter = useCallback(() => {
@@ -241,85 +224,29 @@ export function ConnectionDetails() {
 			const fullTableName = `${table.schema}.${table.name}`;
 			toast.success(`Created ${fullTableName}`);
 			handleOpenTableData(fullTableName);
-			void fetchSchemaOverviewData();
+			void lifecycle.commands.loadSchema();
 		},
-		[fetchSchemaOverviewData, handleOpenTableData],
+		[lifecycle.commands, handleOpenTableData],
 	);
 
-	const handleReconnect = useCallback(async () => {
-		if (!uuid) return;
-		const connectResult = await api.pool.connect(uuid);
-		if (connectResult.status === "connected") {
-			markConnected();
-			toast.success("Reconnected successfully");
-			if (connection?.type !== "redis") {
-				await fetchSchemaOverviewData();
-			}
-		} else {
-			const message = connectResult.error || "Connection failed";
-			markDisconnected(message);
-			toast.error("Reconnection failed", {
-				description: message,
-			});
-			throw new Error(message);
-		}
-	}, [
-		uuid,
-		connection?.type,
-		fetchSchemaOverviewData,
-		markConnected,
-		markDisconnected,
-	]);
-
-	const handleRefreshTables = async () => {
-		if (!uuid || refreshingTables) return;
-
-		setRefreshingTables(true);
-		try {
-			setSchemaOverview(null);
-			setTableColumns({});
-			await fetchSchemaOverviewData();
-		} catch (error) {
-			console.error("Failed to refresh tables:", error);
-			setTables([]);
-		} finally {
-			setRefreshingTables(false);
-		}
-	};
-
-	const handleToggleTableExpand = async (tableName: string) => {
+	const handleToggleTableExpand = (tableName: string) => {
 		const newExpanded = new Set(expandedTables);
 
 		if (newExpanded.has(tableName)) {
 			newExpanded.delete(tableName);
-			setExpandedTables(newExpanded);
-			return;
+		} else {
+			newExpanded.add(tableName);
 		}
-
-		newExpanded.add(tableName);
 		setExpandedTables(newExpanded);
-
-		if (!tableColumns[tableName] && schemaOverview) {
-			const tableData = schemaOverview.tables.find(
-				(t) => `${t.schema}.${t.name}` === tableName,
-			);
-
-			if (tableData) {
-				setTableColumns((prev) => ({
-					...prev,
-					[tableName]: tableData.columns,
-				}));
-			}
-		}
 	};
 
-	if (loadingPhase !== "complete" || connection === null) {
+	if (lifecycle.opening.phase !== "complete" || connection === null) {
 		return (
 			<ConnectionOpeningScreen
 				connection={connection}
-				loadingPhase={loadingPhase}
-				connectionStatus={connectionStatus}
-				duckDbHelperProgress={duckDbHelperProgress}
+				loadingPhase={lifecycle.opening.phase}
+				connectionStatus={lifecycle.connection.status}
+				duckDbHelperProgress={lifecycle.opening.duckDbHelperProgress}
 			/>
 		);
 	}
@@ -371,8 +298,8 @@ export function ConnectionDetails() {
 			>
 				<SchemaVisualizer
 					schemaOverview={schemaOverview}
-					loading={loadingSchemaOverview}
-					onRefresh={fetchSchemaOverviewData}
+					loading={lifecycle.schema.loading}
+					onRefresh={lifecycle.commands.loadSchema}
 					onTableClick={handleOpenTableData}
 					tableFilter={tab.tableFilter}
 					onTableFilterChange={(filter) => {
@@ -422,15 +349,16 @@ export function ConnectionDetails() {
 	// empty workspace shell. A mid-session drop (after connecting at least
 	// once) keeps the workspace and reconnects via the header status badge.
 	const showDisconnectedScreen =
-		connectionStatus === "disconnected" && !hasEverConnected;
+		lifecycle.connection.status === "disconnected" &&
+		!lifecycle.connection.hasEverConnected;
 
 	if (showDisconnectedScreen) {
 		return (
 			<DisconnectedScreen
 				connectionName={connection.name}
 				databaseIcon={<DatabaseIcon connection={connection} />}
-				error={connectionError}
-				onReconnect={handleReconnect}
+				error={lifecycle.connection.error}
+				onReconnect={lifecycle.commands.reconnect}
 				onClose={() => navigate("/")}
 			/>
 		);
@@ -443,9 +371,9 @@ export function ConnectionDetails() {
 				<RedisConnectionHeader
 					connection={connection}
 					onClose={() => navigate("/")}
-					connectionStatus={connectionStatus}
-					onReconnect={handleReconnect}
-					onStatusChange={setConnectionStatus}
+					connectionStatus={lifecycle.connection.status}
+					onReconnect={lifecycle.commands.reconnect}
+					onStatusChange={lifecycle.commands.recordConnectionStatus}
 					onOpenSettings={openSettings}
 				/>
 
@@ -461,9 +389,9 @@ export function ConnectionDetails() {
 			<Sidebar>
 				<ConnectionSidebarHeader
 					connection={connection}
-					refreshing={refreshingTables || loadingSchemaOverview}
+					refreshing={lifecycle.schema.refreshing || lifecycle.schema.loading}
 					onOpenSchemaVisualizer={handleOpenSchemaVisualizer}
-					onRefresh={handleRefreshTables}
+					onRefresh={lifecycle.commands.refreshSchema}
 				/>
 				<SidebarContent className="overflow-hidden p-2">
 					<Tabs
@@ -490,7 +418,7 @@ export function ConnectionDetails() {
 						<TabsContent value="objects" className="mt-2 min-h-0 flex-1">
 							<ObjectExplorer
 								schemaOverview={schemaOverview}
-								loading={loadingSchemaOverview}
+								loading={lifecycle.schema.loading}
 								expandedTables={expandedTables}
 								tableColumns={tableColumns}
 								onToggleTableExpand={handleToggleTableExpand}
@@ -516,24 +444,16 @@ export function ConnectionDetails() {
 							/>
 						</TabsContent>
 						<SavedQueriesPanel
-							loading={loadingQueries}
-							queries={savedQueries}
+							loading={queryRecords.savedQueries.loading}
+							queries={queryRecords.savedQueries.items}
 							onLoad={queryController.savedQueries.load}
 							onDelete={queryController.savedQueries.requestDelete}
 						/>
 						<QueryHistoryPanel
-							loading={loadingHistory}
-							history={queryHistory}
+							loading={queryRecords.history.loading}
+							history={queryRecords.history.items}
 							onOpen={handleOpenQuery}
-							onClear={async () => {
-								if (!uuid) return;
-								try {
-									await api.queries.clearHistory(uuid);
-									setQueryHistory([]);
-								} catch (error) {
-									console.error("Failed to clear query history:", error);
-								}
-							}}
+							onClear={queryRecords.history.clear}
 						/>
 					</Tabs>
 				</SidebarContent>
@@ -543,9 +463,9 @@ export function ConnectionDetails() {
 				<ConnectionHeader
 					connection={connection}
 					onClose={() => navigate("/")}
-					connectionStatus={connectionStatus}
-					onReconnect={handleReconnect}
-					onStatusChange={setConnectionStatus}
+					connectionStatus={lifecycle.connection.status}
+					onReconnect={lifecycle.commands.reconnect}
+					onStatusChange={lifecycle.commands.recordConnectionStatus}
 					onOpenSettings={openSettings}
 				/>
 
@@ -565,7 +485,9 @@ export function ConnectionDetails() {
 			{/* Query Delete Confirmation Dialog */}
 			<AlertDialog
 				open={queryController.savedQueries.deleteDialogOpen}
-				onOpenChange={queryController.savedQueries.setDeleteDialogOpen}
+				onOpenChange={(open) => {
+					if (!open) queryController.savedQueries.closeDeleteDialog();
+				}}
 			>
 				<AlertDialogContent>
 					<AlertDialogHeader>

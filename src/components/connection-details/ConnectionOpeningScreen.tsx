@@ -11,14 +11,7 @@ import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import { Spinner } from "@/components/ui/spinner";
 import type { DuckDbHelperProgress as DuckDbHelperProgressValue } from "@/lib/duckdbHelper";
 import type { Connection } from "@/lib/tauri";
-
-export type LoadingPhase =
-	| "fetching-config"
-	| "preparing-duckdb"
-	| "establishing-ssh"
-	| "connecting"
-	| "loading-schema"
-	| "complete";
+import type { LoadingPhase } from "@/lib/connection-details/connectionLifecycleState";
 
 export function DatabaseIcon({
 	connection,

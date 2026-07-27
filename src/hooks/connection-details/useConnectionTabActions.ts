@@ -1,16 +1,9 @@
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import {
-	type Dispatch,
-	type SetStateAction,
-	useCallback,
-	useEffect,
-	useEffectEvent,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback } from "react";
 import { createCellFilter } from "@/lib/resultFilters";
 import { normalizeColumnLayout } from "@/lib/savedViews";
 import { api } from "@/lib/tauri";
 import type { DispatchTabPatch } from "@/lib/connection-details/tabState";
+import { useNativeCloseTabListener } from "./useNativeCloseTabListener";
 import {
 	createFunctionDefinitionTab,
 	createQueryTab,
@@ -314,10 +307,13 @@ export function useConnectionTabActions({
 			return;
 		}
 
-		const newTab = createSchemaVisualizerTab();
+		const selectedTables =
+			schemaOverview?.tables.map((table) => `${table.schema}.${table.name}`) ??
+			[];
+		const newTab = createSchemaVisualizerTab(selectedTables);
 		setTabs((previous) => [...previous, newTab]);
 		setActiveTabId(newTab.id);
-	}, [tabs, setTabs, setActiveTabId]);
+	}, [tabs, setTabs, setActiveTabId, schemaOverview]);
 
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
@@ -346,33 +342,7 @@ export function useConnectionTabActions({
 		[setActiveTabId],
 	);
 
-	const handleNativeCloseTab = useEffectEvent(() => {
-		if (activeTabId) {
-			handleCloseTab(activeTabId);
-		} else {
-			getCurrentWindow().close();
-		}
-	});
-
-	useEffect(() => {
-		let isMounted = true;
-		let unlisten: (() => void) | undefined;
-
-		listen("menu:close-tab", () => {
-			handleNativeCloseTab();
-		}).then((unlistenCloseTab) => {
-			if (isMounted) {
-				unlisten = unlistenCloseTab;
-			} else {
-				unlistenCloseTab();
-			}
-		});
-
-		return () => {
-			isMounted = false;
-			unlisten?.();
-		};
-	}, []);
+	useNativeCloseTabListener(activeTabId, handleCloseTab);
 
 	const handleNextTab = useCallback(() => {
 		if (tabs.length <= 1) return;

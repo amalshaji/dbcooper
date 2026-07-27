@@ -1,52 +1,32 @@
-import {
-	type Dispatch,
-	type SetStateAction,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { prepareDuckDbRuntime } from "@/lib/duckdbHelper";
-import type { DuckDbHelperProgress } from "@/lib/duckdbHelper";
-import { api, type Connection, type QueryHistory } from "@/lib/tauri";
-import type { SavedQuery } from "@/types/savedQuery";
-import type { DatabaseTable } from "@/types/table";
-import type { LoadingPhase } from "@/components/connection-details/ConnectionOpeningScreen";
-import type { SchemaOverview, Tab, TableColumn } from "@/types/tabTypes";
+import {
+	type ConnectionStatus,
+	type LoadingPhase,
+} from "../../lib/connection-details/connectionLifecycleState";
+import {
+	prepareDuckDbRuntime,
+	type DuckDbHelperProgress,
+} from "../../lib/duckdbHelper";
+import { api, type Connection } from "../../lib/tauri";
+import type { DatabaseTable } from "../../types/table";
+import type { SchemaOverview, TableColumn } from "../../types/tabTypes";
 
 interface UseConnectionLifecycleOptions {
 	uuid: string | undefined;
 	navigate: (path: string) => void;
-	sidebarTab: "objects" | "queries" | "history";
-	setTabs: Dispatch<SetStateAction<Tab[]>>;
-}
-
-export interface HistoryRecordOptions {
-	status: "success" | "error";
-	timeTakenMs?: number | null;
-	rowCount?: number | null;
-	rowsAffected?: number | null;
-	error?: string | null;
 }
 
 export function useConnectionLifecycle({
 	uuid,
 	navigate,
-	sidebarTab,
-	setTabs,
 }: UseConnectionLifecycleOptions) {
 	const [connection, setConnection] = useState<Connection | null>(null);
-	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [loadingPhase, setLoadingPhase] =
 		useState<LoadingPhase>("fetching-config");
 	const [duckDbHelperProgress, setDuckDbHelperProgress] =
 		useState<DuckDbHelperProgress | null>(null);
-	const [refreshingTables, setRefreshingTables] = useState(false);
-	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
-	const [loadingQueries, setLoadingQueries] = useState(false);
-	const [queryHistory, setQueryHistory] = useState<QueryHistory[]>([]);
-	const [loadingHistory, setLoadingHistory] = useState(false);
+	const [tables, setTables] = useState<DatabaseTable[]>([]);
 	const [tableColumns, setTableColumns] = useState<
 		Record<string, TableColumn[]>
 	>({});
@@ -54,9 +34,9 @@ export function useConnectionLifecycle({
 		null,
 	);
 	const [loadingSchemaOverview, setLoadingSchemaOverview] = useState(false);
-	const [connectionStatus, setConnectionStatus] = useState<
-		"connected" | "disconnected"
-	>("connected");
+	const [refreshingSchema, setRefreshingSchema] = useState(false);
+	const [connectionStatus, setConnectionStatus] =
+		useState<ConnectionStatus>("connected");
 	const [connectionError, setConnectionError] = useState<string | null>(null);
 	const [hasEverConnected, setHasEverConnected] = useState(false);
 	const hasStartedLoading = useRef(false);
@@ -111,7 +91,7 @@ export function useConnectionLifecycle({
 		};
 	}, [uuid]);
 
-	const fetchSchemaOverviewData = useCallback(async () => {
+	const loadSchema = useCallback(async () => {
 		if (!uuid) return;
 
 		setLoadingSchemaOverview(true);
@@ -125,8 +105,6 @@ export function useConnectionLifecycle({
 					type: table.type === "view" ? "view" : "table",
 				})),
 			);
-			markConnected();
-
 			setTableColumns(
 				Object.fromEntries(
 					data.tables.map((table) => [
@@ -135,28 +113,19 @@ export function useConnectionLifecycle({
 					]),
 				),
 			);
-
-			const allTableNames = data.tables.map(
-				(table) => `${table.schema}.${table.name}`,
-			);
-			setTabs((previous) =>
-				previous.map((tab) =>
-					tab.type === "schema-visualizer" && tab.selectedTables.length === 0
-						? { ...tab, selectedTables: allTableNames }
-						: tab,
-				),
-			);
+			markConnected();
 		} catch (error) {
 			console.error("Failed to fetch schema overview:", error);
 			setSchemaOverview(null);
 			setTables([]);
+			setTableColumns({});
 			const message = error instanceof Error ? error.message : String(error);
 			markDisconnected(message);
 			toast.error("Connection failed", { description: message });
 		} finally {
 			setLoadingSchemaOverview(false);
 		}
-	}, [uuid, markConnected, markDisconnected, setTabs]);
+	}, [uuid, markConnected, markDisconnected]);
 
 	useEffect(() => {
 		hasStartedLoading.current = false;
@@ -178,7 +147,7 @@ export function useConnectionLifecycle({
 					markConnected();
 					if (connection.type !== "redis") {
 						setLoadingPhase("loading-schema");
-						await fetchSchemaOverviewData();
+						await loadSchema();
 					}
 				} else {
 					const message = connectResult.error || "Connection failed";
@@ -201,84 +170,77 @@ export function useConnectionLifecycle({
 		});
 	}, [
 		connection,
-		fetchSchemaOverviewData,
+		loadSchema,
 		loadingPhase,
 		markConnected,
 		markDisconnected,
 		uuid,
 	]);
 
-	useEffect(() => {
-		if (!uuid || sidebarTab !== "queries") return;
-		const fetchSavedQueries = async () => {
-			setLoadingQueries(true);
-			try {
-				setSavedQueries((await api.queries.list(uuid)) as SavedQuery[]);
-			} catch (error) {
-				console.error("Failed to fetch saved queries:", error);
-			} finally {
-				setLoadingQueries(false);
-			}
-		};
-		void fetchSavedQueries();
-	}, [uuid, sidebarTab]);
+	const refreshSchema = useCallback(async () => {
+		if (!uuid || refreshingSchema) return;
+		setRefreshingSchema(true);
+		setSchemaOverview(null);
+		setTableColumns({});
+		try {
+			await loadSchema();
+		} finally {
+			setRefreshingSchema(false);
+		}
+	}, [uuid, refreshingSchema, loadSchema]);
 
-	const fetchQueryHistory = useCallback(async () => {
+	const reconnect = useCallback(async () => {
 		if (!uuid) return;
 		try {
-			setQueryHistory(await api.queries.history(uuid));
+			const connectResult = await api.pool.connect(uuid);
+			if (connectResult.status !== "connected") {
+				throw new Error(connectResult.error || "Connection failed");
+			}
+			markConnected();
+			toast.success("Reconnected successfully");
+			if (connection?.type !== "redis") await loadSchema();
 		} catch (error) {
-			console.error("Failed to fetch query history:", error);
+			const message = error instanceof Error ? error.message : String(error);
+			markDisconnected(message);
+			toast.error("Reconnection failed", { description: message });
+			throw error;
 		}
-	}, [uuid]);
+	}, [uuid, connection?.type, loadSchema, markConnected, markDisconnected]);
 
-	const recordHistory = useCallback(
-		(query: string, options: HistoryRecordOptions) => {
-			if (!uuid) return;
-			api.queries
-				.recordHistory({ connectionUuid: uuid, query, ...options })
-				.then(() => {
-					if (sidebarTab === "history") void fetchQueryHistory();
-				})
-				.catch((error) =>
-					console.error("Failed to record query history:", error),
-				);
+	const recordConnectionStatus = useCallback(
+		(status: ConnectionStatus) => {
+			if (status === "connected") {
+				markConnected();
+			} else {
+				setConnectionStatus("disconnected");
+			}
 		},
-		[uuid, sidebarTab, fetchQueryHistory],
+		[markConnected],
 	);
 
-	useEffect(() => {
-		if (!uuid || sidebarTab !== "history") return;
-		setLoadingHistory(true);
-		void fetchQueryHistory().finally(() => setLoadingHistory(false));
-	}, [uuid, sidebarTab, fetchQueryHistory]);
-
 	return {
-		connection,
-		tables,
-		setTables,
-		loadingPhase,
-		duckDbHelperProgress,
-		refreshingTables,
-		setRefreshingTables,
-		savedQueries,
-		setSavedQueries,
-		loadingQueries,
-		queryHistory,
-		setQueryHistory,
-		loadingHistory,
-		tableColumns,
-		setTableColumns,
-		schemaOverview,
-		setSchemaOverview,
-		loadingSchemaOverview,
-		connectionStatus,
-		setConnectionStatus,
-		connectionError,
-		hasEverConnected,
-		markConnected,
-		markDisconnected,
-		fetchSchemaOverviewData,
-		recordHistory,
+		opening: {
+			phase: loadingPhase,
+			duckDbHelperProgress,
+		},
+		connection: {
+			value: connection,
+			status: connectionStatus,
+			error: connectionError,
+			hasEverConnected,
+		},
+		schema: {
+			tables,
+			tableColumns,
+			overview: schemaOverview,
+			loading: loadingSchemaOverview,
+			refreshing: refreshingSchema,
+		},
+		commands: {
+			loadSchema,
+			refreshSchema,
+			reconnect,
+			recordConnectionStatus,
+		},
 	};
 }

@@ -134,7 +134,16 @@ function renderController() {
 			connection,
 			activeTab,
 			updateQueryTab,
-			setSavedQueries,
+			onSavedQueryCreated: (query) =>
+				setSavedQueries((current) => [query, ...current]),
+			onSavedQueryUpdated: (query) =>
+				setSavedQueries((current) =>
+					current.map((item) => (item.id === query.id ? query : item)),
+				),
+			onSavedQueryDeleted: (id) =>
+				setSavedQueries((current) =>
+					current.filter((query) => query.id !== id),
+				),
 			recordHistory: () => {},
 			handleOpenQuery: () => {},
 		});

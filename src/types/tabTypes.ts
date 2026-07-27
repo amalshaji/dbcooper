@@ -4,10 +4,7 @@ import {
 	createTableFilterState,
 	type TableFilterState,
 } from "@/lib/resultFilters";
-import {
-	createColumnLayout,
-	type TableColumnLayout,
-} from "@/lib/savedViews";
+import { createColumnLayout, type TableColumnLayout } from "@/lib/savedViews";
 import type {
 	ColumnInfo,
 	ForeignKeyInfo,
@@ -201,7 +198,9 @@ export function createRedisQueryTab(pattern: string = "*"): RedisQueryTab {
 	};
 }
 
-export function createSchemaVisualizerTab(): SchemaVisualizerTab {
+export function createSchemaVisualizerTab(
+	selectedTables: string[] = [],
+): SchemaVisualizerTab {
 	return {
 		id: `schema-visualizer-${Date.now()}`,
 		type: "schema-visualizer",
@@ -209,7 +208,7 @@ export function createSchemaVisualizerTab(): SchemaVisualizerTab {
 		schemaOverview: null,
 		loading: false,
 		tableFilter: "",
-		selectedTables: [],
+		selectedTables,
 	};
 }
 

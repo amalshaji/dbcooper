@@ -76,17 +76,13 @@ export function TableDataWorkspace({
 									tab.filterState.draft,
 									tab.filterState.applied,
 								)}
-								onActiveViewChange={(savedViewId) =>
-									controller.updateTab(tab.id, { savedViewId })
-								}
+								onActiveViewChange={controller.savedViews.changeActive}
 								onApply={controller.filters.applySavedView}
 							/>
 							<ColumnLayoutPopover
 								columns={tab.columns.map((column) => column.name)}
 								layout={tab.columnLayout}
-								onChange={(columnLayout) =>
-									controller.updateTab(tab.id, { columnLayout })
-								}
+								onChange={controller.columnLayout.change}
 							/>
 							{supportsStructuredRowMutations(connection.db_type) && (
 								<Button
@@ -142,9 +138,7 @@ export function TableDataWorkspace({
 						onRowClick={controller.data.selectRow}
 						onCellFilter={controller.filters.filterCell}
 						onSortChange={controller.data.changeSort}
-						onColumnLayoutChange={(columnLayout) =>
-							controller.updateTab(tab.id, { columnLayout })
-						}
+						onColumnLayoutChange={controller.columnLayout.change}
 					/>
 				</CardContent>
 			</Card>

@@ -1,6 +1,11 @@
 import type { Tab } from "../../types/tabTypes";
 
-type TabChanges<T extends Tab> = Partial<Omit<T, "id" | "type">>;
+export type TabChanges<T extends Tab> = Partial<Omit<T, "id" | "type">>;
+
+export type UpdateTab<T extends Tab> = (
+	tabId: string,
+	changes: TabChanges<T>,
+) => void;
 
 export type TabPatch = {
 	[K in Tab["type"]]: {

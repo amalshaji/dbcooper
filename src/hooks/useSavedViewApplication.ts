@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { createTableFilterState } from "../lib/resultFilters";
 import { reconcileSavedViewState } from "../lib/savedViews";
 import type { SavedView, TableDataResponse } from "../lib/tauri";
+import type { UpdateTab } from "../lib/connection-details/tabState";
 import type { TableDataTab } from "../types/tabTypes";
 
 interface PreparedSavedViewApplication {
@@ -46,7 +47,7 @@ export function prepareSavedViewApplication(
 interface UseSavedViewApplicationOptions {
 	tab: TableDataTab | null;
 	requestTableData: (tab: TableDataTab) => Promise<TableDataResponse>;
-	updateTab: (id: string, updates: Partial<TableDataTab>) => void;
+	updateTab: UpdateTab<TableDataTab>;
 }
 
 export function useSavedViewApplication({

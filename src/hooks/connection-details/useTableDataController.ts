@@ -6,7 +6,9 @@ import {
 	areCellValuesEqual,
 	getPrimaryKeyRowKey,
 } from "../../lib/connection-details/queryTableState";
+import type { UpdateTab } from "../../lib/connection-details/tabState";
 import { getFilterRequest } from "../../lib/resultFilters";
+import type { TableColumnLayout } from "../../lib/savedViews";
 import { api, type Connection } from "../../lib/tauri";
 import type { SortConfig, Tab, TableDataTab } from "../../types/tabTypes";
 
@@ -31,7 +33,7 @@ export interface UseTableDataControllerOptions {
 	uuid: string | undefined;
 	connection: Connection | null;
 	activeTab: Tab | null;
-	updateTableDataTab: (id: string, updates: Partial<TableDataTab>) => void;
+	updateTableDataTab: UpdateTab<TableDataTab>;
 }
 
 export function useTableDataController({
@@ -153,6 +155,22 @@ export function useTableDataController({
 	const handleOpenRowInsert = useCallback(() => {
 		setRowInsertSheetOpen(true);
 	}, []);
+	const handleActiveViewChange = useCallback(
+		(savedViewId: number | null) => {
+			if (activeTableDataTab) {
+				updateTableDataTab(activeTableDataTab.id, { savedViewId });
+			}
+		},
+		[activeTableDataTab, updateTableDataTab],
+	);
+	const handleColumnLayoutChange = useCallback(
+		(columnLayout: TableColumnLayout) => {
+			if (activeTableDataTab) {
+				updateTableDataTab(activeTableDataTab.id, { columnLayout });
+			}
+		},
+		[activeTableDataTab, updateTableDataTab],
+	);
 
 	const handleSaveRow = useCallback(
 		async (updates: RowMutationValue[]) => {
@@ -445,6 +463,8 @@ export function useTableDataController({
 	return {
 		fetchTableData,
 		workspace: {
+			savedViews: { changeActive: handleActiveViewChange },
+			columnLayout: { change: handleColumnLayoutChange },
 			filters: {
 				changeState: handleTableFilterStateChange,
 				apply: handleApplyFilter,
@@ -482,7 +502,6 @@ export function useTableDataController({
 				discard: handleDiscardInlineChanges,
 			},
 			highlightedRow: highlightedTableRow,
-			updateTab: updateTableDataTab,
 		},
 		commands: {
 			refresh: handleRefreshTableData,

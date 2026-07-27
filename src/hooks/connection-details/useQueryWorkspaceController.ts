@@ -1,9 +1,4 @@
-import {
-	type Dispatch,
-	type SetStateAction,
-	useCallback,
-	useState,
-} from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { api, type Connection } from "../../lib/tauri";
 import {
@@ -12,25 +7,23 @@ import {
 	serializeRowsToCsv,
 	stripTrailingSemicolon,
 } from "../../lib/connection-details/queryTableState";
+import type { UpdateTab } from "../../lib/connection-details/tabState";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
 } from "../../lib/sqlParser";
 import type { SavedQuery } from "../../types/savedQuery";
 import type { QueryTab, SortConfig, Tab } from "../../types/tabTypes";
-import type { HistoryRecordOptions } from "./useConnectionLifecycle";
-
-type UpdateQueryTab = (
-	tabId: string,
-	changes: Partial<Omit<QueryTab, "id" | "type">>,
-) => void;
+import type { HistoryRecordOptions } from "./useConnectionQueryRecords";
 
 interface UseQueryWorkspaceControllerOptions {
 	uuid: string | undefined;
 	connection: Connection | null;
 	activeTab: Tab | null;
-	updateQueryTab: UpdateQueryTab;
-	setSavedQueries: Dispatch<SetStateAction<SavedQuery[]>>;
+	updateQueryTab: UpdateTab<QueryTab>;
+	onSavedQueryCreated: (query: SavedQuery) => void;
+	onSavedQueryUpdated: (query: SavedQuery) => void;
+	onSavedQueryDeleted: (id: number) => void;
 	recordHistory: (query: string, options: HistoryRecordOptions) => void;
 	handleOpenQuery: (
 		query: string,
@@ -44,7 +37,9 @@ export function useQueryWorkspaceController({
 	connection,
 	activeTab,
 	updateQueryTab,
-	setSavedQueries,
+	onSavedQueryCreated,
+	onSavedQueryUpdated,
+	onSavedQueryDeleted,
 	recordHistory,
 	handleOpenQuery,
 }: UseQueryWorkspaceControllerOptions) {
@@ -391,13 +386,7 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				setSavedQueries((currentQueries) =>
-					currentQueries.map((query) =>
-						query.id === activeTab.savedQueryId
-							? (updatedQuery as SavedQuery)
-							: query,
-					),
-				);
+				onSavedQueryUpdated(updatedQuery as SavedQuery);
 				updateQueryTab(activeTab.id, {
 					savedQueryName: updatedQuery.name,
 					title: updatedQuery.name,
@@ -408,10 +397,7 @@ export function useQueryWorkspaceController({
 					name: saveQueryName,
 					query: activeTab.query,
 				});
-				setSavedQueries((currentQueries) => [
-					newQuery as SavedQuery,
-					...currentQueries,
-				]);
+				onSavedQueryCreated(newQuery as SavedQuery);
 				updateQueryTab(activeTab.id, {
 					savedQueryId: newQuery.id,
 					savedQueryName: newQuery.name,
@@ -436,9 +422,7 @@ export function useQueryWorkspaceController({
 		if (!queryToDelete) return;
 		try {
 			await api.queries.delete(queryToDelete.id);
-			setSavedQueries((currentQueries) =>
-				currentQueries.filter((query) => query.id !== queryToDelete.id),
-			);
+			onSavedQueryDeleted(queryToDelete.id);
 			setShowQueryDeleteDialog(false);
 			setQueryToDelete(null);
 			toast.success("Query deleted successfully");
@@ -447,6 +431,10 @@ export function useQueryWorkspaceController({
 			toast.error("Failed to delete query");
 		}
 	};
+	const closeDeleteDialog = useCallback(() => {
+		setShowQueryDeleteDialog(false);
+		setQueryToDelete(null);
+	}, []);
 
 	const handleExportCSV = useCallback(async () => {
 		if (activeTab?.type !== "query" || !activeTab.results?.length) return;
@@ -505,7 +493,7 @@ export function useQueryWorkspaceController({
 		savedQueries: {
 			queryToDelete,
 			deleteDialogOpen: showQueryDeleteDialog,
-			setDeleteDialogOpen: setShowQueryDeleteDialog,
+			closeDeleteDialog,
 			load: handleLoadQuery,
 			requestDelete: handleDeleteQuery,
 			confirmDelete: confirmDeleteQuery,
