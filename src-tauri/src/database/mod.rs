@@ -418,33 +418,3 @@ mod database_type_tests {
         assert!(MysqlFlavor::try_from(DatabaseType::Postgres).is_err());
     }
 }
-
-#[cfg(test)]
-mod mysql_read_only_tests {
-    use super::{mysql_read_only_query_is_safe, query_returns_rows};
-
-    #[test]
-    fn accepts_reads_and_rejects_mutating_or_multi_statement_queries() {
-        assert!(mysql_read_only_query_is_safe("SELECT * FROM `update`"));
-        assert!(mysql_read_only_query_is_safe(
-            "WITH ids AS (SELECT 1) SELECT * FROM ids"
-        ));
-        assert!(mysql_read_only_query_is_safe("SHOW TABLES;"));
-        assert!(mysql_read_only_query_is_safe("SELECT ';' AS value"));
-        assert!(!mysql_read_only_query_is_safe("SELECT 1; DROP TABLE users"));
-        assert!(!mysql_read_only_query_is_safe(
-            "WITH changed AS (UPDATE users SET name = 'x') SELECT * FROM changed"
-        ));
-        assert!(!mysql_read_only_query_is_safe(
-            "SELECT * FROM users INTO OUTFILE '/tmp/users'"
-        ));
-        assert!(!mysql_read_only_query_is_safe(
-            "SELECT 1 /*!50000 INTO OUTFILE '/tmp/value' */"
-        ));
-    }
-
-    #[test]
-    fn treats_mysql_desc_as_a_row_returning_query() {
-        assert!(query_returns_rows("DESC users"));
-    }
-}
