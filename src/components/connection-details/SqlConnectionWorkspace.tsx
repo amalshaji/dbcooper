@@ -142,7 +142,6 @@ export function SqlConnectionWorkspace({
 		[patchTab],
 	);
 	const tableDataController = useTableDataController({
-		uuid: connection.uuid,
 		connection,
 		activeTab: activeTableDataTab,
 		updateTableDataTab,
@@ -159,7 +158,6 @@ export function SqlConnectionWorkspace({
 		cancelTabGeneration,
 	});
 	const queryController = useQueryWorkspaceController({
-		uuid: connection.uuid,
 		connection,
 		activeTab: activeQueryTab,
 		updateQueryTab,

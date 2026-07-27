@@ -146,7 +146,6 @@ function renderController() {
 			[],
 		);
 		const controller = useTableDataController({
-			uuid: connection.uuid,
 			connection,
 			activeTab: activeTableDataTab,
 			updateTableDataTab,

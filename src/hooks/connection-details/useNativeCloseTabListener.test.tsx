@@ -14,6 +14,7 @@ function deferred<T>() {
 let listenerRegistration = deferred<() => void>();
 let registeredListener: (() => void) | undefined;
 let cleanupCalls = 0;
+let windowCloseCalls = 0;
 
 mock.module("@tauri-apps/api/event", () => ({
 	listen: async (_event: string, listener: () => void) => {
@@ -23,7 +24,11 @@ mock.module("@tauri-apps/api/event", () => ({
 }));
 
 mock.module("@tauri-apps/api/window", () => ({
-	getCurrentWindow: () => ({ close: async () => {} }),
+	getCurrentWindow: () => ({
+		close: async () => {
+			windowCloseCalls += 1;
+		},
+	}),
 }));
 
 const { act, cleanup, renderHook, waitFor } = await import(
@@ -37,6 +42,7 @@ beforeEach(() => {
 	listenerRegistration = deferred<() => void>();
 	registeredListener = undefined;
 	cleanupCalls = 0;
+	windowCloseCalls = 0;
 });
 
 afterEach(cleanup);
@@ -75,4 +81,24 @@ test("cleans up when registration finishes after unmount", async () => {
 	});
 	await listenerRegistration.promise;
 	await waitFor(() => expect(cleanupCalls).toBe(1));
+});
+
+test("closes the window when the active route has no SQL tab", async () => {
+	const { unmount } = renderHook(() =>
+		useNativeCloseTabListener(null, () => {}),
+	);
+	listenerRegistration.resolve(() => {
+		cleanupCalls += 1;
+	});
+	await listenerRegistration.promise;
+	await waitFor(() => expect(registeredListener).toBeDefined());
+
+	act(() => registeredListener?.());
+	await waitFor(() => expect(windowCloseCalls).toBe(1));
+	unmount();
+});
+
+test("does not double-register when the SQL workspace owns native close", () => {
+	renderHook(() => useNativeCloseTabListener(null, () => {}, false));
+	expect(registeredListener).toBeUndefined();
 });

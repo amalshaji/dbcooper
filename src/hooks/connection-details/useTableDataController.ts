@@ -31,14 +31,12 @@ export interface RowMutationValue {
 }
 
 export interface UseTableDataControllerOptions {
-	uuid: string | undefined;
 	connection: SqlConnection;
 	activeTab: TableDataTab | null;
 	updateTableDataTab: UpdateTab<TableDataTab>;
 }
 
 export function useTableDataController({
-	uuid,
 	connection,
 	activeTab,
 	updateTableDataTab,
@@ -60,11 +58,10 @@ export function useTableDataController({
 
 	const requestTableData = useCallback(
 		async (tab: TableDataTab) => {
-			if (!uuid) throw new Error("Connection is unavailable");
 			const [schema, tableName] = tab.tableName.split(".");
 			const filterRequest = getFilterRequest(tab.filterState.applied);
 			return api.pool.getTableData(
-				uuid,
+				connection.uuid,
 				schema,
 				tableName,
 				tab.currentPage,
@@ -75,7 +72,7 @@ export function useTableDataController({
 				tab.sort?.direction,
 			);
 		},
-		[uuid],
+		[connection.uuid],
 	);
 
 	const fetchTableData = useCallback(
@@ -113,11 +110,11 @@ export function useTableDataController({
 	});
 
 	const handleRefreshTableData = useCallback(async () => {
-		if (!activeTab || !uuid) return;
+		if (!activeTab) return;
 		const tab = activeTab;
 		updateTableDataTab(tab.id, { currentPage: 1 });
 		fetchTableData({ ...tab, currentPage: 1 });
-	}, [activeTab, uuid, updateTableDataTab, fetchTableData]);
+	}, [activeTab, updateTableDataTab, fetchTableData]);
 
 	const handlePageChange = useCallback(
 		(page: number) => {

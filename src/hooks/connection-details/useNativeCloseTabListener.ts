@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent } from "react";
 export function useNativeCloseTabListener(
 	activeTabId: string | null,
 	closeTab: (tabId: string) => void,
+	enabled: boolean = true,
 ) {
 	const handleNativeCloseTab = useEffectEvent(() => {
 		if (activeTabId) {
@@ -15,6 +16,7 @@ export function useNativeCloseTabListener(
 	});
 
 	useEffect(() => {
+		if (!enabled) return;
 		let mounted = true;
 		let unlisten: (() => void) | undefined;
 
@@ -30,5 +32,5 @@ export function useNativeCloseTabListener(
 			mounted = false;
 			unlisten?.();
 		};
-	}, []);
+	}, [enabled]);
 }

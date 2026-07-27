@@ -17,7 +17,6 @@ import type { SqlConnection } from "../../types/connection";
 import type { HistoryRecordOptions } from "./useConnectionQueryRecords";
 
 interface UseQueryWorkspaceControllerOptions {
-	uuid: string | undefined;
 	connection: SqlConnection;
 	activeTab: QueryTab | null;
 	updateQueryTab: UpdateTab<QueryTab>;
@@ -33,7 +32,6 @@ interface UseQueryWorkspaceControllerOptions {
 }
 
 export function useQueryWorkspaceController({
-	uuid,
 	connection,
 	activeTab,
 	updateQueryTab,
@@ -60,8 +58,6 @@ export function useQueryWorkspaceController({
 
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
-			if (!uuid) return;
-
 			if (!tab.resultBaseQuery) {
 				updateQueryTab(tab.id, { executing: false });
 				toast.error(
@@ -78,7 +74,10 @@ export function useQueryWorkspaceController({
 			);
 
 			try {
-				const result = await api.pool.executeQuery(uuid, wrappedQuery);
+				const result = await api.pool.executeQuery(
+					connection.uuid,
+					wrappedQuery,
+				);
 				const executionTime = result.time_taken_ms ?? 0;
 
 				if (result.error) {
@@ -113,7 +112,7 @@ export function useQueryWorkspaceController({
 				});
 			}
 		},
-		[uuid, updateQueryTab, connection.db_type],
+		[updateQueryTab, connection.uuid, connection.db_type],
 	);
 
 	const handleQueryFilterInputChange = useCallback(
@@ -163,7 +162,7 @@ export function useQueryWorkspaceController({
 	);
 
 	const handleRunQuery = useCallback(async () => {
-		if (!activeTab || !uuid) return;
+		if (!activeTab) return;
 		if (!activeTab.query.trim()) {
 			toast.error("Cannot execute empty query");
 			return;
@@ -194,7 +193,7 @@ export function useQueryWorkspaceController({
 		});
 
 		try {
-			const result = await api.pool.executeQuery(uuid, queryToRun);
+			const result = await api.pool.executeQuery(connection.uuid, queryToRun);
 			if (result.truncated) {
 				toast.warning("Result limited to 10,000 rows", {
 					description: "Refine the query to load a smaller result window.",
@@ -247,10 +246,17 @@ export function useQueryWorkspaceController({
 			});
 			recordHistory(queryToRun, { status: "error", error: message });
 		}
-	}, [activeTab, uuid, updateQueryTab, cursorLine, cursorChar, recordHistory]);
+	}, [
+		activeTab,
+		connection.uuid,
+		updateQueryTab,
+		cursorLine,
+		cursorChar,
+		recordHistory,
+	]);
 
 	const handleRunAllQueries = useCallback(async () => {
-		if (!activeTab || !uuid || !activeTab.query.trim()) return;
+		if (!activeTab || !activeTab.query.trim()) return;
 		const statements = parseSqlStatements(activeTab.query);
 		if (statements.length === 0) return;
 
@@ -277,7 +283,7 @@ export function useQueryWorkspaceController({
 			for (const statement of statements) {
 				const queryToRun = statement.text.trim();
 				if (!queryToRun) continue;
-				const result = await api.pool.executeQuery(uuid, queryToRun);
+				const result = await api.pool.executeQuery(connection.uuid, queryToRun);
 				if (result.truncated) {
 					toast.warning("Result limited to 10,000 rows", {
 						description: "Refine the query to load a smaller result window.",
@@ -338,7 +344,7 @@ export function useQueryWorkspaceController({
 				executing: false,
 			});
 		}
-	}, [activeTab, uuid, updateQueryTab, recordHistory]);
+	}, [activeTab, connection.uuid, updateQueryTab, recordHistory]);
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
@@ -377,7 +383,7 @@ export function useQueryWorkspaceController({
 	};
 
 	const handleSaveQuery = async () => {
-		if (!activeTab || !uuid) return;
+		if (!activeTab) return;
 		if (!activeTab.query.trim() || !saveQueryName.trim()) return;
 
 		try {
@@ -393,7 +399,7 @@ export function useQueryWorkspaceController({
 				});
 				toast.success("Query updated successfully");
 			} else {
-				const newQuery = await api.queries.create(uuid, {
+				const newQuery = await api.queries.create(connection.uuid, {
 					name: saveQueryName,
 					query: activeTab.query,
 				});

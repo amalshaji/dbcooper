@@ -131,7 +131,6 @@ function renderController() {
 			[],
 		);
 		const controller = useQueryWorkspaceController({
-			uuid: connection.uuid,
 			connection,
 			activeTab: activeQueryTab,
 			updateQueryTab,
