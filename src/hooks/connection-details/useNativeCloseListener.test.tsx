@@ -34,8 +34,8 @@ mock.module("@tauri-apps/api/window", () => ({
 const { act, cleanup, renderHook, waitFor } = await import(
 	"@testing-library/react"
 );
-const { useNativeCloseTabListener } = await import(
-	"./useNativeCloseTabListener"
+const { useNativeCloseListener } = await import(
+	"./useNativeCloseListener"
 );
 
 beforeEach(() => {
@@ -52,7 +52,7 @@ test("uses the latest active tab and releases the native listener", async () => 
 	const closeTab = (tabId: string) => closedTabs.push(tabId);
 	const { rerender, unmount } = renderHook(
 		({ activeTabId }: { activeTabId: string | null }) =>
-			useNativeCloseTabListener(activeTabId, closeTab),
+			useNativeCloseListener({ kind: "tabs", activeTabId, closeTab }),
 		{ initialProps: { activeTabId: "tab-1" } },
 	);
 
@@ -72,7 +72,11 @@ test("uses the latest active tab and releases the native listener", async () => 
 
 test("cleans up when registration finishes after unmount", async () => {
 	const { unmount } = renderHook(() =>
-		useNativeCloseTabListener("tab-1", () => {}),
+		useNativeCloseListener({
+			kind: "tabs",
+			activeTabId: "tab-1",
+			closeTab: () => {},
+		}),
 	);
 
 	unmount();
@@ -85,7 +89,26 @@ test("cleans up when registration finishes after unmount", async () => {
 
 test("closes the window when the active route has no SQL tab", async () => {
 	const { unmount } = renderHook(() =>
-		useNativeCloseTabListener(null, () => {}),
+		useNativeCloseListener({
+			kind: "tabs",
+			activeTabId: null,
+			closeTab: () => {},
+		}),
+	);
+	listenerRegistration.resolve(() => {
+		cleanupCalls += 1;
+	});
+	await listenerRegistration.promise;
+	await waitFor(() => expect(registeredListener).toBeDefined());
+
+	act(() => registeredListener?.());
+	await waitFor(() => expect(windowCloseCalls).toBe(1));
+	unmount();
+});
+
+test("closes the window for routes without tab ownership", async () => {
+	const { unmount } = renderHook(() =>
+		useNativeCloseListener({ kind: "window" }),
 	);
 	listenerRegistration.resolve(() => {
 		cleanupCalls += 1;
@@ -99,6 +122,6 @@ test("closes the window when the active route has no SQL tab", async () => {
 });
 
 test("does not double-register when the SQL workspace owns native close", () => {
-	renderHook(() => useNativeCloseTabListener(null, () => {}, false));
+	renderHook(() => useNativeCloseListener({ kind: "window" }, false));
 	expect(registeredListener).toBeUndefined();
 });

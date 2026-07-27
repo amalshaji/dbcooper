@@ -3,7 +3,7 @@ import { createCellFilter } from "@/lib/resultFilters";
 import { normalizeColumnLayout } from "@/lib/savedViews";
 import { api } from "@/lib/tauri";
 import type { DispatchTabPatch } from "@/lib/connection-details/tabState";
-import { useNativeCloseTabListener } from "./useNativeCloseTabListener";
+import { useNativeCloseListener } from "./useNativeCloseListener";
 import {
 	createFunctionDefinitionTab,
 	createQueryTab,
@@ -342,7 +342,11 @@ export function useConnectionTabActions({
 		[setActiveTabId],
 	);
 
-	useNativeCloseTabListener(activeTabId, handleCloseTab);
+	useNativeCloseListener({
+		kind: "tabs",
+		activeTabId,
+		closeTab: handleCloseTab,
+	});
 
 	const handleNextTab = useCallback(() => {
 		if (tabs.length <= 1) return;

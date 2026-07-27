@@ -2,16 +2,23 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useEffectEvent } from "react";
 
-export function useNativeCloseTabListener(
-	activeTabId: string | null,
-	closeTab: (tabId: string) => void,
+type NativeCloseTarget =
+	| { kind: "window" }
+	| {
+			kind: "tabs";
+			activeTabId: string | null;
+			closeTab: (tabId: string) => void;
+	  };
+
+export function useNativeCloseListener(
+	target: NativeCloseTarget,
 	enabled: boolean = true,
 ) {
 	const handleNativeCloseTab = useEffectEvent(() => {
-		if (activeTabId) {
-			closeTab(activeTabId);
-		} else {
+		if (target.kind === "window" || target.activeTabId === null) {
 			void getCurrentWindow().close();
+		} else {
+			target.closeTab(target.activeTabId);
 		}
 	});
 

@@ -9,7 +9,7 @@ import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import { SqlConnectionWorkspace } from "@/components/connection-details/SqlConnectionWorkspace";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
-import { useNativeCloseTabListener } from "@/hooks/connection-details/useNativeCloseTabListener";
+import { useNativeCloseListener } from "@/hooks/connection-details/useNativeCloseListener";
 import { isSqlConnection } from "@/types/connection";
 
 export function ConnectionDetails() {
@@ -26,7 +26,7 @@ export function ConnectionDetails() {
 		!lifecycle.connection.hasEverConnected;
 	const rendersSqlWorkspace =
 		ready && !initiallyDisconnected && isSqlConnection(connection);
-	useNativeCloseTabListener(null, () => {}, !rendersSqlWorkspace);
+	useNativeCloseListener({ kind: "window" }, !rendersSqlWorkspace);
 
 	if (!ready) {
 		return (
