@@ -10,8 +10,10 @@ import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import type { Connection } from "@/lib/tauri";
 import type { DockerConnectionState } from "@/types/docker";
 
@@ -73,6 +75,12 @@ function dbTypeConfig(type: string) {
 				iconClass: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
 				accentClass: "bg-yellow-500",
 			};
+		case "d1":
+			return {
+				icon: CloudflareIcon,
+				iconClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+				accentClass: "bg-orange-500",
+			};
 		default:
 			return {
 				icon: Database,
@@ -129,7 +137,9 @@ export function ConnectionCard({
 						<div
 							className={`flex size-9 shrink-0 items-center justify-center rounded-md ${config.iconClass}`}
 						>
-							<DbIcon className="size-4" />
+							<DbIcon
+								className={connection.type === "d1" ? "h-3.5 w-5" : "size-4"}
+							/>
 						</div>
 						<div className="min-w-0 flex-1">
 							<div className="flex items-center gap-2">
@@ -157,7 +167,9 @@ export function ConnectionCard({
 							<p className="mt-0.5 truncate text-xs text-muted-foreground">
 								{connection.type === "sqlite" || connection.type === "duckdb"
 									? connection.file_path?.split("/").pop() || "Local file"
-									: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+									: connection.type === "d1"
+										? getConnectionDatabaseDisplay(connection)
+										: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>
 						</div>
 						<ConnectionActionsDropdown {...actionProps} />

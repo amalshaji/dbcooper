@@ -136,6 +136,18 @@ export interface TestConnectionResult {
 	message: string;
 }
 
+export interface D1Database {
+	uuid: string;
+	name: string;
+	created_at: string | null;
+}
+
+export interface D1DatabaseList {
+	databases: D1Database[];
+	page: number;
+	total_pages: number;
+}
+
 export interface SavedQuery {
 	id: number;
 	connection_uuid: string;
@@ -331,6 +343,15 @@ export const api = {
 			invoke<void>("docker_control_connection", { uuid, action }),
 		connectionString: (uuid: string) =>
 			invoke<string>("docker_get_connection_string", { uuid }),
+	},
+
+	d1: {
+		listDatabases: (accountId: string, apiToken: string, page = 1) =>
+			invoke<D1DatabaseList>("d1_list_databases", {
+				accountId,
+				apiToken,
+				page,
+			}),
 	},
 
 	postgres: {

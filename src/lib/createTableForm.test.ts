@@ -11,6 +11,7 @@ describe("create table form", () => {
 		const postgresDraft = createInitialTableDraft("postgres", "analytics");
 		const mysqlDraft = createInitialTableDraft("mysql", "app");
 		const sqliteDraft = createInitialTableDraft("sqlite");
+		const d1Draft = createInitialTableDraft("d1", "database-uuid");
 
 		expect(postgresDraft.schema).toBe("analytics");
 		expect(postgresDraft.columns).toHaveLength(1);
@@ -18,6 +19,7 @@ describe("create table form", () => {
 		expect(postgresDraft.columns[0].mysqlModifiers).toBeNull();
 		expect(mysqlDraft.columns[0].mysqlModifiers).not.toBeNull();
 		expect(sqliteDraft.schema).toBe("main");
+		expect(d1Draft.schema).toBe("main");
 	});
 
 	test("builds a normalized request with typed safe defaults", () => {

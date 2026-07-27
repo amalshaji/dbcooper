@@ -11,7 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 use super::driver_factory::create_driver_with_ssh;
 pub use super::driver_factory::DriverConfig as ConnectionConfig;
 use super::mutation::MutationPlan;
-use super::DatabaseDriver;
+use super::{DatabaseDriver, DatabaseType};
 use crate::db::models::{
     CreateTableRequest, FunctionDefinition, QueryResult, TableDataResponse, TableInfo,
     TableStructure, TestConnectionResult,
@@ -223,6 +223,13 @@ impl PoolManager {
     pub async fn get_config(&self, uuid: &str) -> Option<ConnectionConfig> {
         let pools = self.pools.read().await;
         pools.get(uuid).map(|e| e.config.clone())
+    }
+
+    pub async fn allows_reconnect_retry(&self, uuid: &str) -> bool {
+        self.get_config(uuid)
+            .await
+            .and_then(|config| DatabaseType::try_from(config.db_type.as_str()).ok())
+            .is_some_and(DatabaseType::replays_failed_reads_after_reconnect)
     }
 
     /// List tables using the pooled connection

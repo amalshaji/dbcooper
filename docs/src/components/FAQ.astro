@@ -1,12 +1,49 @@
 ---
-const faqs = [
+interface FAQStep {
+	title: string;
+	description: string;
+	href?: string;
+	linkLabel?: string;
+}
+
+interface FAQ {
+	id?: string;
+	question: string;
+	answer: string;
+	steps?: FAQStep[];
+}
+
+const faqs: FAQ[] = [
 	{
 		question: "Is DBcooper free?",
 		answer: "Yes — completely free and open source. The full source lives on GitHub under the MIT license.",
 	},
 	{
 		question: "Which databases are supported?",
-		answer: "PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, and ClickHouse today. More engines are planned for future releases.",
+		answer: "PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1 today. More engines are planned for future releases.",
+	},
+	{
+		id: "cloudflare-d1-setup",
+		question: "How do I connect to Cloudflare D1?",
+		answer: "DBcooper needs a Cloudflare Account ID and a scoped API token. D1 uses Cloudflare's HTTPS API, so SSH tunnels are not used.",
+		steps: [
+			{
+				title: "Copy your Account ID.",
+				description: "Open Account home in the Cloudflare dashboard, find the account, open its menu, and choose Copy account ID.",
+				href: "https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/",
+				linkLabel: "Account ID guide",
+			},
+			{
+				title: "Create a custom API token.",
+				description: "Go to My Profile, API Tokens, Create Token, then Create Custom Token. Choose Account, D1, and Read for browsing, or Edit if DBcooper should create tables or change rows. Scope the token to the account you copied.",
+				href: "https://developers.cloudflare.com/fundamentals/api/get-started/create-token/",
+				linkLabel: "API token guide",
+			},
+			{
+				title: "Copy the token immediately.",
+				description: "Cloudflare shows the token secret only once. Store it securely, then paste it and the Account ID into DBcooper, select Load databases, and choose a database from the list.",
+			},
+		],
 	},
 	{
 		question: "Can DBcooper create a local database for me?",
@@ -22,7 +59,7 @@ const faqs = [
 	},
 	{
 		question: "Is my data secure?",
-		answer: "Absolutely. DBcooper runs entirely on your machine — connection credentials and query results never leave your computer, and there's no telemetry.",
+		answer: "DBcooper has no telemetry. Connection credentials stay in its local application store and are sent only to the database service you configure when DBcooper connects.",
 	},
 	{
 		question: "How do I report bugs or request features?",
@@ -40,7 +77,7 @@ const faqs = [
 
 		<div class="faq-list">
 			{faqs.map((faq, index) => (
-				<details class="faq-item" open={index === 0}>
+				<details id={faq.id} class="faq-item" open={index === 0 || faq.id === "cloudflare-d1-setup"}>
 					<summary>
 						<span class="faq-index">{String(index + 1).padStart(2, "0")}</span>
 						<span class="faq-question">{faq.question}</span>
@@ -50,7 +87,23 @@ const faqs = [
 							</svg>
 						</span>
 					</summary>
-					<p class="faq-answer">{faq.answer}</p>
+					<div class="faq-answer">
+						<p>{faq.answer}</p>
+						{faq.steps && (
+							<ol class="faq-steps">
+								{faq.steps.map((step) => (
+									<li>
+										<strong>{step.title}</strong> {step.description}{" "}
+										{step.href && step.linkLabel && (
+											<a href={step.href} target="_blank" rel="noreferrer">
+												{step.linkLabel} ↗
+											</a>
+										)}
+									</li>
+								))}
+							</ol>
+						)}
+					</div>
 				</details>
 			))}
 		</div>
@@ -89,6 +142,10 @@ const faqs = [
 
 	.faq-item[open] {
 		background: var(--cyan-wash);
+	}
+
+	.faq-item:target {
+		scroll-margin-top: 6rem;
 	}
 
 	.faq-item summary {
@@ -141,6 +198,27 @@ const faqs = [
 		color: var(--ink-soft);
 		font-size: 0.92rem;
 		line-height: 1.7;
+	}
+
+	.faq-answer > p {
+		margin: 0;
+	}
+
+	.faq-steps {
+		display: grid;
+		gap: 0.75rem;
+		margin: 1rem 0 0;
+		padding-left: 1.25rem;
+	}
+
+	.faq-steps a {
+		color: var(--cyan);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+	}
+
+	.faq-steps a:hover {
+		color: var(--ink);
 	}
 
 	@media (max-width: 900px) {

@@ -1,12 +1,13 @@
 use super::clickhouse::ClickhouseDriver;
+use super::d1::D1Driver;
 use super::duckdb::DuckDbDriver;
 use super::mysql::MysqlDriver;
 use super::postgres::PostgresDriver;
 use super::redis::RedisDriver;
 use super::sqlite::SqliteDriver;
 use super::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, DatabaseType, DuckDbConfig, MysqlConfig,
-    MysqlFlavor, PostgresConfig, RedisConfig, SqliteConfig,
+    ClickhouseConfig, ClickhouseProtocol, D1Config, DatabaseDriver, DatabaseType, DuckDbConfig,
+    MysqlConfig, MysqlFlavor, PostgresConfig, RedisConfig, SqliteConfig,
 };
 use crate::ssh_tunnel::SshTunnel;
 
@@ -52,6 +53,9 @@ pub async fn create_driver_with_ssh(
     config: &DriverConfig,
 ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
     let engine = config.engine()?;
+    if engine == DatabaseType::D1 && config.ssh_enabled {
+        return Err("SSH tunnels are not supported for Cloudflare D1".to_string());
+    }
     let ssh_enabled =
         config.ssh_enabled && !matches!(engine, DatabaseType::Sqlite | DatabaseType::DuckDb);
     let (host, port, tunnel) = if ssh_enabled {
@@ -166,12 +170,17 @@ fn build_driver(
             protocol: ClickhouseProtocol::Http,
             ssl: config.ssl.unwrap_or(false),
         }))),
+        DatabaseType::D1 => Ok(Box::new(D1Driver::new(D1Config {
+            account_id: config.username.clone().unwrap_or_default(),
+            database_id: config.database.clone().unwrap_or_default(),
+            api_token: config.password.clone().unwrap_or_default(),
+        }))),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{create_driver, DriverConfig};
+    use super::{create_driver, create_driver_with_ssh, DriverConfig};
 
     fn config(db_type: &str) -> DriverConfig {
         DriverConfig {
@@ -203,6 +212,7 @@ mod tests {
             "duckdb",
             "redis",
             "clickhouse",
+            "d1",
         ] {
             assert!(create_driver(&config(db_type)).is_ok(), "{db_type}");
         }
@@ -213,6 +223,17 @@ mod tests {
         assert_eq!(
             create_driver(&config("unknown")).err().unwrap(),
             "Unsupported database type: unknown"
+        );
+    }
+
+    #[tokio::test]
+    async fn d1_rejects_ssh_before_opening_a_tunnel() {
+        let mut config = config("d1");
+        config.ssh_enabled = true;
+
+        assert_eq!(
+            create_driver_with_ssh(&config).await.err().unwrap(),
+            "SSH tunnels are not supported for Cloudflare D1"
         );
     }
 }

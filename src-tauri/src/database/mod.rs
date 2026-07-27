@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 pub mod clickhouse;
 pub mod create_table;
+pub mod d1;
 pub mod driver_factory;
 pub mod duckdb;
 pub mod filter;
@@ -304,6 +305,8 @@ pub struct DuckDbConfig {
     pub file_path: String,
 }
 
+pub use d1::D1Config;
+
 /// Configuration for Redis connections
 #[derive(Clone)]
 pub struct RedisConfig {
@@ -328,6 +331,7 @@ pub enum DatabaseType {
     DuckDb,
     Redis,
     Clickhouse,
+    D1,
 }
 
 impl DatabaseType {
@@ -340,6 +344,7 @@ impl DatabaseType {
             Self::DuckDb => "duckdb",
             Self::Redis => "redis",
             Self::Clickhouse => "clickhouse",
+            Self::D1 => "d1",
         }
     }
 
@@ -349,7 +354,16 @@ impl DatabaseType {
             Self::Mysql | Self::Mariadb => 3306,
             Self::Redis => 6379,
             Self::Clickhouse => 8123,
+            Self::D1 => 443,
         }
+    }
+
+    pub fn qualifies_tables_with_schema(self) -> bool {
+        !matches!(self, Self::Sqlite | Self::D1)
+    }
+
+    pub fn replays_failed_reads_after_reconnect(self) -> bool {
+        self != Self::D1
     }
 }
 
@@ -365,6 +379,7 @@ impl TryFrom<&str> for DatabaseType {
             "duckdb" => Ok(Self::DuckDb),
             "redis" => Ok(Self::Redis),
             "clickhouse" => Ok(Self::Clickhouse),
+            "d1" | "cloudflare-d1" => Ok(Self::D1),
             _ => Err(format!("Unsupported database type: {value}")),
         }
     }
@@ -403,6 +418,17 @@ mod database_type_tests {
         assert_eq!(DatabaseType::Mariadb.default_port(), 3306);
         assert_eq!(DatabaseType::Redis.default_port(), 6379);
         assert_eq!(DatabaseType::Clickhouse.default_port(), 8123);
+        assert_eq!(DatabaseType::D1.default_port(), 443);
+    }
+
+    #[test]
+    fn owns_schema_qualification_and_replay_capabilities() {
+        assert!(!DatabaseType::Sqlite.qualifies_tables_with_schema());
+        assert!(!DatabaseType::D1.qualifies_tables_with_schema());
+        assert!(DatabaseType::Postgres.qualifies_tables_with_schema());
+
+        assert!(!DatabaseType::D1.replays_failed_reads_after_reconnect());
+        assert!(DatabaseType::Postgres.replays_failed_reads_after_reconnect());
     }
 
     #[test]

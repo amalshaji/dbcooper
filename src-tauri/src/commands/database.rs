@@ -3,6 +3,7 @@
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
 //! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
+use crate::database::d1::{list_databases, D1DatabaseList};
 use crate::database::driver_factory::{
     create_driver as build_driver, create_driver_with_ssh as build_driver_with_ssh, DriverConfig,
 };
@@ -11,7 +12,7 @@ use crate::database::sql_policy::{
     ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
     validate_raw_sql_value,
 };
-use crate::database::{DatabaseDriver, RedisConfig};
+use crate::database::{DatabaseDriver, DatabaseType, RedisConfig};
 use crate::db::models::{
     Connection, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure,
     TestConnectionResult,
@@ -112,6 +113,28 @@ fn create_driver(
         ssh_key_path: None,
         ssh_use_key: false,
     })
+}
+
+fn table_reference(db_type: &str, schema: &str, table: &str) -> Result<String, String> {
+    let engine = DatabaseType::try_from(db_type)?;
+    if engine.qualifies_tables_with_schema() {
+        Ok(format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(schema),
+            escape_sql_identifier(table)
+        ))
+    } else {
+        Ok(format!("\"{}\"", escape_sql_identifier(table)))
+    }
+}
+
+#[tauri::command]
+pub async fn d1_list_databases(
+    account_id: String,
+    api_token: String,
+    page: Option<u32>,
+) -> Result<D1DatabaseList, String> {
+    list_databases(&account_id, &api_token, page.unwrap_or(1)).await
 }
 
 #[tauri::command]
@@ -309,15 +332,7 @@ pub async fn update_table_row(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build SET clause
     let set_parts: Vec<String> = updates
@@ -379,15 +394,7 @@ pub async fn update_table_row_with_raw_sql(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the updates array
     let mut set_parts: Vec<String> = Vec::new();
@@ -476,15 +483,7 @@ pub async fn delete_table_row(
     )?;
 
     // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build WHERE clause for primary key
     let where_parts: Vec<String> = primary_key_columns
@@ -527,15 +526,7 @@ pub async fn insert_table_row(
     )?;
 
     // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the values array
     // Each value should be an object with: column, value, isRawSql

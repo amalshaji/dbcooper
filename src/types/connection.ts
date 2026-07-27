@@ -5,7 +5,8 @@ export type ConnectionType =
 	| "sqlite"
 	| "duckdb"
 	| "redis"
-	| "clickhouse";
+	| "clickhouse"
+	| "d1";
 
 export interface Connection {
 	id: number;

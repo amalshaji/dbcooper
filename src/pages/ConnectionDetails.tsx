@@ -46,6 +46,8 @@ import { toast } from "sonner";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
+import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
 import { MariadbIcon } from "@/components/icons/mariadb";
@@ -2501,6 +2503,8 @@ export function ConnectionDetails() {
 				return <RedisIcon className="size-8" />;
 			case "clickhouse":
 				return <ClickhouseIcon className="size-8" />;
+			case "d1":
+				return <CloudflareIcon className="h-4 w-8" />;
 			default:
 				return <Database className="size-8" />;
 		}
@@ -4096,7 +4100,7 @@ export function ConnectionDetails() {
 					<div className="text-xs text-muted-foreground mt-1">
 						{connection.db_type === "duckdb"
 							? connection.file_path
-							: connection.database}
+							: getConnectionDatabaseDisplay(connection)}
 					</div>
 				</SidebarHeader>
 				<SidebarContent className="overflow-hidden p-2">
@@ -4358,6 +4362,7 @@ export function ConnectionDetails() {
 							| "sqlite"
 							| "duckdb"
 							| "clickhouse"
+							| "d1"
 					}
 					onSave={handleSaveRow}
 					onDelete={handleDeleteRow}
@@ -4381,6 +4386,7 @@ export function ConnectionDetails() {
 							| "sqlite"
 							| "duckdb"
 							| "clickhouse"
+							| "d1"
 					}
 					onInsert={handleInsertRow}
 					inserting={insertingRow}

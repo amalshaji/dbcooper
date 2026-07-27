@@ -22,7 +22,7 @@ const ogMarkup = `
   <text x="178" y="122" fill="#f6f1e8" font-family="Arial, Helvetica, sans-serif" font-size="40" font-weight="700">DBcooper</text>
   <text x="78" y="267" fill="#f6f1e8" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="700" letter-spacing="-3">Talk to your</text>
   <text x="78" y="351" fill="#45c9e8" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="700" letter-spacing="-3">databases</text>
-  <text x="78" y="422" fill="#a2b5bd" font-family="Menlo, Consolas, monospace" font-size="19">PostgreSQL  ·  MySQL  ·  MariaDB  ·  SQLite  ·  DuckDB  ·  Redis  ·  ClickHouse</text>
+  <text x="78" y="422" fill="#a2b5bd" font-family="Menlo, Consolas, monospace" font-size="16">PostgreSQL  ·  MySQL  ·  MariaDB  ·  SQLite  ·  DuckDB  ·  Redis  ·  ClickHouse  ·  Cloudflare D1</text>
   <text x="78" y="552" fill="#617e8a" font-family="Menlo, Consolas, monospace" font-size="19">Native macOS database client</text>
   <text x="1122" y="552" text-anchor="end" fill="#ff7569" font-family="Menlo, Consolas, monospace" font-size="19">Free &amp; open source</text>
 </svg>`;

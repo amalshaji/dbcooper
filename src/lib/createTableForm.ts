@@ -74,7 +74,7 @@ export function createInitialTableDraft(
 ): CreateTableDraft {
 	return {
 		schema:
-			dbType === "sqlite"
+			dbType === "sqlite" || dbType === "d1"
 				? getDefaultSchema(dbType)
 				: initialSchema || getDefaultSchema(dbType),
 		tableName: "",
@@ -102,8 +102,8 @@ export function getCreateTableValidationError(
 	if (!IDENTIFIER_PATTERN.test(schema)) {
 		return "Schema name must use lowercase letters, numbers, and underscores";
 	}
-	if (dbType === "sqlite" && schema !== "main") {
-		return "SQLite tables must be created in the main schema";
+	if ((dbType === "sqlite" || dbType === "d1") && schema !== "main") {
+		return `${getDatabaseLabel(dbType)} tables must be created in the main schema`;
 	}
 	if (!tableName) return "Table name is required";
 	if (!IDENTIFIER_PATTERN.test(tableName)) {
