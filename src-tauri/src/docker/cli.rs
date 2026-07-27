@@ -1,5 +1,5 @@
 use super::model::{
-    detect_engines, DockerContainerSummary, DockerDatabaseEngine, CONNECTION_LABEL_KEY,
+    detect_engine, DockerContainerSummary, DockerDatabaseEngine, CONNECTION_LABEL_KEY,
     MANAGED_LABEL_KEY,
 };
 use serde::Deserialize;
@@ -207,16 +207,13 @@ pub(crate) async fn list_containers() -> Result<Vec<DockerContainerSummary>, Str
             let row: ContainerListRow = serde_json::from_str(line)
                 .map_err(|error| format!("Docker returned invalid container data: {error}"))?;
             let ports = container_ports(&row.ports);
-            let possible_engines = detect_engines(&row.image, &ports);
-            let engine = (possible_engines.len() == 1).then(|| possible_engines[0]);
+            let detection = detect_engine(&row.image, &ports);
             Ok(DockerContainerSummary {
                 id: row.id,
                 name: row.name,
                 image: row.image,
                 state: row.state,
-                compatible: !possible_engines.is_empty(),
-                engine,
-                possible_engines,
+                detection,
             })
         })
         .collect()

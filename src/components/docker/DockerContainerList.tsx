@@ -10,7 +10,9 @@ export function DockerContainerList({
 	containers,
 	onSelect,
 }: DockerContainerListProps) {
-	const compatible = containers.filter((container) => container.compatible);
+	const compatible = containers.filter(
+		(container) => container.detection.status !== "unsupported",
+	);
 	if (compatible.length === 0) {
 		return (
 			<p className="rounded-lg border p-4 text-sm text-muted-foreground">

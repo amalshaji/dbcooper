@@ -139,9 +139,35 @@ pub struct DockerContainerSummary {
     pub name: String,
     pub image: String,
     pub state: String,
-    pub engine: Option<DockerDatabaseEngine>,
-    pub compatible: bool,
-    pub possible_engines: Vec<DockerDatabaseEngine>,
+    pub detection: DockerEngineDetection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DockerEngineDetection {
+    Unsupported,
+    Detected { engine: DockerDatabaseEngine },
+    Ambiguous { engines: [DockerDatabaseEngine; 2] },
+}
+
+impl DockerEngineDetection {
+    pub(crate) fn resolve(
+        &self,
+        selected: Option<DockerDatabaseEngine>,
+    ) -> Result<DockerDatabaseEngine, String> {
+        match (self, selected) {
+            (Self::Detected { engine }, None) => Ok(*engine),
+            (Self::Detected { engine }, Some(selected)) if selected == *engine => Ok(*engine),
+            (Self::Ambiguous { engines }, Some(selected)) if engines.contains(&selected) => {
+                Ok(selected)
+            }
+            (Self::Unsupported, _) => Err("This container is not a supported database".to_string()),
+            (Self::Ambiguous { .. }, None) => {
+                Err("Choose whether this port 3306 container is MySQL or MariaDB".to_string())
+            }
+            _ => Err("The selected database type does not match the container".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,29 +360,35 @@ impl ManagedDatabasePlan {
     }
 }
 
-pub(crate) fn detect_engines(image: &str, ports: &[i64]) -> Vec<DockerDatabaseEngine> {
+pub(crate) fn detect_engine(image: &str, ports: &[i64]) -> DockerEngineDetection {
     let image = image.to_ascii_lowercase();
     if image.contains("mariadb") {
-        vec![DockerDatabaseEngine::Mariadb]
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Mariadb,
+        }
     } else if image.contains("mysql") {
-        vec![DockerDatabaseEngine::Mysql]
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Mysql,
+        }
     } else if image.contains("postgres") || ports.contains(&5432) {
-        vec![DockerDatabaseEngine::Postgres]
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Postgres,
+        }
     } else if image.contains("redis") || ports.contains(&6379) {
-        vec![DockerDatabaseEngine::Redis]
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Redis,
+        }
     } else if image.contains("clickhouse") || ports.contains(&8123) {
-        vec![DockerDatabaseEngine::Clickhouse]
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Clickhouse,
+        }
     } else if ports.contains(&3306) {
-        vec![DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb]
+        DockerEngineDetection::Ambiguous {
+            engines: [DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb],
+        }
     } else {
-        vec![]
+        DockerEngineDetection::Unsupported
     }
-}
-
-#[cfg(test)]
-fn detect_engine(image: &str, ports: &[i64]) -> Option<DockerDatabaseEngine> {
-    let engines = detect_engines(image, ports);
-    (engines.len() == 1).then(|| engines[0])
 }
 
 fn encode_component(value: &str) -> String {
@@ -480,25 +512,53 @@ mod tests {
     fn detects_supported_engines_by_image_or_internal_port() {
         assert_eq!(
             detect_engine("postgres:17-alpine", &[]),
-            Some(DockerDatabaseEngine::Postgres)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Postgres
+            }
         );
         assert_eq!(
             detect_engine("my-company/database", &[6379]),
-            Some(DockerDatabaseEngine::Redis)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Redis
+            }
         );
         assert_eq!(
             detect_engine("clickhouse/clickhouse-server:25.8-alpine", &[]),
-            Some(DockerDatabaseEngine::Clickhouse)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Clickhouse
+            }
         );
         assert_eq!(
             detect_engine("my-company/analytics", &[8123]),
-            Some(DockerDatabaseEngine::Clickhouse)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Clickhouse
+            }
         );
-        assert_eq!(detect_engine("nginx:alpine", &[80]), None);
         assert_eq!(
-            detect_engines("company/database", &[3306]),
-            vec![DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb]
+            detect_engine("nginx:alpine", &[80]),
+            DockerEngineDetection::Unsupported
         );
+        assert_eq!(
+            detect_engine("company/database", &[3306]),
+            DockerEngineDetection::Ambiguous {
+                engines: [DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb]
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_only_engines_allowed_by_the_detection_state() {
+        let ambiguous = detect_engine("company/database", &[3306]);
+        assert_eq!(
+            ambiguous.resolve(Some(DockerDatabaseEngine::Mariadb)),
+            Ok(DockerDatabaseEngine::Mariadb)
+        );
+        assert!(ambiguous.resolve(None).is_err());
+
+        let detected = detect_engine("mysql:8.4", &[]);
+        assert!(detected
+            .resolve(Some(DockerDatabaseEngine::Postgres))
+            .is_err());
     }
 
     #[test]
