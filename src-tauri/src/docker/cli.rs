@@ -29,11 +29,15 @@ struct ContainerListRow {
 pub(crate) struct ContainerConfig {
     #[serde(rename = "Image", default)]
     pub(crate) image: String,
-    #[serde(rename = "Env", default)]
+    #[serde(rename = "Env", default, deserialize_with = "deserialize_null_default")]
     pub(crate) env: Vec<String>,
     #[serde(rename = "Cmd", default, deserialize_with = "deserialize_null_default")]
     pub(crate) command: Vec<String>,
-    #[serde(rename = "Labels", default)]
+    #[serde(
+        rename = "Labels",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     pub(crate) labels: HashMap<String, String>,
 }
 
@@ -59,13 +63,21 @@ pub(crate) struct PortBinding {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct NetworkSettings {
-    #[serde(rename = "Ports", default)]
+    #[serde(
+        rename = "Ports",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     ports: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ContainerHostConfig {
-    #[serde(rename = "PortBindings", default)]
+    #[serde(
+        rename = "PortBindings",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
@@ -438,15 +450,19 @@ mod tests {
     }
 
     #[test]
-    fn treats_null_container_command_as_empty() {
+    fn treats_null_docker_collections_as_empty() {
         let inspect: ContainerInspect = serde_json::from_str(
             r#"{
-                "Config": { "Cmd": null }
+                "Config": { "Env": null, "Cmd": null, "Labels": null },
+                "HostConfig": { "PortBindings": null },
+                "NetworkSettings": { "Ports": null }
             }"#,
         )
         .unwrap();
 
         assert_eq!(inspect.command_option("--requirepass"), "");
+        assert!(inspect.env().is_empty());
+        assert!(inspect.exposed_ports().is_empty());
     }
 
     #[test]
