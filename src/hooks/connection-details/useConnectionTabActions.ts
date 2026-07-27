@@ -10,13 +10,13 @@ import {
 import { createCellFilter } from "@/lib/resultFilters";
 import { normalizeColumnLayout } from "@/lib/savedViews";
 import { api } from "@/lib/tauri";
+import type { DispatchTabPatch } from "@/lib/connection-details/tabState";
 import {
 	createFunctionDefinitionTab,
 	createQueryTab,
 	createSchemaVisualizerTab,
 	createTableDataTab,
 	createTableStructureTab,
-	type ForeignKeyInfo,
 	type FunctionDefinitionTab,
 	type FunctionSummary,
 	formatFunctionSignature,
@@ -24,11 +24,8 @@ import {
 	type Tab,
 	type TableColumn,
 	type TableDataTab,
-	type TableStructureData,
 	type TableStructureTab,
 } from "@/types/tabTypes";
-
-type UpdateTab = <T extends Tab>(tabId: string, updates: Partial<T>) => void;
 
 export interface UseConnectionTabActionsOptions {
 	uuid: string | undefined;
@@ -37,7 +34,7 @@ export interface UseConnectionTabActionsOptions {
 	activeTabId: string | null;
 	setActiveTabId: Dispatch<SetStateAction<string | null>>;
 	schemaOverview: SchemaOverview | null;
-	updateTab: UpdateTab;
+	patchTab: DispatchTabPatch;
 	fetchTableData: (tab: TableDataTab) => Promise<void>;
 	cancelTabGeneration: (tabId: string) => void;
 }
@@ -49,7 +46,7 @@ export function useConnectionTabActions({
 	activeTabId,
 	setActiveTabId,
 	schemaOverview,
-	updateTab,
+	patchTab,
 	fetchTableData,
 	cancelTabGeneration,
 }: UseConnectionTabActionsOptions) {
@@ -57,7 +54,11 @@ export function useConnectionTabActions({
 		async (tab: TableStructureTab) => {
 			if (!uuid) return;
 
-			updateTab<TableStructureTab>(tab.id, { loading: true });
+			patchTab({
+				type: "table-structure",
+				tabId: tab.id,
+				changes: { loading: true },
+			});
 
 			try {
 				const [schema, tableName] = tab.tableName.split(".");
@@ -69,13 +70,17 @@ export function useConnectionTabActions({
 					);
 
 					if (tableData) {
-						updateTab<TableStructureTab>(tab.id, {
-							structure: {
-								columns: tableData.columns,
-								indexes: tableData.indexes,
-								foreign_keys: tableData.foreign_keys,
-							} as TableStructureData,
-							loading: false,
+						patchTab({
+							type: "table-structure",
+							tabId: tab.id,
+							changes: {
+								structure: {
+									columns: tableData.columns,
+									indexes: tableData.indexes,
+									foreign_keys: tableData.foreign_keys,
+								},
+								loading: false,
+							},
 						});
 						return;
 					}
@@ -83,28 +88,31 @@ export function useConnectionTabActions({
 
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
 
-				updateTab<TableStructureTab>(tab.id, {
-					structure: data as TableStructureData,
-					loading: false,
+				patchTab({
+					type: "table-structure",
+					tabId: tab.id,
+					changes: { structure: data, loading: false },
 				});
 			} catch (error) {
 				console.error("Failed to fetch table structure:", error);
-				updateTab<TableStructureTab>(tab.id, {
-					structure: null,
-					loading: false,
+				patchTab({
+					type: "table-structure",
+					tabId: tab.id,
+					changes: { structure: null, loading: false },
 				});
 			}
 		},
-		[uuid, updateTab, schemaOverview],
+		[uuid, patchTab, schemaOverview],
 	);
 
 	const fetchFunctionDefinition = useCallback(
 		async (tab: FunctionDefinitionTab) => {
 			if (!uuid) return;
 
-			updateTab<FunctionDefinitionTab>(tab.id, {
-				loading: true,
-				error: null,
+			patchTab({
+				type: "function-definition",
+				tabId: tab.id,
+				changes: { loading: true, error: null },
 			});
 
 			try {
@@ -115,23 +123,23 @@ export function useConnectionTabActions({
 					tab.functionSummary.identity_args,
 				);
 
-				updateTab<FunctionDefinitionTab>(tab.id, {
-					definition,
-					loading: false,
-					error: null,
+				patchTab({
+					type: "function-definition",
+					tabId: tab.id,
+					changes: { definition, loading: false, error: null },
 				});
 			} catch (error) {
 				console.error("Failed to fetch function definition:", error);
 				const errorMessage =
 					error instanceof Error ? error.message : String(error);
-				updateTab<FunctionDefinitionTab>(tab.id, {
-					definition: null,
-					loading: false,
-					error: errorMessage,
+				patchTab({
+					type: "function-definition",
+					tabId: tab.id,
+					changes: { definition: null, loading: false, error: errorMessage },
 				});
 			}
 		},
-		[uuid, updateTab],
+		[uuid, patchTab],
 	);
 
 	const fetchForeignKeys = useCallback(
@@ -149,33 +157,41 @@ export function useConnectionTabActions({
 
 					if (tableData) {
 						const columns = tableData.columns || [];
-						updateTab<TableDataTab>(tab.id, {
-							foreignKeys: tableData.foreign_keys || [],
-							columns,
-							columnLayout: normalizeColumnLayout(
-								tab.columnLayout,
-								columns.map((column) => column.name),
-							),
+						patchTab({
+							type: "table-data",
+							tabId: tab.id,
+							changes: {
+								foreignKeys: tableData.foreign_keys || [],
+								columns,
+								columnLayout: normalizeColumnLayout(
+									tab.columnLayout,
+									columns.map((column) => column.name),
+								),
+							},
 						});
 						return;
 					}
 				}
 
 				const data = await api.pool.getTableStructure(uuid, schema, tableName);
-				const columns = (data.columns as TableColumn[]) || [];
-				updateTab<TableDataTab>(tab.id, {
-					foreignKeys: (data.foreign_keys as ForeignKeyInfo[]) || [],
-					columns,
-					columnLayout: normalizeColumnLayout(
-						tab.columnLayout,
-						columns.map((column) => column.name),
-					),
+				const columns: TableColumn[] = data.columns || [];
+				patchTab({
+					type: "table-data",
+					tabId: tab.id,
+					changes: {
+						foreignKeys: data.foreign_keys || [],
+						columns,
+						columnLayout: normalizeColumnLayout(
+							tab.columnLayout,
+							columns.map((column) => column.name),
+						),
+					},
 				});
 			} catch (error) {
 				console.error("Failed to fetch foreign keys:", error);
 			}
 		},
-		[uuid, updateTab, schemaOverview],
+		[uuid, patchTab, schemaOverview],
 	);
 
 	const handleOpenTableData = useCallback(

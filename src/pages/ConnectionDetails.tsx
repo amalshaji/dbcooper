@@ -91,6 +91,10 @@ import {
 	hasUnappliedFilterDraft,
 } from "@/lib/savedViews";
 import { supportsStructuredRowMutations } from "@/lib/databaseCapabilities";
+import {
+	applyTabPatch,
+	type DispatchTabPatch,
+} from "@/lib/connection-details/tabState";
 
 const SchemaVisualizer = lazy(() =>
 	import("@/components/SchemaVisualizer").then((module) => ({
@@ -192,18 +196,18 @@ export function ConnectionDetails() {
 
 	const createTableDbType = getCreateTableDbType(connection?.db_type);
 
-	const updateTab = useCallback(
-		<T extends Tab>(tabId: string, updates: Partial<T>) => {
-			setTabs((prev) =>
-				prev.map((t) => (t.id === tabId ? { ...t, ...updates } : t)),
-			);
-		},
-		[],
-	);
+	const patchTab = useCallback<DispatchTabPatch>((patch) => {
+		setTabs((previous) => applyTabPatch(previous, patch));
+	}, []);
 	const updateTableDataTab = useCallback(
-		(id: string, updates: Partial<TableDataTab>) =>
-			updateTab<TableDataTab>(id, updates),
-		[updateTab],
+		(tabId: string, changes: Partial<Omit<TableDataTab, "id" | "type">>) =>
+			patchTab({ type: "table-data", tabId, changes }),
+		[patchTab],
+	);
+	const updateQueryTab = useCallback(
+		(tabId: string, changes: Partial<Omit<QueryTab, "id" | "type">>) =>
+			patchTab({ type: "query", tabId, changes }),
+		[patchTab],
 	);
 	const {
 		fetchTableData,
@@ -260,7 +264,7 @@ export function ConnectionDetails() {
 		activeTabId,
 		setActiveTabId,
 		schemaOverview,
-		updateTab,
+		patchTab,
 		fetchTableData,
 		cancelTabGeneration,
 	});
@@ -293,7 +297,7 @@ export function ConnectionDetails() {
 		uuid,
 		connection,
 		activeTab,
-		updateTab,
+		updateQueryTab,
 		savedQueries,
 		setSavedQueries,
 		recordHistory,
@@ -403,7 +407,7 @@ export function ConnectionDetails() {
 	// Memoized columns for query results
 	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!activeTab || activeTab.type !== "query") return [];
-		const tab = activeTab as QueryTab;
+		const tab = activeTab;
 		if (!tab.results || tab.results.length === 0) return [];
 
 		const firstRow = tab.results[0];
@@ -470,7 +474,7 @@ export function ConnectionDetails() {
 									tab.filterState.applied,
 								)}
 								onActiveViewChange={(savedViewId) =>
-									updateTab<TableDataTab>(tab.id, { savedViewId })
+									updateTableDataTab(tab.id, { savedViewId })
 								}
 								onApply={handleApplySavedView}
 							/>
@@ -478,7 +482,7 @@ export function ConnectionDetails() {
 								columns={tab.columns.map((column) => column.name)}
 								layout={tab.columnLayout}
 								onChange={(columnLayout) =>
-									updateTab<TableDataTab>(tab.id, { columnLayout })
+									updateTableDataTab(tab.id, { columnLayout })
 								}
 							/>
 							{connection &&
@@ -536,8 +540,8 @@ export function ConnectionDetails() {
 						onRowClick={handleRowClick}
 						onCellFilter={handleCellFilter}
 						onSortChange={handleSortChange}
-						onColumnLayoutChange={(columnLayout) =>
-							updateTab<TableDataTab>(tab.id, { columnLayout })
+							onColumnLayoutChange={(columnLayout) =>
+								updateTableDataTab(tab.id, { columnLayout })
 						}
 					/>
 				</CardContent>
@@ -606,11 +610,19 @@ export function ConnectionDetails() {
 					onTableClick={handleOpenTableData}
 					tableFilter={tab.tableFilter}
 					onTableFilterChange={(filter) => {
-						updateTab<SchemaVisualizerTab>(tab.id, { tableFilter: filter });
+						patchTab({
+							type: "schema-visualizer",
+							tabId: tab.id,
+							changes: { tableFilter: filter },
+						});
 					}}
 					selectedTables={tab.selectedTables}
 					onSelectedTablesChange={(tables) => {
-						updateTab<SchemaVisualizerTab>(tab.id, { selectedTables: tables });
+						patchTab({
+							type: "schema-visualizer",
+							tabId: tab.id,
+							changes: { selectedTables: tables },
+						});
 					}}
 				/>
 			</Suspense>
@@ -626,17 +638,15 @@ export function ConnectionDetails() {
 
 		switch (activeTab.type) {
 			case "table-data":
-				return renderTableDataContent(activeTab as TableDataTab);
+				return renderTableDataContent(activeTab);
 			case "table-structure":
-				return renderTableStructureContent(activeTab as TableStructureTab);
+				return renderTableStructureContent(activeTab);
 			case "query":
-				return renderQueryContent(activeTab as QueryTab);
+				return renderQueryContent(activeTab);
 			case "schema-visualizer":
-				return renderSchemaVisualizerContent(activeTab as SchemaVisualizerTab);
+				return renderSchemaVisualizerContent(activeTab);
 			case "function-definition":
-				return renderFunctionDefinitionContent(
-					activeTab as FunctionDefinitionTab,
-				);
+				return renderFunctionDefinitionContent(activeTab);
 			default:
 				return renderEmptyState();
 		}
@@ -722,9 +732,7 @@ export function ConnectionDetails() {
 								onRunQueryForTable={handleRunQueryForTable}
 								onOpenTableStructure={handleOpenTableStructure}
 								onOpenFunctionDefinition={handleOpenFunctionDefinition}
-								activeQueryTab={
-									activeTab?.type === "query" ? (activeTab as QueryTab) : null
-								}
+								activeQueryTab={activeTab?.type === "query" ? activeTab : null}
 								onInsertQueryText={handleInsertQueryText}
 								createTable={
 									uuid && createTableDbType
@@ -822,17 +830,10 @@ export function ConnectionDetails() {
 						setRowEditSheetOpen(open);
 						if (!open) setEditingRow(null);
 					}}
-					tableName={(activeTab as TableDataTab).tableName}
+					tableName={activeTab.tableName}
 					row={editingRow}
-					columns={(activeTab as TableDataTab).columns}
-					dbType={
-						(connection.db_type || "postgres") as
-							| "postgres"
-							| "sqlite"
-							| "duckdb"
-							| "clickhouse"
-							| "d1"
-					}
+					columns={activeTab.columns}
+					dbType={connection.type}
 					onSave={handleSaveRow}
 					onDelete={handleDeleteRow}
 					saving={savingRow}
@@ -847,16 +848,9 @@ export function ConnectionDetails() {
 					onOpenChange={(open) => {
 						setRowInsertSheetOpen(open);
 					}}
-					tableName={(activeTab as TableDataTab).tableName}
-					columns={(activeTab as TableDataTab).columns}
-					dbType={
-						(connection.db_type || "postgres") as
-							| "postgres"
-							| "sqlite"
-							| "duckdb"
-							| "clickhouse"
-							| "d1"
-					}
+					tableName={activeTab.tableName}
+					columns={activeTab.columns}
+					dbType={connection.type}
 					onInsert={handleInsertRow}
 					inserting={insertingRow}
 				/>

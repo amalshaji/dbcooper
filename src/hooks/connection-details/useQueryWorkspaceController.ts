@@ -15,13 +15,16 @@ import type { SavedQuery } from "@/types/savedQuery";
 import type { QueryTab, SortConfig, Tab } from "@/types/tabTypes";
 import type { HistoryRecordOptions } from "./useConnectionLifecycle";
 
-type UpdateTab = <T extends Tab>(tabId: string, updates: Partial<T>) => void;
+type UpdateQueryTab = (
+	tabId: string,
+	changes: Partial<Omit<QueryTab, "id" | "type">>,
+) => void;
 
 interface UseQueryWorkspaceControllerOptions {
 	uuid: string | undefined;
 	connection: Connection | null;
 	activeTab: Tab | null;
-	updateTab: UpdateTab;
+	updateQueryTab: UpdateQueryTab;
 	savedQueries: SavedQuery[];
 	setSavedQueries: (queries: SavedQuery[]) => void;
 	recordHistory: (query: string, options: HistoryRecordOptions) => void;
@@ -36,7 +39,7 @@ export function useQueryWorkspaceController({
 	uuid,
 	connection,
 	activeTab,
-	updateTab,
+	updateQueryTab,
 	savedQueries,
 	setSavedQueries,
 	recordHistory,
@@ -54,7 +57,7 @@ export function useQueryWorkspaceController({
 			if (!uuid) return;
 
 			if (!tab.resultBaseQuery) {
-				updateTab<QueryTab>(tab.id, { executing: false });
+				updateQueryTab(tab.id, { executing: false });
 				toast.error(
 					"Query-level filter/sort is available only for SELECT-style query results",
 				);
@@ -73,7 +76,7 @@ export function useQueryWorkspaceController({
 				const executionTime = result.time_taken_ms ?? 0;
 
 				if (result.error) {
-					updateTab<QueryTab>(tab.id, {
+					updateQueryTab(tab.id, {
 						error: result.error,
 						executionTime,
 						affectedRows: null,
@@ -82,7 +85,7 @@ export function useQueryWorkspaceController({
 					return;
 				}
 
-				updateTab<QueryTab>(tab.id, {
+				updateQueryTab(tab.id, {
 					results: result.data as Record<string, unknown>[],
 					success: true,
 					error: null,
@@ -93,7 +96,7 @@ export function useQueryWorkspaceController({
 					sort: nextSort,
 				});
 			} catch (error) {
-				updateTab<QueryTab>(tab.id, {
+				updateQueryTab(tab.id, {
 					error:
 						error instanceof Error
 							? error.message
@@ -104,20 +107,20 @@ export function useQueryWorkspaceController({
 				});
 			}
 		},
-		[uuid, updateTab, connection?.db_type, connection?.type],
+			[uuid, updateQueryTab, connection?.db_type, connection?.type],
 	);
 
 	const handleQueryFilterInputChange = useCallback(
 		(value: string) => {
 			if (activeTab?.type !== "query") return;
-			updateTab<QueryTab>(activeTab.id, { filterInput: value });
+			updateQueryTab(activeTab.id, { filterInput: value });
 		},
-		[activeTab, updateTab],
+		[activeTab, updateQueryTab],
 	);
 
 	const handleApplyQueryFilter = useCallback(() => {
 		if (activeTab?.type !== "query") return;
-		updateTab<QueryTab>(activeTab.id, {
+		updateQueryTab(activeTab.id, {
 			filter: activeTab.filterInput,
 			executing: true,
 			error: null,
@@ -127,30 +130,30 @@ export function useQueryWorkspaceController({
 			activeTab.filterInput,
 			activeTab.sort,
 		);
-	}, [activeTab, updateTab, runQueryResultViewQuery]);
+	}, [activeTab, updateQueryTab, runQueryResultViewQuery]);
 
 	const handleClearQueryFilter = useCallback(() => {
 		if (activeTab?.type !== "query") return;
-		updateTab<QueryTab>(activeTab.id, {
+		updateQueryTab(activeTab.id, {
 			filter: "",
 			filterInput: "",
 			executing: true,
 			error: null,
 		});
 		void runQueryResultViewQuery(activeTab, "", activeTab.sort);
-	}, [activeTab, updateTab, runQueryResultViewQuery]);
+	}, [activeTab, updateQueryTab, runQueryResultViewQuery]);
 
 	const handleQuerySortChange = useCallback(
 		(sort: SortConfig | null) => {
 			if (activeTab?.type !== "query") return;
-			updateTab<QueryTab>(activeTab.id, {
+			updateQueryTab(activeTab.id, {
 				sort,
 				executing: true,
 				error: null,
 			});
 			void runQueryResultViewQuery(activeTab, activeTab.filter, sort);
 		},
-		[activeTab, updateTab, runQueryResultViewQuery],
+		[activeTab, updateQueryTab, runQueryResultViewQuery],
 	);
 
 	const handleRunQuery = useCallback(async () => {
@@ -171,7 +174,7 @@ export function useQueryWorkspaceController({
 			return;
 		}
 
-		updateTab<QueryTab>(activeTab.id, {
+		updateQueryTab(activeTab.id, {
 			executing: true,
 			error: null,
 			results: null,
@@ -194,7 +197,7 @@ export function useQueryWorkspaceController({
 			const executionTime = result.time_taken_ms ?? 0;
 
 			if (result.error) {
-				updateTab<QueryTab>(activeTab.id, {
+				updateQueryTab(activeTab.id, {
 					error: result.error,
 					executionTime,
 					affectedRows: null,
@@ -208,7 +211,7 @@ export function useQueryWorkspaceController({
 				return;
 			}
 
-			updateTab<QueryTab>(activeTab.id, {
+			updateQueryTab(activeTab.id, {
 				results: result.data as Record<string, unknown>[],
 				success: true,
 				executionTime,
@@ -230,7 +233,7 @@ export function useQueryWorkspaceController({
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute query";
-			updateTab<QueryTab>(activeTab.id, {
+			updateQueryTab(activeTab.id, {
 				error: message,
 				executionTime: null,
 				affectedRows: null,
@@ -238,14 +241,14 @@ export function useQueryWorkspaceController({
 			});
 			recordHistory(queryToRun, { status: "error", error: message });
 		}
-	}, [activeTab, uuid, updateTab, cursorLine, cursorChar, recordHistory]);
+	}, [activeTab, uuid, updateQueryTab, cursorLine, cursorChar, recordHistory]);
 
 	const handleRunAllQueries = useCallback(async () => {
 		if (activeTab?.type !== "query" || !uuid || !activeTab.query.trim()) return;
 		const statements = parseSqlStatements(activeTab.query);
 		if (statements.length === 0) return;
 
-		updateTab<QueryTab>(activeTab.id, {
+		updateQueryTab(activeTab.id, {
 			executing: true,
 			error: null,
 			results: null,
@@ -299,7 +302,7 @@ export function useQueryWorkspaceController({
 				});
 			}
 
-			updateTab<QueryTab>(
+			updateQueryTab(
 				activeTab.id,
 				lastError
 					? {
@@ -321,7 +324,7 @@ export function useQueryWorkspaceController({
 						},
 			);
 		} catch (error) {
-			updateTab<QueryTab>(activeTab.id, {
+			updateQueryTab(activeTab.id, {
 				error:
 					error instanceof Error ? error.message : "Failed to execute queries",
 				executionTime: null,
@@ -329,14 +332,14 @@ export function useQueryWorkspaceController({
 				executing: false,
 			});
 		}
-	}, [activeTab, uuid, updateTab, recordHistory]);
+	}, [activeTab, uuid, updateQueryTab, recordHistory]);
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
 			if (activeTab?.type !== "query") return;
-			updateTab<QueryTab>(activeTab.id, { query });
+			updateQueryTab(activeTab.id, { query });
 		},
-		[activeTab, updateTab],
+		[activeTab, updateQueryTab],
 	);
 
 	const handleInsertQueryText = useCallback(
@@ -384,7 +387,7 @@ export function useQueryWorkspaceController({
 							: query,
 					),
 				);
-				updateTab<QueryTab>(activeTab.id, {
+				updateQueryTab(activeTab.id, {
 					savedQueryName: updatedQuery.name,
 					title: updatedQuery.name,
 				});
@@ -395,7 +398,7 @@ export function useQueryWorkspaceController({
 					query: activeTab.query,
 				});
 				setSavedQueries([newQuery as SavedQuery, ...savedQueries]);
-				updateTab<QueryTab>(activeTab.id, {
+				updateQueryTab(activeTab.id, {
 					savedQueryId: newQuery.id,
 					savedQueryName: newQuery.name,
 					title: newQuery.name,
