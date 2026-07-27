@@ -6,10 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
+use tokio::time::{Duration, Instant};
 
 const VERSION: &str = "1.5.5";
 const MAX_ARCHIVE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_EXECUTABLE_BYTES: u64 = 96 * 1024 * 1024;
+const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(50);
 const APP_IDENTIFIER: &str = "com.amalshaji.dbcooper";
 pub const PROGRESS_EVENT: &str = "duckdb-helper-progress";
 
@@ -162,6 +164,16 @@ fn emit_progress(
     );
 }
 
+fn should_emit_download_progress(
+    last_emit: Instant,
+    now: Instant,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+) -> bool {
+    total_bytes.is_some_and(|total| downloaded_bytes >= total)
+        || now.duration_since(last_emit) >= PROGRESS_EMIT_INTERVAL
+}
+
 async fn download_archive(app: &AppHandle, archive: &Archive) -> Result<Vec<u8>, String> {
     let response = reqwest::Client::new()
         .get(&archive.url)
@@ -175,15 +187,22 @@ async fn download_archive(app: &AppHandle, archive: &Archive) -> Result<Vec<u8>,
         return Err("DuckDB helper download exceeds the allowed size".to_string());
     }
 
+    emit_progress(app, "downloading", 0, total);
+
     let mut bytes = Vec::with_capacity(total.unwrap_or(0) as usize);
     let mut stream = response.bytes_stream();
+    let mut last_emit = Instant::now();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| format!("DuckDB helper download failed: {error}"))?;
         if bytes.len() + chunk.len() > MAX_ARCHIVE_BYTES {
             return Err("DuckDB helper download exceeds the allowed size".to_string());
         }
         bytes.extend_from_slice(&chunk);
-        emit_progress(app, "downloading", bytes.len() as u64, total);
+        let now = Instant::now();
+        if should_emit_download_progress(last_emit, now, bytes.len() as u64, total) {
+            emit_progress(app, "downloading", bytes.len() as u64, total);
+            last_emit = now;
+        }
     }
     Ok(bytes)
 }
@@ -303,5 +322,29 @@ mod tests {
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn throttles_chunk_updates_but_always_emits_completion() {
+        let start = Instant::now();
+
+        assert!(!should_emit_download_progress(
+            start,
+            start + Duration::from_millis(20),
+            10,
+            Some(100),
+        ));
+        assert!(should_emit_download_progress(
+            start,
+            start + Duration::from_millis(60),
+            20,
+            Some(100),
+        ));
+        assert!(should_emit_download_progress(
+            start,
+            start + Duration::from_millis(20),
+            100,
+            Some(100),
+        ));
     }
 }

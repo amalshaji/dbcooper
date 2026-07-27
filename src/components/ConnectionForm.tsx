@@ -32,6 +32,7 @@ import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { isFileDatabase } from "@/lib/databaseCapabilities";
 import {
 	ensureDuckDbHelper,
+	initialDuckDbHelperProgress,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
 } from "@/lib/duckdbHelper";
 import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
@@ -155,6 +156,7 @@ export function ConnectionForm({
 	}, [initialData, isOpen]);
 
 	const handleTypeChange = (type: ConnectionType) => {
+		setDuckDbHelperProgress(null);
 		setFormData({
 			...formData,
 			type,
@@ -167,6 +169,7 @@ export function ConnectionForm({
 		setIsTesting(true);
 		try {
 			if (formData.type === "duckdb") {
+				setDuckDbHelperProgress(initialDuckDbHelperProgress);
 				await ensureDuckDbHelper(setDuckDbHelperProgress);
 			}
 			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
@@ -232,6 +235,7 @@ export function ConnectionForm({
 		e.preventDefault();
 		setIsSubmitting(true);
 		if (formData.type === "duckdb") {
+			setDuckDbHelperProgress(initialDuckDbHelperProgress);
 			try {
 				await ensureDuckDbHelper(setDuckDbHelperProgress);
 			} catch (error) {

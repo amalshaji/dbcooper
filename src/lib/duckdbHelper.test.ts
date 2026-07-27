@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	formatDuckDbHelperBytes,
 	getDuckDbHelperProgressView,
+	initialDuckDbHelperProgress,
 } from "./duckdbHelper";
 
 describe("DuckDB helper progress", () => {
@@ -35,5 +36,13 @@ describe("DuckDB helper progress", () => {
 	test("formats exact byte progress for display", () => {
 		expect(formatDuckDbHelperBytes(12_976_128)).toBe("12.4 MB");
 		expect(formatDuckDbHelperBytes(17_825_792)).toBe("17.0 MB");
+	});
+
+	test("provides an immediate state before the first backend event", () => {
+		expect(initialDuckDbHelperProgress).toEqual({
+			stage: "downloading",
+			downloadedBytes: 0,
+			totalBytes: null,
+		});
 	});
 });

@@ -19,6 +19,12 @@ export interface DuckDbHelperStatus {
 	downloaded: boolean;
 }
 
+export const initialDuckDbHelperProgress: DuckDbHelperProgress = {
+	stage: "downloading",
+	downloadedBytes: 0,
+	totalBytes: null,
+};
+
 export function formatDuckDbHelperBytes(bytes: number): string {
 	if (bytes < 1024 * 1024) {
 		return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;

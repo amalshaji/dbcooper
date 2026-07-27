@@ -214,6 +214,15 @@
   background: transparent;
 }
 
+@keyframes duckdb-progress-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

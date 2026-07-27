@@ -18,14 +18,27 @@ export function DuckDbHelperProgress({
 		: progress.downloadedBytes > 0
 			? `${downloaded} downloaded`
 			: null;
+	const detail = byteProgress
+		? `${byteProgress}${percent !== null ? ` · ${percent}%` : ""}`
+		: progress.stage === "downloading"
+			? "Preparing download"
+			: percent !== null
+				? `${percent}%`
+				: "Finalizing setup";
 	return (
 		<div className="rounded-lg border bg-muted/30 p-3" aria-live="polite">
-			<div className="mb-2 flex items-center justify-between text-xs">
-				<span className="font-medium text-foreground">{label}</span>
-				<span className="tabular-nums text-muted-foreground">
-					{byteProgress}
-					{byteProgress && percent !== null ? " · " : ""}
-					{percent !== null ? `${percent}%` : ""}
+			<div
+				data-testid="duckdb-progress-metadata"
+				className="mb-2 grid min-h-8 grid-rows-2 text-xs leading-4"
+			>
+				<span className="truncate whitespace-nowrap font-medium text-foreground">
+					{label}
+				</span>
+				<span
+					data-testid="duckdb-progress-detail"
+					className="truncate whitespace-nowrap tabular-nums text-muted-foreground"
+				>
+					{detail}
 				</span>
 			</div>
 			<div
@@ -36,12 +49,18 @@ export function DuckDbHelperProgress({
 				aria-valuemax={100}
 				aria-valuenow={percent ?? undefined}
 			>
-				<div
-					className={`h-full rounded-full bg-primary transition-[width] duration-200 ${
-						percent === null ? "w-1/3 animate-pulse" : ""
-					}`}
-					style={percent === null ? undefined : { width: `${percent}%` }}
-				/>
+				{percent === null ? (
+					<div
+						data-testid="duckdb-progress-indeterminate"
+						className="h-full w-1/3 rounded-full bg-primary motion-safe:animate-[duckdb-progress-indeterminate_1.2s_ease-in-out_infinite] motion-reduce:animate-pulse"
+					/>
+				) : (
+					<div
+						data-testid="duckdb-progress-determinate"
+						className="h-full w-full origin-left rounded-full bg-primary transition-transform duration-300 ease-out motion-reduce:transition-none"
+						style={{ transform: `scaleX(${percent / 100})` }}
+					/>
+				)}
 			</div>
 		</div>
 	);

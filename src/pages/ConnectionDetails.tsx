@@ -172,6 +172,7 @@ import {
 } from "@/lib/databaseCapabilities";
 import {
 	ensureDuckDbHelper,
+	initialDuckDbHelperProgress,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
 } from "@/lib/duckdbHelper";
 
@@ -655,6 +656,7 @@ export function ConnectionDetails() {
 				setConnection(data);
 				if (data.type === "duckdb") {
 					setLoadingPhase("preparing-duckdb");
+					setDuckDbHelperProgress(initialDuckDbHelperProgress);
 					try {
 						await ensureDuckDbHelper(setDuckDbHelperProgress);
 					} catch (error) {
