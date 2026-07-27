@@ -10,14 +10,6 @@ import {
 } from "@/types/tabTypes";
 import { api, type TableInfo } from "@/lib/tauri";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -35,13 +27,7 @@ import {
 	SidebarInset,
 } from "@/components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-	Table,
-	Code,
-	ArrowsClockwise,
-	Plus,
-	ClockCounterClockwise,
-} from "@phosphor-icons/react";
+import { Table, Code, ClockCounterClockwise } from "@phosphor-icons/react";
 import { Spinner } from "@/components/ui/spinner";
 import { TabBar } from "@/components/TabBar";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
@@ -51,8 +37,6 @@ import { useConnectionTabActions } from "@/hooks/connection-details/useConnectio
 import { useQueryWorkspaceController } from "@/hooks/connection-details/useQueryWorkspaceController";
 import { useTableDataController } from "@/hooks/connection-details/useTableDataController";
 import { useConnectionShortcuts } from "@/hooks/connection-details/useConnectionShortcuts";
-import { RowEditSheet } from "@/components/RowEditSheet";
-import { RowInsertSheet } from "@/components/RowInsertSheet";
 import {
 	ConnectionHeader,
 	RedisConnectionHeader,
@@ -63,32 +47,21 @@ import {
 } from "@/components/connection-details/ConnectionOpeningScreen";
 import { FunctionDefinitionView } from "@/components/connection-details/FunctionDefinitionView";
 import { ObjectExplorer } from "@/components/connection-details/ObjectExplorer";
-import { TableFilterBar } from "@/components/connection-details/TableFilterBar";
-import { ColumnLayoutPopover } from "@/components/connection-details/ColumnLayoutPopover";
-import { SavedViewsMenu } from "@/components/connection-details/SavedViewsMenu";
 import { ConnectionWelcome } from "@/components/connection-details/ConnectionWelcome";
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { TableStructureView } from "@/components/connection-details/TableStructureView";
 import { QueryWorkspace } from "@/components/connection-details/QueryWorkspace";
+import { TableDataWorkspace } from "@/components/connection-details/TableDataWorkspace";
 import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import {
 	ConnectionSidebarHeader,
 	QueryHistoryPanel,
 	SavedQueriesPanel,
 } from "@/components/connection-details/ConnectionSidebarPanels";
-import {
-	PendingInlineChangesBar,
-	TableDataGrid,
-} from "@/components/connection-details/TableDataGrid";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
-import {
-	captureSavedViewState,
-	hasUnappliedFilterDraft,
-} from "@/lib/savedViews";
-import { supportsStructuredRowMutations } from "@/lib/databaseCapabilities";
 import {
 	applyTabPatch,
 	type DispatchTabPatch,
@@ -200,36 +173,7 @@ export function ConnectionDetails() {
 			patchTab({ type: "query", tabId, changes }),
 		[patchTab],
 	);
-	const {
-		fetchTableData,
-		handleTableFilterStateChange,
-		handleApplyFilter,
-		clearTableFilter,
-		handleCellFilter,
-		handleApplySavedView,
-		handleRefreshTableData,
-		handlePageChange,
-		handleSortChange,
-		rowEditSheetOpen,
-		setRowEditSheetOpen,
-		editingRow,
-		setEditingRow,
-		savingRow,
-		deletingRow,
-		highlightedTableRow,
-		pendingInlineEditsByTab,
-		savingInlineEdits,
-		rowInsertSheetOpen,
-		setRowInsertSheetOpen,
-		insertingRow,
-		handleRowClick,
-		handleSaveRow,
-		handleInlineCellSave,
-		handleSaveInlineChanges,
-		handleDiscardInlineChanges,
-		handleDeleteRow,
-		handleInsertRow,
-	} = useTableDataController({
+	const tableDataController = useTableDataController({
 		uuid,
 		connection,
 		activeTab,
@@ -256,7 +200,7 @@ export function ConnectionDetails() {
 		setActiveTabId,
 		schemaOverview,
 		patchTab,
-		fetchTableData,
+		fetchTableData: tableDataController.fetchTableData,
 		cancelTabGeneration,
 	});
 	const queryController = useQueryWorkspaceController({
@@ -270,11 +214,11 @@ export function ConnectionDetails() {
 	});
 	const handleClearFilter = useCallback(() => {
 		if (activeTab?.type === "table-data") {
-			clearTableFilter();
+			tableDataController.commands.clearFilter();
 		} else if (activeTab?.type === "query") {
 			queryController.commands.clearFilter();
 		}
-	}, [activeTab, clearTableFilter, queryController.commands]);
+	}, [activeTab, queryController.commands, tableDataController.commands]);
 	const { handleToggleSidebar } = useConnectionShortcuts({
 		activeTab,
 		tabsLength: tabs.length,
@@ -286,7 +230,7 @@ export function ConnectionDetails() {
 		handlePreviousTab,
 		handleSaveQuery: queryController.commands.openSaveDialog,
 		handleRunQuery: queryController.commands.runQuery,
-		handleRefreshTableData,
+		handleRefreshTableData: tableDataController.commands.refresh,
 		handleExportCSV: queryController.commands.exportCsv,
 		handleClearFilter,
 		handleOpenSchemaVisualizer,
@@ -380,116 +324,14 @@ export function ConnectionDetails() {
 		);
 	}
 
-	const renderTableDataContent = (tab: TableDataTab) => {
-		const pendingInlineChangeCount = Object.keys(
-			pendingInlineEditsByTab[tab.id] ?? {},
-		).length;
-
-		return (
-			<Card className="workspace-panel">
-				<CardHeader>
-					<div className="flex items-center justify-between">
-						<div>
-							<CardTitle>{tab.tableName}</CardTitle>
-							<CardDescription>
-								{tab.data &&
-									(() => {
-										const start = (tab.currentPage - 1) * 100 + 1;
-										const end = Math.min(tab.currentPage * 100, tab.data.total);
-										return `Showing ${start}-${end} of ${tab.data.total} records`;
-									})()}
-							</CardDescription>
-						</div>
-						<div className="flex items-center gap-2">
-							<SavedViewsMenu
-								connectionUuid={uuid ?? ""}
-								tableName={tab.tableName}
-								currentState={captureSavedViewState(
-									tab.filterState.applied,
-									tab.sort,
-									tab.columnLayout,
-								)}
-								activeViewId={tab.savedViewId}
-								loading={tab.loading}
-								hasUnappliedFilterDraft={hasUnappliedFilterDraft(
-									tab.filterState.draft,
-									tab.filterState.applied,
-								)}
-								onActiveViewChange={(savedViewId) =>
-									updateTableDataTab(tab.id, { savedViewId })
-								}
-								onApply={handleApplySavedView}
-							/>
-							<ColumnLayoutPopover
-								columns={tab.columns.map((column) => column.name)}
-								layout={tab.columnLayout}
-								onChange={(columnLayout) =>
-									updateTableDataTab(tab.id, { columnLayout })
-								}
-							/>
-							{connection &&
-								supportsStructuredRowMutations(connection.db_type) && (
-									<Button
-										variant="default"
-										size="sm"
-										onClick={() => setRowInsertSheetOpen(true)}
-										disabled={tab.loading}
-									>
-										<Plus className="w-4 h-4" />
-										Add Row
-									</Button>
-								)}
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={handleRefreshTableData}
-								disabled={tab.loading}
-							>
-								{tab.loading ? (
-									<Spinner />
-								) : (
-									<ArrowsClockwise className="w-4 h-4" />
-								)}
-								Refresh Data
-							</Button>
-						</div>
-					</div>
-				</CardHeader>
-				<PendingInlineChangesBar
-					changeCount={pendingInlineChangeCount}
-					saving={savingInlineEdits}
-					loading={tab.loading}
-					onDiscard={handleDiscardInlineChanges}
-					onCommit={() => void handleSaveInlineChanges()}
-				/>
-				<TableFilterBar
-					state={tab.filterState}
-					columns={tab.columns}
-					loading={tab.loading}
-					onStateChange={handleTableFilterStateChange}
-					onApply={handleApplyFilter}
-					onClear={handleClearFilter}
-				/>
-				<CardContent className="max-h-[65vh] flex flex-col">
-					<TableDataGrid
-						tab={tab}
-						dbType={connection.db_type}
-						pendingInlineEdits={pendingInlineEditsByTab[tab.id] ?? {}}
-						highlightedRow={highlightedTableRow}
-						onOpenTableDataWithFilter={handleOpenTableDataWithFilter}
-						onInlineCellSave={handleInlineCellSave}
-						onPageChange={handlePageChange}
-						onRowClick={handleRowClick}
-						onCellFilter={handleCellFilter}
-						onSortChange={handleSortChange}
-						onColumnLayoutChange={(columnLayout) =>
-							updateTableDataTab(tab.id, { columnLayout })
-						}
-					/>
-				</CardContent>
-			</Card>
-		);
-	};
+	const renderTableDataContent = (tab: TableDataTab) => (
+		<TableDataWorkspace
+			tab={tab}
+			connection={connection}
+			controller={tableDataController.workspace}
+			onOpenTableDataWithFilter={handleOpenTableDataWithFilter}
+		/>
+	);
 
 	const renderTableStructureContent = (tab: TableStructureTab) => (
 		<TableStructureView tab={tab} />
@@ -748,40 +590,6 @@ export function ConnectionDetails() {
 				</AlertDialogContent>
 			</AlertDialog>
 
-			{/* Row Edit Sheet */}
-			{activeTab && activeTab.type === "table-data" && connection && (
-				<RowEditSheet
-					open={rowEditSheetOpen}
-					onOpenChange={(open) => {
-						setRowEditSheetOpen(open);
-						if (!open) setEditingRow(null);
-					}}
-					tableName={activeTab.tableName}
-					row={editingRow}
-					columns={activeTab.columns}
-					dbType={connection.type}
-					onSave={handleSaveRow}
-					onDelete={handleDeleteRow}
-					saving={savingRow}
-					deleting={deletingRow}
-				/>
-			)}
-
-			{/* Row Insert Sheet */}
-			{activeTab && activeTab.type === "table-data" && connection && (
-				<RowInsertSheet
-					open={rowInsertSheetOpen}
-					onOpenChange={(open) => {
-						setRowInsertSheetOpen(open);
-					}}
-					tableName={activeTab.tableName}
-					columns={activeTab.columns}
-					dbType={connection.type}
-					onInsert={handleInsertRow}
-					inserting={insertingRow}
-				/>
-			)}
-
 			{/* Command Palette */}
 			<CommandPalette
 				open={commandPaletteOpen}
@@ -800,7 +608,7 @@ export function ConnectionDetails() {
 					if (activeTab?.type === "query") {
 						queryController.commands.runQuery();
 					} else if (activeTab?.type === "table-data") {
-						handleRefreshTableData();
+						tableDataController.commands.refresh();
 					}
 				}}
 				onExportCSV={queryController.commands.exportCsv}

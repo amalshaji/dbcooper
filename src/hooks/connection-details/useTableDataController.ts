@@ -1,14 +1,14 @@
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
-import { useSavedViewApplication } from "@/hooks/useSavedViewApplication";
-import { useTableDataFilters } from "@/hooks/useTableDataFilters";
+import { useSavedViewApplication } from "../useSavedViewApplication";
+import { useTableDataFilters } from "../useTableDataFilters";
 import {
 	areCellValuesEqual,
 	getPrimaryKeyRowKey,
-} from "@/lib/connection-details/queryTableState";
-import { getFilterRequest } from "@/lib/resultFilters";
-import { api, type Connection } from "@/lib/tauri";
-import type { SortConfig, Tab, TableDataTab } from "@/types/tabTypes";
+} from "../../lib/connection-details/queryTableState";
+import { getFilterRequest } from "../../lib/resultFilters";
+import { api, type Connection } from "../../lib/tauri";
+import type { SortConfig, Tab, TableDataTab } from "../../types/tabTypes";
 
 export interface PendingInlineCellEdit {
 	row: Record<string, unknown>;
@@ -142,6 +142,16 @@ export function useTableDataController({
 	const handleRowClick = useCallback((row: Record<string, unknown>) => {
 		setEditingRow(row);
 		setRowEditSheetOpen(true);
+	}, []);
+	const handleRowEditOpenChange = useCallback((open: boolean) => {
+		setRowEditSheetOpen(open);
+		if (!open) setEditingRow(null);
+	}, []);
+	const handleRowInsertOpenChange = useCallback((open: boolean) => {
+		setRowInsertSheetOpen(open);
+	}, []);
+	const handleOpenRowInsert = useCallback(() => {
+		setRowInsertSheetOpen(true);
 	}, []);
 
 	const handleSaveRow = useCallback(
@@ -433,35 +443,54 @@ export function useTableDataController({
 	);
 
 	return {
-		activeTableDataTab,
-		requestTableData,
 		fetchTableData,
-		handleTableFilterStateChange,
-		handleApplyFilter,
-		clearTableFilter,
-		handleCellFilter,
-		handleApplySavedView,
-		handleRefreshTableData,
-		handlePageChange,
-		handleSortChange,
-		rowEditSheetOpen,
-		setRowEditSheetOpen,
-		editingRow,
-		setEditingRow,
-		savingRow,
-		deletingRow,
-		highlightedTableRow,
-		pendingInlineEditsByTab,
-		savingInlineEdits,
-		rowInsertSheetOpen,
-		setRowInsertSheetOpen,
-		insertingRow,
-		handleRowClick,
-		handleSaveRow,
-		handleInlineCellSave,
-		handleSaveInlineChanges,
-		handleDiscardInlineChanges,
-		handleDeleteRow,
-		handleInsertRow,
+		workspace: {
+			filters: {
+				changeState: handleTableFilterStateChange,
+				apply: handleApplyFilter,
+				clear: clearTableFilter,
+				filterCell: handleCellFilter,
+				applySavedView: handleApplySavedView,
+			},
+			data: {
+				refresh: handleRefreshTableData,
+				changePage: handlePageChange,
+				changeSort: handleSortChange,
+				selectRow: handleRowClick,
+				stageCellEdit: handleInlineCellSave,
+			},
+			rowEdit: {
+				open: rowEditSheetOpen,
+				row: editingRow,
+				saving: savingRow,
+				deleting: deletingRow,
+				onOpenChange: handleRowEditOpenChange,
+				save: handleSaveRow,
+				delete: handleDeleteRow,
+			},
+			rowInsert: {
+				open: rowInsertSheetOpen,
+				inserting: insertingRow,
+				openSheet: handleOpenRowInsert,
+				onOpenChange: handleRowInsertOpenChange,
+				insert: handleInsertRow,
+			},
+			inlineEdits: {
+				byTab: pendingInlineEditsByTab,
+				saving: savingInlineEdits,
+				commit: handleSaveInlineChanges,
+				discard: handleDiscardInlineChanges,
+			},
+			highlightedRow: highlightedTableRow,
+			updateTab: updateTableDataTab,
+		},
+		commands: {
+			refresh: handleRefreshTableData,
+			clearFilter: clearTableFilter,
+		},
 	};
 }
+
+export type TableDataWorkspaceController = ReturnType<
+	typeof useTableDataController
+>["workspace"];
