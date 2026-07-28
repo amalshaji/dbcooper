@@ -22,6 +22,13 @@ export interface MongoAggregateSpec extends MongoQuerySpecBase {
 }
 
 export type MongoQuerySpec = MongoFindSpec | MongoAggregateSpec;
+export type MongoNamespace = Pick<
+	MongoQuerySpecBase,
+	"database" | "collection"
+>;
+export type MongoQueryEditor =
+	| { type: "find"; filter: string; projection: string; sort: string }
+	| { type: "aggregate"; pipeline: string };
 
 function isObject(value: unknown): value is JsonObject {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -35,6 +42,10 @@ function readObject(
 	if (value === undefined && fallback) return fallback;
 	if (!isObject(value)) throw new Error(`${label} must be a JSON object`);
 	return value;
+}
+
+function parseEditorObject(value: string, label: string): JsonObject {
+	return readObject(JSON.parse(value), label);
 }
 
 function readString(value: unknown, label: string): string {
@@ -89,4 +100,52 @@ export function parseMongoQuerySpec(value: string): MongoQuerySpec {
 
 export function serializeMongoQuerySpec(spec: MongoQuerySpec): string {
 	return JSON.stringify(spec);
+}
+
+export function buildMongoQuerySpec(
+	editor: MongoQueryEditor,
+	namespace: MongoNamespace,
+): MongoQuerySpec {
+	if (editor.type === "find") {
+		return {
+			version: 1,
+			type: "find",
+			...namespace,
+			filter: parseEditorObject(editor.filter, "filter"),
+			projection: parseEditorObject(editor.projection, "projection"),
+			sort: parseEditorObject(editor.sort, "sort"),
+			limit: 100,
+		};
+	}
+
+	const pipeline: unknown = JSON.parse(editor.pipeline);
+	if (!Array.isArray(pipeline) || pipeline.some((stage) => !isObject(stage))) {
+		throw new Error("pipeline must be an array of JSON objects");
+	}
+	return {
+		version: 1,
+		type: "aggregate",
+		...namespace,
+		pipeline,
+		limit: 100,
+	};
+}
+
+export function queryEditorFromSpec(spec: MongoQuerySpec): MongoQueryEditor {
+	if (spec.type === "find") {
+		return {
+			type: "find",
+			filter: JSON.stringify(spec.filter, null, 2),
+			projection: JSON.stringify(spec.projection, null, 2),
+			sort: JSON.stringify(spec.sort, null, 2),
+		};
+	}
+	return {
+		type: "aggregate",
+		pipeline: JSON.stringify(spec.pipeline, null, 2),
+	};
+}
+
+export function mongoQueryKind(spec: MongoQuerySpec): MongoQueryKind {
+	return spec.type === "find" ? "mongo_find" : "mongo_aggregate";
 }

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+	buildMongoQuerySpec,
+	mongoQueryKind,
 	parseMongoQuerySpec,
+	queryEditorFromSpec,
 	serializeMongoQuerySpec,
 } from "./querySpec";
 
@@ -46,5 +49,30 @@ describe("MongoDB query specifications", () => {
 				}),
 			),
 		).toThrow("Unsupported MongoDB query format");
+	});
+
+	test("builds one typed find specification from editor state", () => {
+		const spec = buildMongoQuerySpec(
+			{ type: "find", filter: "{\"active\":true}", projection: "{}", sort: "{}" },
+			{ database: "app", collection: "users" },
+		);
+
+		expect(spec).toEqual({
+			version: 1,
+			type: "find",
+			database: "app",
+			collection: "users",
+			filter: { active: true },
+			projection: {},
+			sort: {},
+			limit: 100,
+		});
+		expect(mongoQueryKind(spec)).toBe("mongo_find");
+		expect(queryEditorFromSpec(spec)).toEqual({
+			type: "find",
+			filter: '{\n  "active": true\n}',
+			projection: "{}",
+			sort: "{}",
+		});
 	});
 });
