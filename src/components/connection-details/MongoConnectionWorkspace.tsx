@@ -1,4 +1,4 @@
-import { BracketsCurly, FloppyDisk, Play, Trash } from "@phosphor-icons/react";
+import { BracketsCurly, FloppyDisk, Trash } from "@phosphor-icons/react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { MongoAiAssistant } from "@/components/connection-details/MongoAiAssistant";
@@ -172,17 +172,6 @@ export function MongoConnectionWorkspace({
 									<FloppyDisk />
 									Save
 								</Button>
-								<Button
-									size="sm"
-									onClick={() => void workbench.actions.run()}
-									disabled={
-										workbench.loading || !workbench.namespace.collection
-									}
-								>
-									{workbench.loading && <Spinner />}
-									<Play />
-									Run
-								</Button>
 							</div>
 						)}
 					</div>
@@ -205,6 +194,9 @@ export function MongoConnectionWorkspace({
 							<MongoQueryEditor
 								editor={workbench.editor}
 								onChange={workbench.actions.setEditor}
+								onRun={() => void workbench.actions.run()}
+								loading={workbench.loading}
+								disabled={!workbench.namespace.collection}
 							/>
 							<MongoDocumentBrowser workbench={workbench} />
 						</>

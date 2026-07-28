@@ -4,8 +4,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { MongoWorkbenchController } from "../../hooks/connection-details/useMongoWorkbench";
 
 mock.module("@/components/connection-details/MongoJsonEditor", () => ({
-	MongoJsonEditor: ({ className }: { className?: string }) => (
-		<div data-mongo-json-editor className={className} />
+	MongoJsonEditor: ({
+		className,
+		ariaLabel,
+	}: {
+		className?: string;
+		ariaLabel?: string;
+	}) => (
+		<div
+			data-mongo-json-editor
+			className={className}
+			aria-label={ariaLabel}
+		/>
 	),
 }));
 mock.module("@tanstack/react-virtual", () => ({
@@ -65,6 +75,7 @@ mock.module("@/lib/tauri", () => ({
 const { MongoAiAssistant } = await import("./MongoAiAssistant");
 const { MongoCollectionAdmin } = await import("./MongoCollectionAdmin");
 const { MongoDocumentBrowser } = await import("./MongoDocumentBrowser");
+const { MongoQueryEditor } = await import("./MongoQueryEditor");
 
 test("uses shared compact controls for MongoDB index administration", () => {
 	const markup = renderToStaticMarkup(
@@ -135,4 +146,19 @@ test("bounds the document editor so CodeMirror owns vertical scrolling", () => {
 	expect(markup).toContain(
 		'class="h-0 min-h-0 flex-1 rounded-none border-0"',
 	);
+});
+
+test("places the run action with the MongoDB query editors", () => {
+	const markup = renderToStaticMarkup(
+		<MongoQueryEditor
+			editor={{ type: "find", filter: "{}", projection: "{}", sort: "{}" }}
+			onChange={() => undefined}
+			onRun={() => undefined}
+			loading={false}
+			disabled={false}
+		/>,
+	);
+
+	expect(markup).toContain("Run query");
+	expect(markup).toContain('aria-label="Filter JSON"');
 });
