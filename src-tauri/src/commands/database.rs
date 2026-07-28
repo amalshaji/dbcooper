@@ -29,10 +29,7 @@ async fn cached_driver(
     pool_manager: &PoolManager,
     uuid: &str,
 ) -> Result<Arc<Box<dyn DatabaseDriver>>, String> {
-    pool_manager
-        .get_cached(uuid)
-        .await
-        .ok_or_else(|| "Connection not found. Please connect first.".to_string())
+    pool_manager.get_database_driver(uuid).await
 }
 
 /// Downcast a pooled driver to a `RedisDriver` for Redis-specific operations.

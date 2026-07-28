@@ -481,7 +481,7 @@ mod tests {
             })));
 
         PoolEntry {
-            driver,
+            connection: PooledConnection::Tabular(driver),
             config: ConnectionConfig {
                 db_type: "redis".to_string(),
                 host: Some("localhost".to_string()),
@@ -491,6 +491,7 @@ mod tests {
                 password: None,
                 ssl: Some(false),
                 file_path: None,
+                connection_uri: None,
                 ssh_enabled: false,
                 ssh_host: None,
                 ssh_port: None,
@@ -516,7 +517,7 @@ mod tests {
     #[test]
     fn retains_an_expired_entry_while_an_operation_holds_the_driver() {
         let entry = expired_entry();
-        let _active_driver = Arc::clone(&entry.driver);
+        let _active_connection = entry.connection.clone();
 
         assert!(should_keep_entry(&entry));
         assert!(entry.last_used.lock().unwrap().elapsed() < Duration::from_secs(1));
