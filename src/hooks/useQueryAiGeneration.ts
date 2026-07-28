@@ -132,6 +132,11 @@ export function useQueryAiGeneration({
 			configured: isConfigured,
 			onInstructionChange: (instruction: string) =>
 				updateAiState(tab.id, { type: "set-instruction", instruction }),
+			onDraftChange: (sql: string) =>
+				updateAiState(tab.id, {
+					type: "update-draft",
+					action: { type: "edit", sql },
+				}),
 			onGenerate: () =>
 				generateForTab(
 					tab.id,

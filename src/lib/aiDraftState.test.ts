@@ -85,6 +85,24 @@ describe("aiDraftReducer", () => {
 			aiDraftReducer({ status: "ready", sql: "SELECT 1" }, { type: "discard" }),
 		).toEqual(initialAiDraftState);
 	});
+
+	test("allows a completed draft to be edited without changing stream state", () => {
+		expect(
+			aiDraftReducer(
+				{ status: "ready", sql: "SELECT * FROM users" },
+				{ type: "edit", sql: "SELECT id FROM users" },
+			),
+		).toEqual({ status: "ready", sql: "SELECT id FROM users" });
+
+		const generating = {
+			status: "generating" as const,
+			requestId: "request-1",
+			sql: "SELECT *",
+		};
+		expect(
+			aiDraftReducer(generating, { type: "edit", sql: "SELECT id" }),
+		).toEqual(generating);
+	});
 });
 
 describe("queryAiStateReducer", () => {

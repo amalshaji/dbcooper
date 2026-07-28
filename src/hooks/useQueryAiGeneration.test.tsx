@@ -186,6 +186,43 @@ test("does not treat the untouched starter query as AI context", async () => {
 	expect(existingSql).toBe("");
 });
 
+test("keeps edits to a completed draft in its query tab", () => {
+	const queryTab = createQuery();
+	queryTab.ai.draft = {
+		status: "ready",
+		sql: "SELECT * FROM users",
+	};
+
+	const { result } = renderHook(() => {
+		const [tabs, setTabs] = useState<Tab[]>([queryTab]);
+		const [activeTabId, setActiveTabId] = useState<string | null>(queryTab.id);
+		const queryAi = useQueryAiGeneration({
+			tabs,
+			activeTabId,
+			setTabs,
+			setActiveTabId,
+			generateDraft: async () => "",
+			cancelGeneration: () => undefined,
+			isConfigured: true,
+		});
+		return { tabs, queryAi };
+	});
+
+	act(() => {
+		const tab = result.current.tabs[0];
+		if (tab?.type !== "query") throw new Error("Expected a query tab");
+		result.current.queryAi
+			.getEditorAiProps(tab)
+			.onDraftChange("SELECT id FROM users");
+	});
+
+	expect(result.current.tabs[0]).toMatchObject({
+		type: "query",
+		query: "SELECT * FROM users",
+		ai: { draft: { status: "ready", sql: "SELECT id FROM users" } },
+	});
+});
+
 test("cancels a generating tab without leaving state or showing a toast", async () => {
 	const queryTab = createQuery();
 	const tableTab = createTable();

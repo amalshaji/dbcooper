@@ -35,6 +35,7 @@ interface SqlEditorAiProps {
 	state: QueryAiState;
 	configured: boolean | null;
 	onInstructionChange: (instruction: string) => void;
+	onDraftChange: (sql: string) => void;
 	onGenerate: () => Promise<void>;
 	onDiscard: () => void;
 }
@@ -157,6 +158,10 @@ export function SqlEditor({
 		],
 		[runQueryKeymap, sqlExtension, fontTheme, disabled, cursorExtension],
 	);
+	const draftExtensions = useMemo(
+		() => [sqlExtension, fontTheme, EditorView.lineWrapping],
+		[sqlExtension, fontTheme],
+	);
 
 	const handleGenerate = async () => {
 		if (instruction.trim() && ai) await ai.onGenerate();
@@ -237,6 +242,9 @@ export function SqlEditor({
 				<SqlAIPreview
 					draft={aiDraft}
 					hasExistingSql={Boolean(value.trim())}
+					onDraftChange={ai.onDraftChange}
+					editorExtensions={draftExtensions}
+					editorTheme={isDark ? barf : rosePineDawn}
 					onDiscard={ai.onDiscard}
 					onAppend={() => {
 						if (aiDraft.status !== "ready") return;

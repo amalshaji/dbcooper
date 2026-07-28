@@ -8,6 +8,7 @@ export type AiDraftAction =
 	| { type: "start"; requestId: string }
 	| { type: "preview"; requestId: string; sql: string }
 	| { type: "complete"; requestId: string; sql: string }
+	| { type: "edit"; sql: string }
 	| { type: "fail"; requestId: string; message: string }
 	| { type: "discard" };
 
@@ -61,6 +62,10 @@ export function aiDraftReducer(
 						status: "error",
 						message: "The AI provider returned an empty response",
 					};
+		case "edit":
+			return state.status === "ready"
+				? { status: "ready", sql: action.sql }
+				: state;
 		case "fail":
 			return state.status === "generating" &&
 				state.requestId === action.requestId

@@ -67,6 +67,7 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	const aiHandlers = {
 		configured: true,
 		onInstructionChange: () => {},
+		onDraftChange: () => {},
 		onGenerate: async () => {},
 		onDiscard: () => {},
 	};
@@ -134,6 +135,7 @@ test("offers AI generation for an empty database", () => {
 				configured: true,
 				state: { instruction: "", draft: { status: "idle" } },
 				onInstructionChange: () => {},
+				onDraftChange: () => {},
 				onGenerate: async () => {},
 				onDiscard: () => {},
 			}}
