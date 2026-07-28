@@ -18,6 +18,5 @@ describe("database capabilities", () => {
 		expect(supportsStructuredRowMutations("postgres")).toBe(true);
 		expect(supportsStructuredRowMutations("clickhouse")).toBe(false);
 		expect(supportsStructuredRowMutations("redis")).toBe(false);
-		expect(getSqlFormatterLanguage("redis")).toBe("sql");
 	});
 });

@@ -45,6 +45,5 @@ describe("database catalog", () => {
 		expect(isSqlFunction("now()", "postgres")).toBe(true);
 		expect(isSqlFunction("today()", "postgres")).toBe(false);
 		expect(isSqlFunction("today()", "clickhouse")).toBe(true);
-		expect(isSqlFunction("now()", "redis")).toBe(false);
 	});
 });

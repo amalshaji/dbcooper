@@ -1,11 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/databaseCatalog";
+import type { QueryKind } from "@/lib/mongo/querySpec";
+import { mongoApi } from "@/lib/tauri/mongo";
+import type { TestConnectionResult } from "@/lib/tauri/shared";
 import type {
 	FilterColumnKind,
 	FilterExpression,
 	TableFilter,
 } from "@/lib/resultFilters";
-import type { Connection, ConnectionFormData } from "@/types/connection";
+import type {
+	Connection,
+	ConnectionFormData,
+	SqlConnection,
+	StandardConnection,
+} from "@/types/connection";
 import type {
 	DeleteConnectionResult,
 	DockerConnectionDraft,
@@ -26,6 +34,21 @@ export type {
 	DockerDatabaseEngine,
 } from "@/types/docker";
 export type { Connection, ConnectionFormData } from "@/types/connection";
+export type {
+	CreateMongoIndexRequest,
+	MongoAggregateRequest,
+	MongoCollectionInfo,
+	MongoDatabaseInfo,
+	MongoDeleteRequest,
+	MongoDocumentMutation,
+	MongoDocumentPage,
+	MongoFindRequest,
+	MongoIndexInfo,
+	MongoMutationResult,
+	MongoReplaceRequest,
+	MongoValidatorSettings,
+} from "@/lib/tauri/mongo";
+export type { TestConnectionResult } from "@/lib/tauri/shared";
 
 export interface TableInfo {
 	schema: string;
@@ -131,11 +154,6 @@ export interface QueryResult {
 	time_taken_ms?: number;
 }
 
-export interface TestConnectionResult {
-	success: boolean;
-	message: string;
-}
-
 export interface D1Database {
 	uuid: string;
 	name: string;
@@ -148,92 +166,12 @@ export interface D1DatabaseList {
 	total_pages: number;
 }
 
-export interface MongoCollectionInfo {
-	database: string;
-	name: string;
-}
-
-export interface MongoDatabaseInfo {
-	name: string;
-	collections: MongoCollectionInfo[];
-}
-
-export interface MongoFindRequest {
-	database: string;
-	collection: string;
-	filter: Record<string, unknown>;
-	projection?: Record<string, unknown>;
-	sort?: Record<string, unknown>;
-	skip?: number;
-	limit?: number;
-}
-
-export interface MongoAggregateRequest {
-	database: string;
-	collection: string;
-	pipeline: Record<string, unknown>[];
-	limit?: number;
-}
-
-export interface MongoDocumentPage {
-	documents: Record<string, unknown>[];
-	returned_count: number;
-	has_more: boolean;
-	execution_time_ms: number;
-	estimated_total: number | null;
-}
-
-export interface MongoDocumentMutation {
-	database: string;
-	collection: string;
-	document: Record<string, unknown>;
-}
-
-export interface MongoReplaceRequest extends MongoDocumentMutation {
-	id: unknown;
-}
-
-export interface MongoDeleteRequest {
-	database: string;
-	collection: string;
-	id: unknown;
-}
-
-export interface MongoMutationResult {
-	acknowledged: boolean;
-	id: unknown | null;
-}
-
-export interface MongoIndexInfo {
-	name: string;
-	keys: Record<string, unknown>;
-	unique: boolean;
-	sparse: boolean;
-	expire_after_seconds: number | null;
-}
-
-export interface CreateMongoIndexRequest {
-	database: string;
-	collection: string;
-	keys: Array<{ field: string; direction: 1 | -1 }>;
-	name?: string;
-	unique: boolean;
-	sparse: boolean;
-	expire_after_seconds?: number;
-}
-
-export interface MongoValidatorSettings {
-	validator: Record<string, unknown>;
-	validation_level: "off" | "strict" | "moderate";
-	validation_action: "error" | "warn";
-}
-
 export interface SavedQuery {
 	id: number;
 	connection_uuid: string;
 	name: string;
 	query: string;
-	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
+	query_kind: QueryKind;
 	created_at: string;
 	updated_at: string;
 }
@@ -241,7 +179,7 @@ export interface SavedQuery {
 export interface SavedQueryFormData {
 	name: string;
 	query: string;
-	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
+	query_kind: QueryKind;
 }
 
 export interface SavedViewStateV1 {
@@ -282,7 +220,7 @@ export interface QueryHistory {
 	id: number;
 	connection_uuid: string;
 	query: string;
-	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
+	query_kind: QueryKind;
 	status: "success" | "error";
 	time_taken_ms: number | null;
 	row_count: number | null;
@@ -358,6 +296,7 @@ export interface ExportedConnection {
 	ssl: boolean;
 	db_type: string;
 	file_path: string | null;
+	connection_uri: string | null;
 	ssh_enabled: boolean;
 	ssh_host: string;
 	ssh_port: number;
@@ -429,56 +368,7 @@ export const api = {
 			invoke<string>("docker_get_connection_string", { uuid }),
 	},
 
-	mongo: {
-		testConnection: (connectionUri: string) =>
-			invoke<TestConnectionResult>("mongo_test_connection", { connectionUri }),
-		listCatalog: (uuid: string) =>
-			invoke<MongoDatabaseInfo[]>("mongo_list_catalog", { uuid }),
-		find: (uuid: string, request: MongoFindRequest) =>
-			invoke<MongoDocumentPage>("mongo_find", { uuid, request }),
-		aggregate: (uuid: string, request: MongoAggregateRequest) =>
-			invoke<MongoDocumentPage>("mongo_aggregate", { uuid, request }),
-		insertOne: (uuid: string, request: MongoDocumentMutation) =>
-			invoke<MongoMutationResult>("mongo_insert_one", { uuid, request }),
-		replaceOne: (uuid: string, request: MongoReplaceRequest) =>
-			invoke<MongoMutationResult>("mongo_replace_one", { uuid, request }),
-		deleteOne: (uuid: string, request: MongoDeleteRequest) =>
-			invoke<MongoMutationResult>("mongo_delete_one", { uuid, request }),
-		createCollection: (uuid: string, database: string, collection: string) =>
-			invoke<void>("mongo_create_collection", { uuid, database, collection }),
-		dropCollection: (uuid: string, database: string, collection: string) =>
-			invoke<void>("mongo_drop_collection", { uuid, database, collection }),
-		listIndexes: (uuid: string, database: string, collection: string) =>
-			invoke<MongoIndexInfo[]>("mongo_list_indexes", {
-				uuid,
-				database,
-				collection,
-			}),
-		createIndex: (uuid: string, request: CreateMongoIndexRequest) =>
-			invoke<string>("mongo_create_index", { uuid, request }),
-		dropIndex: (
-			uuid: string,
-			database: string,
-			collection: string,
-			name: string,
-		) => invoke<void>("mongo_drop_index", { uuid, database, collection, name }),
-		getValidator: (uuid: string, database: string, collection: string) =>
-			invoke<MongoValidatorSettings>("mongo_get_validator", {
-				uuid,
-				database,
-				collection,
-			}),
-		setValidator: (
-			uuid: string,
-			request: {
-				database: string;
-				collection: string;
-				validator: Record<string, unknown>;
-				validation_level: "off" | "strict" | "moderate";
-				validation_action: "error" | "warn";
-			},
-		) => invoke<void>("mongo_set_validator", { uuid, request }),
-	},
+	mongo: mongoApi,
 
 	d1: {
 		listDatabases: (accountId: string, apiToken: string, page = 1) =>
@@ -506,7 +396,7 @@ export const api = {
 			ssh_use_key?: boolean;
 		}) => invoke<TestConnectionResult>("test_connection", params),
 
-		listTables: (connection: Connection) =>
+		listTables: (connection: StandardConnection) =>
 			invoke<TableInfo[]>("list_tables", {
 				host: connection.host,
 				port: connection.port,
@@ -517,7 +407,7 @@ export const api = {
 			}),
 
 		getTableData: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 			page: number,
@@ -539,7 +429,7 @@ export const api = {
 			}),
 
 		getTableStructure: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 		) =>
@@ -554,7 +444,7 @@ export const api = {
 				table,
 			}),
 
-		executeQuery: (connection: Connection, query: string) =>
+		executeQuery: (connection: StandardConnection, query: string) =>
 			invoke<QueryResult>("execute_query", {
 				host: connection.host,
 				port: connection.port,
@@ -568,7 +458,7 @@ export const api = {
 
 	// Unified database API that works with both Postgres and SQLite
 	database: {
-		testConnection: (connection: Connection) =>
+		testConnection: (connection: StandardConnection) =>
 			invoke<TestConnectionResult>("unified_test_connection", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
@@ -587,7 +477,7 @@ export const api = {
 				sshUseKey: connection.ssh_use_key === 1,
 			}),
 
-		listTables: (connection: Connection) =>
+		listTables: (connection: StandardConnection) =>
 			invoke<TableInfo[]>("unified_list_tables", {
 				db_type: connection.db_type || "postgres",
 				host: connection.host,
@@ -607,7 +497,7 @@ export const api = {
 			}),
 
 		getTableData: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 			page: number,
@@ -633,7 +523,7 @@ export const api = {
 			}),
 
 		getTableStructure: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 		) =>
@@ -650,7 +540,7 @@ export const api = {
 				table,
 			}),
 
-		executeQuery: (connection: Connection, query: string) =>
+		executeQuery: (connection: StandardConnection, query: string) =>
 			invoke<QueryResult>("unified_execute_query", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
@@ -664,7 +554,7 @@ export const api = {
 			}),
 
 		updateTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			primaryKeyColumns: string[],
@@ -728,7 +618,7 @@ export const api = {
 		},
 
 		deleteTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			primaryKeyColumns: string[],
@@ -750,7 +640,7 @@ export const api = {
 			}),
 
 		insertTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,

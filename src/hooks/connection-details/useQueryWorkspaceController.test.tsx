@@ -300,6 +300,7 @@ test("preserves saved queries added while a create request is in flight", async 
 		connection_uuid: connection.uuid,
 		name: "Refreshed",
 		query: "SELECT 2",
+		query_kind: "sql",
 		created_at: "2026-07-27 00:00:00",
 		updated_at: "2026-07-27 00:00:00",
 	};

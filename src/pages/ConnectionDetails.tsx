@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { RedisConnectionHeader } from "@/components/connection-details/ConnectionHeaders";
+import { ConnectionWorkspaceHeader } from "@/components/connection-details/ConnectionHeaders";
 import {
 	ConnectionOpeningScreen,
 	DatabaseIcon,
@@ -75,7 +75,7 @@ export function ConnectionDetails() {
 
 	return (
 		<div className="workspace-canvas flex h-screen flex-col">
-			<RedisConnectionHeader
+			<ConnectionWorkspaceHeader
 				connection={connection}
 				onClose={closeConnection}
 				connectionStatus={lifecycle.connection.status}

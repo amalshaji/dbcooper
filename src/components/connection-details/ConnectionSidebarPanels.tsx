@@ -33,8 +33,9 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { TabsContent } from "@/components/ui/tabs";
 import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
-import type { Connection, QueryHistory } from "@/lib/tauri";
+import type { QueryHistory } from "@/lib/tauri";
 import type { SavedQuery } from "@/lib/tauri";
+import type { SqlConnection } from "@/types/connection";
 
 export function ConnectionSidebarHeader({
 	connection,
@@ -42,7 +43,7 @@ export function ConnectionSidebarHeader({
 	onOpenSchemaVisualizer,
 	onRefresh,
 }: {
-	connection: Connection;
+	connection: SqlConnection;
 	refreshing: boolean;
 	onOpenSchemaVisualizer: () => void;
 	onRefresh: () => void;

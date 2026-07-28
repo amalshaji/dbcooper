@@ -9,6 +9,7 @@ import {
 	type DuckDbHelperProgress,
 } from "../../lib/duckdbHelper";
 import { api, type Connection } from "../../lib/tauri";
+import { loadsRelationalSchema } from "../../lib/databaseCapabilities";
 import type { DatabaseTable } from "../../types/table";
 import type { SchemaOverview, TableColumn } from "../../types/tabTypes";
 
@@ -74,7 +75,11 @@ export function useConnectionLifecycle({
 						return;
 					}
 				}
-				setLoadingPhase(data.ssh_enabled ? "establishing-ssh" : "connecting");
+				setLoadingPhase(
+					data.type !== "mongodb" && data.ssh_enabled
+						? "establishing-ssh"
+						: "connecting",
+				);
 			} catch (error) {
 				console.error("Failed to fetch connection:", error);
 				navigate("/");
@@ -145,7 +150,7 @@ export function useConnectionLifecycle({
 				const connectResult = await api.pool.connect(uuid);
 				if (connectResult.status === "connected") {
 					markConnected();
-					if (connection.type !== "redis" && connection.type !== "mongodb") {
+					if (loadsRelationalSchema(connection.type)) {
 						setLoadingPhase("loading-schema");
 						await loadSchema();
 					}
@@ -198,7 +203,7 @@ export function useConnectionLifecycle({
 			}
 			markConnected();
 			toast.success("Reconnected successfully");
-			if (connection?.type !== "redis" && connection?.type !== "mongodb") {
+			if (connection && loadsRelationalSchema(connection.type)) {
 				await loadSchema();
 			}
 		} catch (error) {
@@ -207,7 +212,7 @@ export function useConnectionLifecycle({
 			toast.error("Reconnection failed", { description: message });
 			throw error;
 		}
-	}, [uuid, connection?.type, loadSchema, markConnected, markDisconnected]);
+	}, [uuid, connection, loadSchema, markConnected, markDisconnected]);
 
 	const recordConnectionStatus = useCallback(
 		(status: ConnectionStatus) => {

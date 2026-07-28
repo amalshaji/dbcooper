@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { ConnectionType } from "@/types/connection";
+import type { ConnectionType, StandardConnection } from "@/types/connection";
 import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
 import {
 	AlertDialog,
@@ -144,6 +144,37 @@ const defaultFormData: ConnectionFormData = {
 	ssh_use_key: false,
 };
 
+function connectionForTest(data: ConnectionFormData): StandardConnection {
+	if (data.type === "mongodb" || data.db_type === "mongodb") {
+		throw new Error("MongoDB connections use URI-based testing");
+	}
+
+	return {
+		id: 0,
+		uuid: "",
+		type: data.type,
+		name: data.name,
+		host: data.host,
+		port: data.port,
+		database: data.database,
+		username: data.username,
+		password: data.password,
+		ssl: data.ssl ? 1 : 0,
+		db_type: data.db_type,
+		file_path: data.file_path || null,
+		connection_uri: null,
+		ssh_enabled: data.ssh_enabled ? 1 : 0,
+		ssh_host: data.ssh_host || "",
+		ssh_port: data.ssh_port || 22,
+		ssh_user: data.ssh_user || "",
+		ssh_password: data.ssh_password || "",
+		ssh_key_path: data.ssh_key_path || "",
+		ssh_use_key: data.ssh_use_key ? 1 : 0,
+		created_at: "",
+		updated_at: "",
+	};
+}
+
 export function ConnectionForm({
 	onSubmit,
 	onCancel,
@@ -164,7 +195,16 @@ export function ConnectionForm({
 
 	useEffect(() => {
 		if (initialData) {
-			setFormData({
+			setFormData(
+				initialData.type === "mongodb"
+					? {
+							...defaultFormData,
+							type: "mongodb",
+							db_type: "mongodb",
+							name: initialData.name,
+							connection_uri: initialData.connection_uri,
+						}
+					: {
 				type: initialData.type || "postgres",
 				name: initialData.name,
 				host: initialData.host,
@@ -175,7 +215,6 @@ export function ConnectionForm({
 				ssl: initialData.ssl === 1,
 				db_type: initialData.db_type || "postgres",
 				file_path: initialData.file_path || undefined,
-				connection_uri: initialData.connection_uri || undefined,
 				ssh_enabled: initialData.ssh_enabled === 1,
 				ssh_host: initialData.ssh_host || "",
 				ssh_port: initialData.ssh_port || 22,
@@ -183,7 +222,8 @@ export function ConnectionForm({
 				ssh_password: initialData.ssh_password || "",
 				ssh_key_path: initialData.ssh_key_path || "",
 				ssh_use_key: initialData.ssh_use_key === 1,
-			});
+					},
+			);
 		} else {
 			setFormData(defaultFormData);
 		}
@@ -224,30 +264,7 @@ export function ConnectionForm({
 							formData.type === "duckdb" ||
 							formData.type === "clickhouse" ||
 							formData.type === "d1"
-						? await api.database.testConnection({
-								id: 0,
-								uuid: "",
-								type: formData.type,
-								name: formData.name,
-								host: formData.host,
-								port: formData.port,
-								database: formData.database,
-								username: formData.username,
-								password: formData.password,
-								ssl: formData.ssl ? 1 : 0,
-								db_type: formData.db_type,
-								file_path: formData.file_path || null,
-								connection_uri: formData.connection_uri || null,
-								ssh_enabled: formData.ssh_enabled ? 1 : 0,
-								ssh_host: formData.ssh_host || "",
-								ssh_port: formData.ssh_port || 22,
-								ssh_user: formData.ssh_user || "",
-								ssh_password: formData.ssh_password || "",
-								ssh_key_path: formData.ssh_key_path || "",
-								ssh_use_key: formData.ssh_use_key ? 1 : 0,
-								created_at: "",
-								updated_at: "",
-							})
+						? await api.database.testConnection(connectionForTest(formData))
 						: await api.postgres.testConnection({
 								host: formData.host,
 								port: formData.port,

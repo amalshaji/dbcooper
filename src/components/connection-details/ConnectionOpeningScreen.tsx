@@ -13,6 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import type { DuckDbHelperProgress as DuckDbHelperProgressValue } from "@/lib/duckdbHelper";
 import type { Connection } from "@/lib/tauri";
 import type { LoadingPhase } from "@/lib/connection-details/connectionLifecycleState";
+import { loadsRelationalSchema } from "@/lib/databaseCapabilities";
 
 export function DatabaseIcon({
 	connection,
@@ -68,7 +69,7 @@ export function ConnectionOpeningScreen({
 					},
 				]
 			: []),
-		...(connection?.ssh_enabled
+		...(connection && connection.type !== "mongodb" && connection.ssh_enabled
 			? [
 					{
 						phase: "establishing-ssh" as LoadingPhase,
@@ -81,7 +82,7 @@ export function ConnectionOpeningScreen({
 						label: "Establishing connection",
 					},
 				]),
-		...(connection?.type !== "redis" && connection?.type !== "mongodb"
+		...(connection && loadsRelationalSchema(connection.type)
 			? [
 					{
 						phase: "loading-schema" as LoadingPhase,

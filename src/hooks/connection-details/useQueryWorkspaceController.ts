@@ -437,6 +437,7 @@ export function useQueryWorkspaceController({
 				const updatedQuery = await api.queries.update(activeTab.savedQueryId, {
 					name: saveQueryName,
 					query: activeTab.query,
+					query_kind: "sql",
 				});
 				onSavedQueryUpdated(updatedQuery);
 				updateQueryTab(activeTab.id, {
@@ -448,6 +449,7 @@ export function useQueryWorkspaceController({
 				const newQuery = await api.queries.create(connection.uuid, {
 					name: saveQueryName,
 					query: activeTab.query,
+					query_kind: "sql",
 				});
 				onSavedQueryCreated(newQuery);
 				updateQueryTab(activeTab.id, {

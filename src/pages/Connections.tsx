@@ -198,7 +198,21 @@ export function Connections() {
 
 	const handleDuplicateConnection = async (connection: Connection) => {
 		try {
-			const duplicatedData: ConnectionFormData = {
+			const duplicatedData: ConnectionFormData =
+				connection.type === "mongodb"
+					? {
+							type: "mongodb",
+							db_type: "mongodb",
+							name: `${connection.name} (Copy)`,
+							connection_uri: connection.connection_uri,
+							host: "",
+							port: 27017,
+							database: "",
+							username: "",
+							password: "",
+							ssl: false,
+						}
+					: {
 				type: connection.type,
 				name: `${connection.name} (Copy)`,
 				host: connection.host,
@@ -209,7 +223,6 @@ export function Connections() {
 				ssl: Boolean(connection.ssl),
 				db_type: connection.db_type,
 				file_path: connection.file_path ?? undefined,
-				connection_uri: connection.connection_uri ?? undefined,
 				ssh_enabled: connection.ssh_enabled
 					? Boolean(connection.ssh_enabled)
 					: undefined,
@@ -221,7 +234,7 @@ export function Connections() {
 				ssh_use_key: connection.ssh_use_key
 					? Boolean(connection.ssh_use_key)
 					: undefined,
-			};
+				};
 
 			await api.connections.create(duplicatedData);
 			await fetchConnections();

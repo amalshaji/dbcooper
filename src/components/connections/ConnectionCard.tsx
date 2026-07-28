@@ -183,7 +183,7 @@ export function ConnectionCard({
 								<h3 className="truncate text-sm font-medium">
 									{connection.name}
 								</h3>
-								{connection.ssl === 1 && (
+								{connection.type !== "mongodb" && connection.ssl === 1 && (
 									<Lock
 										className="size-3 shrink-0 text-muted-foreground"
 										weight="fill"

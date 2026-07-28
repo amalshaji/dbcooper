@@ -13,7 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import CodeMirror from "@uiw/react-codemirror";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RedisConnectionHeader } from "@/components/connection-details/ConnectionHeaders";
+import { ConnectionWorkspaceHeader } from "@/components/connection-details/ConnectionHeaders";
 import { MongoCollectionAdmin } from "@/components/connection-details/MongoCollectionAdmin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -336,7 +336,7 @@ export function MongoConnectionWorkspace({
 
 	return (
 		<div className="workspace-canvas flex h-screen flex-col">
-			<RedisConnectionHeader
+			<ConnectionWorkspaceHeader
 				connection={connection}
 				onClose={onClose}
 				connectionStatus={lifecycle.connection.status}

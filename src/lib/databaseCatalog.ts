@@ -5,7 +5,8 @@ export type CreateTableDbType = Extract<
 	ConnectionType,
 	"postgres" | "mysql" | "mariadb" | "sqlite" | "d1"
 >;
-export type DatabaseValueType = ConnectionType;
+export type SqlPolicyType = Exclude<ConnectionType, "redis" | "mongodb">;
+export type DatabaseValueType = SqlPolicyType;
 export type LiteralKind = "text" | "number" | "boolean";
 export type SqlFormatterLanguage =
 	| "postgresql"
@@ -41,9 +42,9 @@ const EMPTY_MODIFIER_CAPABILITIES: CreateTableModifierCapabilities = {
 	autoIncrementTypes: [],
 };
 
-const catalog = databaseCatalog as Record<DatabaseValueType, DatabasePolicy>;
+const catalog = databaseCatalog as Record<SqlPolicyType, DatabasePolicy>;
 
-export function getDatabasePolicy(dbType: ConnectionType): DatabasePolicy {
+export function getDatabasePolicy(dbType: SqlPolicyType): DatabasePolicy {
 	return catalog[dbType];
 }
 
@@ -126,9 +127,9 @@ export function getSuggestedFunctions(
 
 export function isSqlFunction(
 	value: string,
-	dbType: ConnectionType,
+	dbType: SqlPolicyType,
 ): boolean {
-	if (!value || dbType === "redis") return false;
+	if (!value) return false;
 	const normalizedValue = value.trim().toLowerCase();
 
 	return Object.values(catalog[dbType].expressionsByType)

@@ -257,15 +257,5 @@
     "createTableTypes": [],
     "literalKinds": {},
     "expressionsByType": {}
-  },
-  "mongodb": {
-    "label": "MongoDB",
-    "defaultSchema": "",
-    "fileDatabase": false,
-    "structuredRowMutations": false,
-    "formatterLanguage": "sql",
-    "createTableTypes": [],
-    "literalKinds": {},
-    "expressionsByType": {}
   }
 }

@@ -9,20 +9,28 @@ export type ConnectionType =
 	| "d1"
 	| "mongodb";
 
-export interface Connection {
+interface ConnectionBase {
 	id: number;
 	uuid: string;
-	type: ConnectionType;
 	name: string;
+	created_at: string;
+	updated_at: string;
+}
+
+export type StandardConnectionType = Exclude<ConnectionType, "mongodb">;
+export type SqlConnectionType = Exclude<StandardConnectionType, "redis">;
+
+export interface StandardConnection extends ConnectionBase {
+	type: StandardConnectionType;
 	host: string;
 	port: number;
 	database: string;
 	username: string;
 	password: string;
 	ssl: number;
-	db_type: ConnectionType;
+	db_type: StandardConnectionType;
 	file_path: string | null;
-	connection_uri?: string | null;
+	connection_uri?: null;
 	ssh_enabled: number;
 	ssh_host: string;
 	ssh_port: number;
@@ -30,12 +38,19 @@ export interface Connection {
 	ssh_password: string;
 	ssh_key_path: string;
 	ssh_use_key: number;
-	created_at: string;
-	updated_at: string;
 }
 
-export type SqlConnection = Omit<Connection, "type"> & {
-	type: Exclude<ConnectionType, "redis" | "mongodb">;
+export interface MongoConnection extends ConnectionBase {
+	type: "mongodb";
+	db_type: "mongodb";
+	connection_uri: string;
+}
+
+export type Connection = StandardConnection | MongoConnection;
+
+export type SqlConnection = Omit<StandardConnection, "type" | "db_type"> & {
+	type: SqlConnectionType;
+	db_type: SqlConnectionType;
 };
 
 export function isSqlConnection(
@@ -43,10 +58,6 @@ export function isSqlConnection(
 ): connection is SqlConnection {
 	return connection.type !== "redis" && connection.type !== "mongodb";
 }
-
-export type MongoConnection = Omit<Connection, "type"> & {
-	type: "mongodb";
-};
 
 export function isMongoConnection(
 	connection: Connection,
