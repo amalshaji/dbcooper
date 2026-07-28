@@ -85,6 +85,27 @@ test("renders streamed SQL in a read-only draft editor", () => {
 	expect(screen.getByText("Composing query…")).toBeTruthy();
 });
 
+test("keeps the empty loading state compact until SQL starts streaming", () => {
+	render(
+		<SqlAIPreview
+			draft={{
+				status: "generating",
+				requestId: "request-1",
+				sql: "",
+			}}
+			hasExistingSql={false}
+			onDraftChange={() => undefined}
+			onReplace={() => undefined}
+			onAppend={() => undefined}
+			onDiscard={() => undefined}
+		/>,
+	);
+
+	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
+	expect(screen.getByText("Composing query…")).toBeTruthy();
+	expect(screen.queryByText("Not executed")).toBeNull();
+});
+
 test("allows a completed draft to be edited before it is applied", () => {
 	let editedSql = "";
 	render(

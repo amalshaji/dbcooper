@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { AiDraftState } from "@/lib/aiDraftState";
 import { classifySqlIntent } from "@/lib/sqlSafety";
+import { cn } from "@/lib/utils";
 
 interface SqlAIPreviewProps {
 	draft: Exclude<AiDraftState, { status: "idle" }>;
@@ -31,6 +32,7 @@ export function SqlAIPreview({
 	const generating = draft.status === "generating";
 	const sql = draft.status === "error" ? "" : draft.sql;
 	const hasDraft = Boolean(sql.trim());
+	const showEditor = !generating || hasDraft;
 	const intent = classifySqlIntent(sql);
 	const intentLabel =
 		intent === "read"
@@ -41,7 +43,12 @@ export function SqlAIPreview({
 
 	return (
 		<section className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.035] shadow-sm">
-			<header className="flex items-center justify-between border-b border-primary/10 px-3 py-2">
+			<header
+				className={cn(
+					"flex items-center justify-between px-3 py-2",
+					showEditor && "border-b border-primary/10",
+				)}
+			>
 				<div className="flex items-center gap-1.5 text-xs font-medium">
 					{generating ? (
 						<Spinner className="size-3.5" />
@@ -53,7 +60,12 @@ export function SqlAIPreview({
 					AI Draft
 				</div>
 				{generating && (
-					<span className="text-[10px] text-muted-foreground">Not executed</span>
+					<span
+						role="status"
+						className="text-[11px] text-muted-foreground"
+					>
+						Composing query…
+					</span>
 				)}
 				{draft.status === "ready" && hasDraft && (
 					<div className="flex items-center">
@@ -80,13 +92,13 @@ export function SqlAIPreview({
 				<p className="px-3 py-3 text-xs leading-5 text-destructive">
 					Couldn’t generate a draft. {draft.message}
 				</p>
-			) : (
+			) : showEditor ? (
 				<div className="relative min-w-0 bg-background/40 font-mono">
 					<CodeMirror
 						aria-label="AI SQL draft"
 						aria-busy={generating}
 						value={sql}
-						minHeight="96px"
+						minHeight={generating ? "72px" : "96px"}
 						maxHeight="192px"
 						width="100%"
 						extensions={editorExtensions}
@@ -109,16 +121,8 @@ export function SqlAIPreview({
 							highlightSelectionMatches: false,
 						}}
 					/>
-					{generating && (
-						<div
-							role="status"
-							className="pointer-events-none absolute bottom-3 right-3 rounded bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm"
-						>
-							Composing query…
-						</div>
-					)}
 				</div>
-			)}
+			) : null}
 			{!generating && (
 				<footer className="flex items-center justify-end border-t border-primary/10 bg-background/50 px-2 py-2">
 					<Button
