@@ -206,6 +206,10 @@ impl MysqlDriver {
 
 #[async_trait]
 impl DatabaseDriver for MysqlDriver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_pool().await {
             Ok(pool) => match sqlx::query("SELECT 1").fetch_one(&pool).await {

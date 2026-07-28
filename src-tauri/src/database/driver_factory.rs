@@ -9,7 +9,7 @@ use super::{
     ClickhouseConfig, ClickhouseProtocol, D1Config, DatabaseDriver, DatabaseType, DuckDbConfig,
     MysqlConfig, MysqlFlavor, PostgresConfig, RedisConfig, SqliteConfig,
 };
-use crate::ssh_tunnel::SshTunnel;
+use crate::ssh_tunnel::{SshAuth, SshTunnel};
 
 #[derive(Clone, Debug)]
 pub struct DriverConfig {
@@ -62,27 +62,16 @@ pub async fn create_driver_with_ssh(
         let ssh_host = config.ssh_host.as_deref().ok_or("SSH host is required")?;
         let ssh_port = config.ssh_port.unwrap_or(22) as u16;
         let ssh_user = config.ssh_user.as_deref().ok_or("SSH user is required")?;
-        let ssh_password = config
-            .ssh_password
-            .as_deref()
-            .filter(|password| !password.is_empty() && !config.ssh_use_key);
-        let ssh_key_path = config
-            .ssh_key_path
-            .as_deref()
-            .filter(|path| !path.is_empty() && config.ssh_use_key);
+        let auth = SshAuth::from_connection(
+            config.ssh_use_key,
+            config.ssh_password.as_deref(),
+            config.ssh_key_path.as_deref(),
+        );
         let remote_host = config.host.as_deref().ok_or("Remote host is required")?;
         let remote_port = config.port.unwrap_or_else(|| engine.default_port()) as u16;
         let tunnel = tokio::time::timeout(
             std::time::Duration::from_secs(20),
-            SshTunnel::new(
-                ssh_host,
-                ssh_port,
-                ssh_user,
-                ssh_password,
-                ssh_key_path,
-                remote_host,
-                remote_port,
-            ),
+            SshTunnel::new(ssh_host, ssh_port, ssh_user, auth, remote_host, remote_port),
         )
         .await
         .map_err(|_| "SSH tunnel connection timed out after 20 seconds".to_string())?

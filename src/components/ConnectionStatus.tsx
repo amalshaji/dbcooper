@@ -91,7 +91,10 @@ export function ConnectionStatus({
 			}
 		};
 
-		const interval = setInterval(performHealthCheck, 15000);
+		// Poll every 30s. Over an SSH tunnel each check is a round-trip, so a
+		// longer interval reduces steady load; real failures still surface on the
+		// next query.
+		const interval = setInterval(performHealthCheck, 30000);
 
 		return () => clearInterval(interval);
 	}, [connectionUuid, controlledStatus, onStatusChange]);

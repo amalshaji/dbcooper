@@ -468,6 +468,10 @@ fn duckdb_command(helper_path: &PathBuf) -> Command {
 
 #[async_trait]
 impl DatabaseDriver for DuckDbDriver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         self.ensure_helper_available().await?;
         let _guard = self.file_lock.lock().await;

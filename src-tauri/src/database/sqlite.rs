@@ -19,14 +19,22 @@ use crate::db::models::{
     TestConnectionResult,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 pub struct SqliteDriver {
     config: SqliteConfig,
+    /// Cached pool, created lazily and reused across queries (previously a fresh
+    /// pool was opened and closed for every query).
+    pool: Arc<RwLock<Option<sqlx::SqlitePool>>>,
 }
 
 impl SqliteDriver {
     pub fn new(config: SqliteConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            pool: Arc::new(RwLock::new(None)),
+        }
     }
 
     fn connection_string(&self) -> String {
@@ -49,13 +57,30 @@ impl SqliteDriver {
         query
     }
 
-    async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
-        let conn_str = self.connection_string();
+    async fn create_pool(&self) -> Result<sqlx::SqlitePool, String> {
         SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&conn_str)
+            .connect(&self.connection_string())
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn get_pool(&self) -> Result<sqlx::SqlitePool, String> {
+        {
+            let pool_guard = self.pool.read().await;
+            if let Some(ref pool) = *pool_guard {
+                return Ok(pool.clone());
+            }
+        }
+
+        let mut pool_guard = self.pool.write().await;
+        if let Some(ref pool) = *pool_guard {
+            return Ok(pool.clone());
+        }
+
+        let new_pool = self.create_pool().await?;
+        *pool_guard = Some(new_pool.clone());
+        Ok(new_pool)
     }
 
     async fn get_primary_key_columns(
@@ -141,11 +166,14 @@ impl SqliteDriver {
 
 #[async_trait]
 impl DatabaseDriver for SqliteDriver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_pool().await {
             Ok(pool) => {
                 let result = sqlx::query("SELECT 1").fetch_one(&pool).await;
-                pool.close().await;
                 match result {
                     Ok(_) => Ok(TestConnectionResult {
                         success: true,
@@ -183,8 +211,6 @@ impl DatabaseDriver for SqliteDriver {
         .await
         .map_err(|e| e.to_string())?;
 
-        pool.close().await;
-
         Ok(tables
             .into_iter()
             .map(|(name, table_type)| TableInfo {
@@ -202,12 +228,10 @@ impl DatabaseDriver for SqliteDriver {
     async fn create_table(&self, request: &CreateTableRequest) -> Result<TableInfo, String> {
         let sql = self.preview_create_table(request)?;
         let pool = self.get_pool().await?;
-        let result = sqlx::query(&sql)
+        sqlx::query(&sql)
             .execute(&pool)
             .await
-            .map_err(|error| error.to_string());
-        pool.close().await;
-        result?;
+            .map_err(|error| error.to_string())?;
 
         Ok(TableInfo {
             schema: request.schema.clone(),
@@ -293,8 +317,6 @@ impl DatabaseDriver for SqliteDriver {
             sqlx::query(&data_query).fetch_all(&pool).await
         }
         .map_err(|e| e.to_string())?;
-
-        pool.close().await;
 
         let data: Vec<Value> = rows.iter().map(Self::row_to_json).collect();
 
@@ -400,8 +422,6 @@ impl DatabaseDriver for SqliteDriver {
             })
             .collect();
 
-        pool.close().await;
-
         Ok(TableStructure {
             columns,
             indexes,
@@ -421,7 +441,6 @@ impl DatabaseDriver for SqliteDriver {
                 .await
             {
                 Ok(rows) => {
-                    pool.close().await;
                     let truncated = rows.len() > crate::database::MAX_QUERY_RESULT_ROWS;
                     let data: Vec<Value> = rows
                         .iter()
@@ -438,22 +457,18 @@ impl DatabaseDriver for SqliteDriver {
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     })
                 }
-                Err(e) => {
-                    pool.close().await;
-                    Ok(QueryResult {
-                        data: vec![],
-                        row_count: 0,
-                        truncated: false,
-                        rows_affected: None,
-                        error: Some(e.to_string()),
-                        time_taken_ms: Some(start_time.elapsed().as_millis()),
-                    })
-                }
+                Err(e) => Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    truncated: false,
+                    rows_affected: None,
+                    error: Some(e.to_string()),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                }),
             }
         } else {
             match sqlx::query(query).execute(&pool).await {
                 Ok(result) => {
-                    pool.close().await;
                     let rows_affected = result.rows_affected();
                     Ok(QueryResult {
                         data: vec![],
@@ -464,17 +479,14 @@ impl DatabaseDriver for SqliteDriver {
                         time_taken_ms: Some(start_time.elapsed().as_millis()),
                     })
                 }
-                Err(e) => {
-                    pool.close().await;
-                    Ok(QueryResult {
-                        data: vec![],
-                        row_count: 0,
-                        truncated: false,
-                        rows_affected: None,
-                        error: Some(e.to_string()),
-                        time_taken_ms: Some(start_time.elapsed().as_millis()),
-                    })
-                }
+                Err(e) => Ok(QueryResult {
+                    data: vec![],
+                    row_count: 0,
+                    truncated: false,
+                    rows_affected: None,
+                    error: Some(e.to_string()),
+                    time_taken_ms: Some(start_time.elapsed().as_millis()),
+                }),
             }
         }
     }
@@ -488,7 +500,9 @@ impl DatabaseDriver for SqliteDriver {
             ));
         }
 
-        let pool = self.get_pool().await?;
+        // Keep read-only enforcement isolated from the cached application pool:
+        // query_only is connection-scoped and this pool is closed after use.
+        let pool = self.create_pool().await?;
 
         // `query_only` makes the engine reject every write on this connection
         // (the pool holds a single connection), covering writes hidden behind
@@ -646,8 +660,6 @@ impl DatabaseDriver for SqliteDriver {
                 });
             }
         }
-
-        pool.close().await;
 
         let tables: Vec<TableWithStructure> = tables_map.into_values().collect();
 

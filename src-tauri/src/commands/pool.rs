@@ -89,7 +89,7 @@ async fn ensure_connection(
     pool_manager.ensure_connected(sqlite_pool, uuid).await
 }
 
-/// Disconnect and retry connect (with lock)
+/// Disconnect and reconnect (with lock).
 async fn reconnect(
     pool_manager: &PoolManager,
     sqlite_pool: &SqlitePool,
@@ -147,6 +147,42 @@ where
     }
 }
 
+pub(crate) async fn with_pooled_read<T, F, Fut>(
+    pool_manager: &PoolManager,
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+    operation_name: &str,
+    operation: F,
+) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    execute_with_retry_policy(
+        operation_name,
+        read_retry_policy(pool_manager, uuid).await,
+        operation,
+        || reconnect(pool_manager, sqlite_pool, uuid),
+    )
+    .await
+}
+
+pub(crate) async fn with_pooled_no_retry<T, F, Fut>(
+    pool_manager: &PoolManager,
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+    _operation_name: &str,
+    operation: F,
+) -> Result<T, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    operation().await
+}
+
 /// List tables using the pooled connection (auto-connects if needed, auto-retries on error)
 #[tauri::command]
 pub async fn pool_list_tables(
@@ -154,7 +190,6 @@ pub async fn pool_list_tables(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<Vec<crate::db::models::TableInfo>, String> {
-    // Ensure connected
     ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
 
     execute_with_retry_policy(
@@ -181,9 +216,9 @@ pub async fn pool_get_table_data(
     sort_column: Option<String>,
     sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
-    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
     let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
 
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
     execute_with_retry_policy(
         "get_table_data",
         read_retry_policy(&pool_manager, &uuid).await,

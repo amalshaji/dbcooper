@@ -75,8 +75,15 @@ impl PostgresDriver {
             std::time::Duration::from_secs(15),
             PgPoolOptions::new()
                 .max_connections(5)
+                // Keep one connection warm so the first query after an idle
+                // period doesn't pay a fresh connect (a new SSH channel +
+                // Postgres startup) on the hot path.
+                .min_connections(1)
                 .acquire_timeout(std::time::Duration::from_secs(30))
                 .idle_timeout(std::time::Duration::from_secs(600))
+                // Recycle connections periodically so a long-lived tunneled
+                // connection that has gone stale gets replaced.
+                .max_lifetime(std::time::Duration::from_secs(1800))
                 .test_before_acquire(false)
                 .connect(&conn_str),
         )
@@ -256,6 +263,10 @@ impl PostgresDriver {
 
 #[async_trait]
 impl DatabaseDriver for PostgresDriver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.get_pool().await {
             Ok(pool) => {
@@ -597,8 +608,14 @@ impl DatabaseDriver for PostgresDriver {
         let start_time = std::time::Instant::now();
         let pool = self.get_pool_with_retry().await?;
 
+        // Use the simple query protocol (raw_sql) for ad-hoc console SQL: it's a
+        // single round-trip versus the extended protocol's
+        // Parse/Bind/Describe/Execute/Sync sequence. Console queries are unique
+        // each run, so the prepared-statement cache never helps them — and over
+        // an SSH tunnel each saved round-trip is a full network RTT. Values come
+        // back in text format, which row_to_json decodes the same way.
         if query_returns_rows(query) {
-            match sqlx::query(query)
+            match sqlx::raw_sql(query)
                 .fetch(&pool)
                 .take(crate::database::MAX_QUERY_RESULT_ROWS + 1)
                 .try_collect::<Vec<_>>()
@@ -624,7 +641,7 @@ impl DatabaseDriver for PostgresDriver {
                 Err(e) => self.query_error_result(e, start_time).await,
             }
         } else {
-            match sqlx::query(query).execute(&pool).await {
+            match sqlx::raw_sql(query).execute(&pool).await {
                 Ok(result) => {
                     let rows_affected = result.rows_affected();
                     Ok(QueryResult {

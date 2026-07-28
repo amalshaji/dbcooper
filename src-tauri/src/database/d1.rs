@@ -246,6 +246,10 @@ impl D1Driver {
 
 #[async_trait]
 impl DatabaseDriver for D1Driver {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     async fn test_connection(&self) -> Result<TestConnectionResult, String> {
         match self.query("SELECT 1 AS ok", vec![]).await {
             Ok(_) => Ok(TestConnectionResult {
