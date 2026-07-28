@@ -1,3 +1,23 @@
+pub const TABLES_QUERY: &str = r#"
+SELECT database, name, engine
+FROM system.tables
+WHERE database = {database:String}
+ORDER BY name;
+"#;
+
+pub const TABLE_COLUMNS_QUERY: &str = r#"
+SELECT name, type, default_kind, default_expression, is_in_primary_key
+FROM system.columns
+WHERE database = {database:String} AND table = {table:String}
+ORDER BY position;
+"#;
+
+pub const TABLE_INDEXES_QUERY: &str = r#"
+SELECT name, expr, type
+FROM system.data_skipping_indices
+WHERE database = {database:String} AND table = {table:String};
+"#;
+
 pub const COLUMNS_QUERY: &str = r#"
 SELECT 
     c.database as schema,
@@ -15,7 +35,7 @@ SELECT
     )) as columns_raw
 FROM system.columns c
 JOIN system.tables t ON c.database = t.database AND c.table = t.name
-WHERE c.database = currentDatabase()
+WHERE c.database = {database:String}
     AND c.database NOT IN ('system', 'INFORMATION_SCHEMA', 'information_schema')
 GROUP BY c.database, c.table, t.engine
 ORDER BY c.database, c.table;
@@ -27,13 +47,13 @@ SELECT
     table,
     groupArray(tuple(name, expr, type)) as indexes_raw
 FROM system.data_skipping_indices
-WHERE database = currentDatabase()
+WHERE database = {database:String}
 GROUP BY database, table;
 "#;
 
 pub const FUNCTION_SUMMARIES_QUERY: &str = r#"
 SELECT
-    currentDatabase() AS schema,
+    {database:String} AS schema,
     name,
     origin,
     arguments,
@@ -45,7 +65,7 @@ ORDER BY name;
 
 pub const FUNCTION_DEFINITION_QUERY: &str = r#"
 SELECT
-    currentDatabase() AS schema,
+    {database:String} AS schema,
     name,
     origin,
     arguments,
@@ -53,6 +73,6 @@ SELECT
     create_query
 FROM system.functions
 WHERE origin != 'System'
-    AND name = '{name}'
+    AND name = {name:String}
 LIMIT 1;
 "#;
