@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { useCallback, useState } from "react";
 import type { SqlConnection } from "../../types/connection";
+import { TabRequestController } from "../../lib/connection-details/tabRequestController";
 import type { Tab, TableDataTab } from "../../types/tabTypes";
 import type { TableDataResponse } from "../../types/tableData";
 
@@ -127,6 +128,7 @@ function tableTab(id: string, tableName: string): TableDataTab {
 function renderController() {
 	const first = tableTab("table-1", "public.users");
 	const second = tableTab("table-2", "public.teams");
+	const requestController = new TabRequestController();
 	return renderHook(() => {
 		const [tabs, setTabs] = useState<Tab[]>([first, second]);
 		const [activeTabId, setActiveTabId] = useState(first.id);
@@ -149,6 +151,7 @@ function renderController() {
 			connection,
 			activeTab: activeTableDataTab,
 			updateTableDataTab,
+			requestController,
 		});
 		return { tabs, controller, selectTab: setActiveTabId };
 	});
@@ -181,6 +184,50 @@ test("finishes loading data on its originating tab after switching tabs", async 
 		loading: false,
 	});
 	expect(result.current.tabs[1]).toMatchObject({ id: "table-2", data: null });
+});
+
+test("keeps the newest table data when requests finish out of order", async () => {
+	const { result } = renderController();
+	const olderResult = deferred<TableDataResponse>();
+	const newerResult = deferred<TableDataResponse>();
+	const tab = result.current.tabs[0] as TableDataTab;
+
+	tableDataResult = olderResult;
+	let olderRequest: Promise<void> | undefined;
+	act(() => {
+		olderRequest = result.current.controller.fetchTableData(tab);
+	});
+
+	tableDataResult = newerResult;
+	let newerRequest: Promise<void> | undefined;
+	act(() => {
+		newerRequest = result.current.controller.fetchTableData(tab);
+	});
+
+	await act(async () => {
+		newerResult.resolve({
+			data: [{ id: 2, name: "Newer" }],
+			total: 1,
+			page: 1,
+			limit: 100,
+		});
+		await newerRequest;
+	});
+	await act(async () => {
+		olderResult.resolve({
+			data: [{ id: 1, name: "Older" }],
+			total: 1,
+			page: 1,
+			limit: 100,
+		});
+		await olderRequest;
+	});
+
+	expect(result.current.tabs[0]).toMatchObject({
+		id: "table-1",
+		data: { data: [{ id: 2, name: "Newer" }] },
+		loading: false,
+	});
 });
 
 test("keeps staged inline edits isolated by tab", async () => {

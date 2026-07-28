@@ -1,12 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useSavedViewApplication } from "../useSavedViewApplication";
 import { useTableDataFilters } from "../useTableDataFilters";
+import { continueWhileCurrent } from "../../lib/connection-details/latestRequestRegistry";
 import {
 	areCellValuesEqual,
 	getPrimaryKeyRowKey,
 } from "../../lib/connection-details/queryTableState";
 import type { UpdateTab } from "../../lib/connection-details/tabState";
+import type { TabRequestController } from "../../lib/connection-details/tabRequestController";
 import { getFilterRequest } from "../../lib/resultFilters";
 import type { TableColumnLayout } from "../../lib/savedViews";
 import { api } from "../../lib/tauri";
@@ -34,12 +36,14 @@ export interface UseTableDataControllerOptions {
 	connection: SqlConnection;
 	activeTab: TableDataTab | null;
 	updateTableDataTab: UpdateTab<TableDataTab>;
+	requestController: TabRequestController;
 }
 
 export function useTableDataController({
 	connection,
 	activeTab,
 	updateTableDataTab,
+	requestController,
 }: UseTableDataControllerOptions) {
 	const [rowEditSheetOpen, setRowEditSheetOpen] = useState(false);
 	const [editingRow, setEditingRow] = useState<Record<string, unknown> | null>(
@@ -55,6 +59,13 @@ export function useTableDataController({
 	const [savingInlineEdits, setSavingInlineEdits] = useState(false);
 	const [rowInsertSheetOpen, setRowInsertSheetOpen] = useState(false);
 	const [insertingRow, setInsertingRow] = useState(false);
+
+	useEffect(() => {
+		setSavingRow(false);
+		setSavingInlineEdits(false);
+		setDeletingRow(false);
+		setInsertingRow(false);
+	}, [connection.uuid]);
 
 	const requestTableData = useCallback(
 		async (tab: TableDataTab) => {
@@ -77,11 +88,15 @@ export function useTableDataController({
 
 	const fetchTableData = useCallback(
 		async (tab: TableDataTab) => {
+			const request = requestController.beginTable(tab.id);
 			updateTableDataTab(tab.id, { loading: true });
 			try {
 				const data = await requestTableData(tab);
-				updateTableDataTab(tab.id, { data, loading: false });
+				request.commit(() =>
+					updateTableDataTab(tab.id, { data, loading: false }),
+				);
 			} catch (error) {
+				if (!request.isCurrent()) return;
 				console.error("Failed to fetch table data:", error);
 				toast.error("Failed to load table data", {
 					description: error instanceof Error ? error.message : String(error),
@@ -89,7 +104,7 @@ export function useTableDataController({
 				updateTableDataTab(tab.id, { data: null, loading: false });
 			}
 		},
-		[requestTableData, updateTableDataTab],
+		[requestController, requestTableData, updateTableDataTab],
 	);
 
 	const {
@@ -106,6 +121,7 @@ export function useTableDataController({
 	const handleApplySavedView = useSavedViewApplication({
 		tab: activeTab,
 		requestTableData,
+		requestController,
 		updateTab: updateTableDataTab,
 	});
 
@@ -172,6 +188,7 @@ export function useTableDataController({
 			if (!activeTab || !editingRow) return;
 
 			const tab = activeTab;
+			const tableRequest = requestController.watchTable(tab.id);
 			const [schema, tableName] = tab.tableName.split(".");
 			const primaryKeyColumns = tab.columns
 				.filter((column) => column.primary_key)
@@ -197,6 +214,7 @@ export function useTableDataController({
 					updates,
 				);
 
+				if (!tableRequest.isCurrent()) return;
 				if (result.error) {
 					toast.error("Failed to update row", { description: result.error });
 				} else {
@@ -207,18 +225,26 @@ export function useTableDataController({
 					toast.success("Row updated successfully");
 					setRowEditSheetOpen(false);
 					setEditingRow(null);
-					fetchTableData(tab);
+					setSavingRow(false);
+					void fetchTableData(tab);
 				}
 			} catch (error) {
+				if (!tableRequest.isCurrent()) return;
 				console.error("Failed to update row:", error);
 				toast.error("Failed to update row", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setSavingRow(false);
+				if (tableRequest.isCurrent()) setSavingRow(false);
 			}
 		},
-		[connection, activeTab, editingRow, fetchTableData],
+		[
+			connection,
+			activeTab,
+			editingRow,
+			fetchTableData,
+			requestController,
+		],
 	);
 
 	const handleInlineCellSave = useCallback(
@@ -267,6 +293,7 @@ export function useTableDataController({
 		if (!activeTab) return;
 
 		const tab = activeTab;
+		const tableRequest = requestController.watchTable(tab.id);
 		const pendingEdits = Object.entries(pendingInlineEditsByTab[tab.id] ?? {});
 		if (pendingEdits.length === 0) return;
 
@@ -308,25 +335,28 @@ export function useTableDataController({
 
 		setSavingInlineEdits(true);
 		try {
-			for (const [rowKey, editGroup] of editsByRow) {
-				const primaryKeyValues = primaryKeyColumns.map(
-					(column) => editGroup.row[column],
-				);
-				const result = await api.pool.updateTableRow(
-					connection.uuid,
-					schema,
-					tableName,
-					primaryKeyColumns,
-					primaryKeyValues,
-					editGroup.updates,
-				);
-
-				if (result.error) {
-					throw new Error(result.error);
-				}
-
-				setHighlightedTableRow({ tableName: tab.tableName, rowKey });
-			}
+			const completed = await continueWhileCurrent(
+				editsByRow,
+				() => tableRequest.isCurrent(),
+				async ([, editGroup]) => {
+					const primaryKeyValues = primaryKeyColumns.map(
+						(column) => editGroup.row[column],
+					);
+					return api.pool.updateTableRow(
+						connection.uuid,
+						schema,
+						tableName,
+						primaryKeyColumns,
+						primaryKeyValues,
+						editGroup.updates,
+					);
+				},
+				(result, [rowKey]) => {
+					if (result.error) throw new Error(result.error);
+					setHighlightedTableRow({ tableName: tab.tableName, rowKey });
+				},
+			);
+			if (!completed) return;
 
 			setPendingInlineEditsByTab((previous) => {
 				const next = { ...previous };
@@ -336,16 +366,24 @@ export function useTableDataController({
 			toast.success(
 				`Committed ${pendingEdits.length} inline change${pendingEdits.length === 1 ? "" : "s"}`,
 			);
+			setSavingInlineEdits(false);
 			await fetchTableData(tab);
 		} catch (error) {
+			if (!tableRequest.isCurrent()) return;
 			console.error("Failed to save inline changes:", error);
 			toast.error("Failed to save inline changes", {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setSavingInlineEdits(false);
+			if (tableRequest.isCurrent()) setSavingInlineEdits(false);
 		}
-	}, [connection, activeTab, pendingInlineEditsByTab, fetchTableData]);
+	}, [
+		connection,
+		activeTab,
+		pendingInlineEditsByTab,
+		fetchTableData,
+		requestController,
+	]);
 
 	const handleDiscardInlineChanges = useCallback(() => {
 		if (!activeTab) return;
@@ -366,6 +404,7 @@ export function useTableDataController({
 		if (!activeTab || !editingRow) return;
 
 		const tab = activeTab;
+		const tableRequest = requestController.watchTable(tab.id);
 		const [schema, tableName] = tab.tableName.split(".");
 		const primaryKeyColumns = tab.columns
 			.filter((column) => column.primary_key)
@@ -390,29 +429,39 @@ export function useTableDataController({
 				primaryKeyValues,
 			);
 
+			if (!tableRequest.isCurrent()) return;
 			if (result.error) {
 				toast.error("Failed to delete row", { description: result.error });
 			} else {
 				toast.success("Row deleted successfully");
 				setRowEditSheetOpen(false);
 				setEditingRow(null);
-				fetchTableData(tab);
+				setDeletingRow(false);
+				void fetchTableData(tab);
 			}
 		} catch (error) {
+			if (!tableRequest.isCurrent()) return;
 			console.error("Failed to delete row:", error);
 			toast.error("Failed to delete row", {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
-			setDeletingRow(false);
+			if (tableRequest.isCurrent()) setDeletingRow(false);
 		}
-	}, [connection, activeTab, editingRow, fetchTableData]);
+	}, [
+		connection,
+		activeTab,
+		editingRow,
+		fetchTableData,
+		requestController,
+	]);
 
 	const handleInsertRow = useCallback(
 		async (values: RowMutationValue[]) => {
 			if (!activeTab) return;
 
 			const tab = activeTab;
+			const tableRequest = requestController.watchTable(tab.id);
 			const [schema, tableName] = tab.tableName.split(".");
 			setInsertingRow(true);
 
@@ -424,23 +473,26 @@ export function useTableDataController({
 					values,
 				);
 
+				if (!tableRequest.isCurrent()) return;
 				if (result.error) {
 					toast.error("Failed to insert row", { description: result.error });
 				} else {
 					toast.success("Row inserted successfully");
 					setRowInsertSheetOpen(false);
-					fetchTableData(tab);
+					setInsertingRow(false);
+					void fetchTableData(tab);
 				}
 			} catch (error) {
+				if (!tableRequest.isCurrent()) return;
 				console.error("Failed to insert row:", error);
 				toast.error("Failed to insert row", {
 					description: error instanceof Error ? error.message : String(error),
 				});
 			} finally {
-				setInsertingRow(false);
+				if (tableRequest.isCurrent()) setInsertingRow(false);
 			}
 		},
-		[connection, activeTab, fetchTableData],
+		[connection, activeTab, fetchTableData, requestController],
 	);
 
 	return {

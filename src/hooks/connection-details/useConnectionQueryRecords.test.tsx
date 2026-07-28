@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { SavedQuery } from "../../lib/tauri";
+import { TabRequestController } from "../../lib/connection-details/tabRequestController";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
@@ -64,9 +65,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test("loads only the selected record panel and clears history atomically", async () => {
+	const requestController = new TabRequestController();
 	const { result, rerender } = renderHook(
 		({ activePanel }: { activePanel: "objects" | "queries" | "history" }) =>
-			useConnectionQueryRecords({ uuid: "connection-1", activePanel }),
+			useConnectionQueryRecords({
+				uuid: "connection-1",
+				activePanel,
+				requestController,
+			}),
 		{
 			initialProps: {
 				activePanel: "objects" as "objects" | "queries" | "history",
