@@ -2,7 +2,7 @@ use super::model::{
     detect_engine, DockerContainerSummary, DockerDatabaseEngine, CONNECTION_LABEL_KEY,
     MANAGED_LABEL_KEY,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -29,12 +29,24 @@ struct ContainerListRow {
 pub(crate) struct ContainerConfig {
     #[serde(rename = "Image", default)]
     pub(crate) image: String,
-    #[serde(rename = "Env", default)]
+    #[serde(rename = "Env", default, deserialize_with = "deserialize_null_default")]
     pub(crate) env: Vec<String>,
-    #[serde(rename = "Cmd", default)]
+    #[serde(rename = "Cmd", default, deserialize_with = "deserialize_null_default")]
     pub(crate) command: Vec<String>,
-    #[serde(rename = "Labels", default)]
+    #[serde(
+        rename = "Labels",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     pub(crate) labels: HashMap<String, String>,
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -51,13 +63,21 @@ pub(crate) struct PortBinding {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct NetworkSettings {
-    #[serde(rename = "Ports", default)]
+    #[serde(
+        rename = "Ports",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     ports: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ContainerHostConfig {
-    #[serde(rename = "PortBindings", default)]
+    #[serde(
+        rename = "PortBindings",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
@@ -207,14 +227,13 @@ pub(crate) async fn list_containers() -> Result<Vec<DockerContainerSummary>, Str
             let row: ContainerListRow = serde_json::from_str(line)
                 .map_err(|error| format!("Docker returned invalid container data: {error}"))?;
             let ports = container_ports(&row.ports);
-            let engine = detect_engine(&row.image, &ports);
+            let detection = detect_engine(&row.image, &ports);
             Ok(DockerContainerSummary {
                 id: row.id,
                 name: row.name,
                 image: row.image,
                 state: row.state,
-                compatible: engine.is_some(),
-                engine,
+                detection,
             })
         })
         .collect()
@@ -293,7 +312,7 @@ pub(crate) async fn wait_until_ready(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
         let args = readiness_args(container_id, engine, username, password, database);
-        if short(&args).await.is_ok() {
+        if command(&args, DEFAULT_COMMAND_TIMEOUT).await.is_ok() {
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
@@ -303,45 +322,59 @@ pub(crate) async fn wait_until_ready(
     }
 }
 
-fn readiness_args<'a>(
-    container_id: &'a str,
+fn readiness_args(
+    container_id: &str,
     engine: DockerDatabaseEngine,
-    username: &'a str,
-    password: &'a str,
-    database: &'a str,
-) -> Vec<&'a str> {
+    username: &str,
+    password: &str,
+    database: &str,
+) -> Vec<String> {
     match engine {
         DockerDatabaseEngine::Postgres => vec![
-            "exec",
-            container_id,
-            "pg_isready",
-            "-U",
-            username,
-            "-d",
-            database,
+            "exec".into(),
+            container_id.into(),
+            "pg_isready".into(),
+            "-U".into(),
+            username.into(),
+            "-d".into(),
+            database.into(),
+        ],
+        DockerDatabaseEngine::Mysql | DockerDatabaseEngine::Mariadb => vec![
+            "exec".into(),
+            container_id.into(),
+            match engine {
+                DockerDatabaseEngine::Mariadb => "mariadb-admin",
+                _ => "mysqladmin",
+            }
+            .into(),
+            "ping".into(),
+            "--host=127.0.0.1".into(),
+            "--user".into(),
+            username.into(),
+            format!("--password={password}"),
         ],
         DockerDatabaseEngine::Redis => vec![
-            "exec",
-            container_id,
-            "redis-cli",
-            "--user",
-            username,
-            "-a",
-            password,
-            "ping",
+            "exec".into(),
+            container_id.into(),
+            "redis-cli".into(),
+            "--user".into(),
+            username.into(),
+            "-a".into(),
+            password.into(),
+            "ping".into(),
         ],
         DockerDatabaseEngine::Clickhouse => vec![
-            "exec",
-            container_id,
-            "clickhouse-client",
-            "--user",
-            username,
-            "--password",
-            password,
-            "--database",
-            database,
-            "--query",
-            "SELECT 1",
+            "exec".into(),
+            container_id.into(),
+            "clickhouse-client".into(),
+            "--user".into(),
+            username.into(),
+            "--password".into(),
+            password.into(),
+            "--database".into(),
+            database.into(),
+            "--query".into(),
+            "SELECT 1".into(),
         ],
     }
 }
@@ -417,6 +450,22 @@ mod tests {
     }
 
     #[test]
+    fn treats_null_docker_collections_as_empty() {
+        let inspect: ContainerInspect = serde_json::from_str(
+            r#"{
+                "Config": { "Env": null, "Cmd": null, "Labels": null },
+                "HostConfig": { "PortBindings": null },
+                "NetworkSettings": { "Ports": null }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(inspect.command_option("--requirepass"), "");
+        assert!(inspect.env().is_empty());
+        assert!(inspect.exposed_ports().is_empty());
+    }
+
+    #[test]
     fn parses_container_ports_without_matching_host_port_substrings() {
         assert_eq!(
             container_ports("127.0.0.1:55432->5432/tcp, 6379/tcp"),
@@ -447,6 +496,52 @@ mod tests {
                 "analytics",
                 "--query",
                 "SELECT 1",
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_mysql_readiness_command() {
+        assert_eq!(
+            readiness_args(
+                "container-id",
+                DockerDatabaseEngine::Mysql,
+                "dbcooper",
+                "secret",
+                "dbcooper",
+            ),
+            vec![
+                "exec",
+                "container-id",
+                "mysqladmin",
+                "ping",
+                "--host=127.0.0.1",
+                "--user",
+                "dbcooper",
+                "--password=secret",
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_mariadb_readiness_command() {
+        assert_eq!(
+            readiness_args(
+                "container-id",
+                DockerDatabaseEngine::Mariadb,
+                "dbcooper",
+                "secret",
+                "dbcooper",
+            ),
+            vec![
+                "exec",
+                "container-id",
+                "mariadb-admin",
+                "ping",
+                "--host=127.0.0.1",
+                "--user",
+                "dbcooper",
+                "--password=secret",
             ]
         );
     }

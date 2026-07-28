@@ -44,7 +44,9 @@ mock.module("@/components/ui/select", () => ({
 			{children}
 		</button>
 	),
-	SelectValue: () => <span data-slot="select-value" />,
+	SelectValue: ({ children }: { children?: ReactNode }) => (
+		<span data-slot="select-value">{children}</span>
+	),
 }));
 mock.module("@/components/ui/spinner", () => ({
 	Spinner: () => <span>Loading</span>,
@@ -80,6 +82,8 @@ test("offers every Docker database engine supported by the backend", () => {
 	);
 
 	expect(markup).toContain('data-value="postgres"');
+	expect(markup).toContain('data-value="mysql"');
+	expect(markup).toContain('data-value="mariadb"');
 	expect(markup).toContain('data-value="redis"');
 	expect(markup).toContain('data-value="clickhouse"');
 });
@@ -95,4 +99,18 @@ test("uses the shared select component for the database engine", () => {
 
 	expect(markup).toContain('data-slot="select-trigger"');
 	expect(markup).not.toContain("<select");
+});
+
+test("shows the selected engine display name instead of its stored value", () => {
+	const markup = renderToStaticMarkup(
+		<CreateDatabaseDialog
+			open
+			onOpenChange={() => undefined}
+			onCreated={async () => undefined}
+		/>,
+	);
+
+	expect(markup).toContain(
+		'<span data-slot="select-value">PostgreSQL 17</span>',
+	);
 });

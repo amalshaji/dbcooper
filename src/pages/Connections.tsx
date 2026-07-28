@@ -9,11 +9,14 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { ConnectionForm } from "@/components/ConnectionForm";
-import { ConnectionCard } from "@/components/connections/ConnectionCard";
+import {
+	ConnectionCard,
+	ConnectionCardSkeleton,
+} from "@/components/connections/ConnectionCard";
 import { DeleteConnectionDialog } from "@/components/connections/DeleteConnectionDialog";
 import { ConnectDockerDialog } from "@/components/docker/ConnectDockerDialog";
 import { CreateDatabaseDialog } from "@/components/docker/CreateDatabaseDialog";
@@ -21,7 +24,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { UpdateChecker } from "@/components/UpdateChecker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	api,
 	type Connection,
@@ -29,6 +32,34 @@ import {
 	type ConnectionsExport,
 	type DockerConnectionState,
 } from "@/lib/tauri";
+
+function ConnectionGrid({
+	loading,
+	children,
+}: {
+	loading: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<div
+			className="grid grid-cols-1 gap-2.5 lg:grid-cols-2"
+			role={loading ? "status" : undefined}
+			aria-label={loading ? "Loading connections" : undefined}
+			aria-busy={loading || undefined}
+		>
+			{loading ? (
+				<>
+					<span className="sr-only">Loading connections</span>
+					{Array.from({ length: 4 }, (_, index) => (
+						<ConnectionCardSkeleton key={index} />
+					))}
+				</>
+			) : (
+				children
+			)}
+		</div>
+	);
+}
 
 export function Connections() {
 	const navigate = useNavigate();
@@ -259,19 +290,6 @@ export function Connections() {
 		}
 	};
 
-	if (loading) {
-		return (
-			<div className="workspace-canvas flex min-h-screen items-center justify-center">
-				<div className="workspace-panel flex min-w-56 items-center rounded-lg border px-4 py-3 shadow-sm">
-					<Spinner className="size-4" />
-					<p className="ml-3 text-sm text-muted-foreground">
-						Loading connections…
-					</p>
-				</div>
-			</div>
-		);
-	}
-
 	return (
 		<div className="workspace-canvas flex min-h-screen flex-col">
 			<header
@@ -280,8 +298,16 @@ export function Connections() {
 			>
 				<div className="flex items-center gap-2 pl-4">
 					<h1 className="text-sm font-semibold text-foreground">Connections</h1>
-					<Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-						{connections.length}
+					<Badge
+						variant="secondary"
+						className="h-5 min-w-5 px-1.5 text-[10px]"
+						aria-label={loading ? "Loading connection count" : undefined}
+					>
+						{loading ? (
+							<Skeleton className="h-2.5 w-2.5 rounded-sm" aria-hidden="true" />
+						) : (
+							connections.length
+						)}
 					</Badge>
 				</div>
 				<div className="flex items-center gap-1">
@@ -311,24 +337,27 @@ export function Connections() {
 
 			<main className="flex-1 overflow-auto p-5 md:p-8">
 				<div className="mx-auto max-w-5xl">
-					{connections.length === 0 ? (
+					{!loading && connections.length === 0 ? (
 						<div className="flex min-h-[calc(100vh-8rem)] items-center justify-center">
 							<EmptyState
-								icon={<Database />}
 								title="No connections yet"
-								description="Create a local workspace for PostgreSQL, SQLite, Redis, or ClickHouse. Credentials stay on this Mac."
+								icon={<Database />}
+								description="Create a local workspace for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Create database",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setCreateDatabaseOpen(true),
 									},
 									{
 										label: "Connect Docker",
+										icon: <Cube className="size-4" />,
 										onClick: () => setConnectDockerOpen(true),
 										variant: "outline",
 									},
 									{
 										label: "New connection",
+										icon: <Plus className="size-4" weight="bold" />,
 										onClick: () => setIsFormOpen(true),
 										variant: "outline",
 									},
@@ -379,7 +408,7 @@ export function Connections() {
 								</div>
 							</div>
 
-							<div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
+							<ConnectionGrid loading={loading}>
 								{connections.map((connection) => (
 									<ConnectionCard
 										key={connection.id}
@@ -398,7 +427,7 @@ export function Connections() {
 										onDelete={() => handleDeleteClick(connection)}
 									/>
 								))}
-							</div>
+							</ConnectionGrid>
 						</div>
 					)}
 				</div>

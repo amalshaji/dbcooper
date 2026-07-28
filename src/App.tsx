@@ -4,12 +4,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
+import { Connections } from "@/pages/Connections";
 
-const Connections = lazy(() =>
-	import("@/pages/Connections").then((module) => ({
-		default: module.Connections,
-	})),
-);
 const ConnectionDetails = lazy(() =>
 	import("@/pages/ConnectionDetails").then((module) => ({
 		default: module.ConnectionDetails,

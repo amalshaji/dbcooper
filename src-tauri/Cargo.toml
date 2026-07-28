@@ -30,8 +30,10 @@ sqlx = { version = "0.8", features = [
     "runtime-tokio-rustls",
     "sqlite",
     "postgres",
+    "mysql",
     "chrono",
     "uuid",
+    "json",
 ] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -51,12 +53,18 @@ reqwest = { version = "0.12", features = [
     "stream",
 ], default-features = false }
 futures-util = "0.3"
+fs2 = "0.4"
+sha2 = "0.10"
+zip = { version = "2.4", default-features = false, features = ["deflate-flate2", "flate2"] }
 rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
 axum = "0.8"
 tokio-util = "0.7"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

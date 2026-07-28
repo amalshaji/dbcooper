@@ -1,8 +1,10 @@
 import type { TableDataResponse } from "./tableData";
+import { createQueryAiState, type QueryAiState } from "@/lib/aiDraftState";
 import {
 	createTableFilterState,
 	type TableFilterState,
 } from "@/lib/resultFilters";
+import { createColumnLayout, type TableColumnLayout } from "@/lib/savedViews";
 import type {
 	ColumnInfo,
 	ForeignKeyInfo,
@@ -56,6 +58,8 @@ export interface TableDataTab extends BaseTab {
 	foreignKeys: ForeignKeyInfo[];
 	columns: TableColumn[];
 	sort: SortConfig | null;
+	columnLayout: TableColumnLayout;
+	savedViewId: number | null;
 }
 
 export interface TableStructureTab extends BaseTab {
@@ -68,6 +72,7 @@ export interface TableStructureTab extends BaseTab {
 export interface QueryTab extends BaseTab {
 	type: "query";
 	query: string;
+	ai: QueryAiState;
 	savedQueryId: number | null;
 	savedQueryName: string | null;
 	results: Record<string, unknown>[] | null;
@@ -137,6 +142,8 @@ export function createTableDataTab(tableName: string): TableDataTab {
 		foreignKeys: [],
 		columns: [],
 		sort: null,
+		columnLayout: createColumnLayout([]),
+		savedViewId: null,
 	};
 }
 
@@ -161,6 +168,7 @@ export function createQueryTab(
 		type: "query",
 		title: savedQueryName || "New Query",
 		query,
+		ai: createQueryAiState(),
 		savedQueryId,
 		savedQueryName,
 		results: null,
@@ -190,7 +198,9 @@ export function createRedisQueryTab(pattern: string = "*"): RedisQueryTab {
 	};
 }
 
-export function createSchemaVisualizerTab(): SchemaVisualizerTab {
+export function createSchemaVisualizerTab(
+	selectedTables: string[] = [],
+): SchemaVisualizerTab {
 	return {
 		id: `schema-visualizer-${Date.now()}`,
 		type: "schema-visualizer",
@@ -198,7 +208,7 @@ export function createSchemaVisualizerTab(): SchemaVisualizerTab {
 		schemaOverview: null,
 		loading: false,
 		tableFilter: "",
-		selectedTables: [],
+		selectedTables,
 	};
 }
 

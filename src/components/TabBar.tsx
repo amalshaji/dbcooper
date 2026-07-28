@@ -1,6 +1,7 @@
 import { Code, Columns, Database, Plus, Table, X } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import type { Tab } from "@/types/tabTypes";
 
@@ -73,6 +74,8 @@ export function TabBar({
 			>
 				{tabs.map((tab) => {
 					const isActive = tab.id === activeTabId;
+					const isAiGenerating =
+						tab.type === "query" && tab.ai.draft.status === "generating";
 					return (
 						<div
 							key={tab.id}
@@ -98,19 +101,28 @@ export function TabBar({
 								{getTabIcon(tab)}
 								<span className="min-w-0 flex-1 truncate">{tab.title}</span>
 							</button>
-							<button
-								type="button"
-								onClick={() => onTabClose(tab.id)}
-								aria-label={`Close ${tab.title}`}
-								className={cn(
-									"mr-1 flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-[background-color,opacity] hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
-									isActive
-										? "opacity-100"
-										: "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
-								)}
-							>
-								<X className="size-3" />
-							</button>
+							{isAiGenerating ? (
+								<span className="mr-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground">
+									<Spinner
+										className="size-3"
+										aria-label={`Generating ${tab.title}`}
+									/>
+								</span>
+							) : (
+								<button
+									type="button"
+									onClick={() => onTabClose(tab.id)}
+									aria-label={`Close ${tab.title}`}
+									className={cn(
+										"mr-1 flex size-6 shrink-0 items-center justify-center rounded-md outline-none transition-[background-color,opacity] hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50",
+										isActive
+											? "opacity-100"
+											: "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+									)}
+								>
+									<X className="size-3" />
+								</button>
+							)}
 						</div>
 					);
 				})}

@@ -19,7 +19,11 @@ export function BooleanFieldInput({
 				checked={isTrue}
 				onCheckedChange={(checked) =>
 					onValueChange(
-						dbType === "sqlite" ? (checked ? "1" : "0") : checked,
+						dbType === "sqlite" || dbType === "d1"
+							? checked
+								? "1"
+								: "0"
+							: checked,
 						false,
 					)
 				}

@@ -7,10 +7,11 @@ import {
 	type TableFilterState,
 } from "@/lib/resultFilters";
 import type { TableDataTab } from "@/types/tabTypes";
+import type { UpdateTab } from "@/lib/connection-details/tabState";
 
 interface UseTableDataFiltersOptions {
 	tab: TableDataTab | null;
-	updateTab: (id: string, updates: Partial<TableDataTab>) => void;
+	updateTab: UpdateTab<TableDataTab>;
 	fetchTableData: (tab: TableDataTab) => void;
 }
 

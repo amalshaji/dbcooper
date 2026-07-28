@@ -3,6 +3,7 @@ pub mod commands;
 pub mod database;
 pub mod db;
 pub mod docker;
+pub mod duckdb_helper;
 pub mod mcp;
 mod ssh_tunnel;
 
@@ -12,11 +13,11 @@ use commands::connections::{
     get_connections, import_connections, update_connection,
 };
 use commands::database::{
-    delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details, redis_search_keys,
-    redis_set_hash_key, redis_set_key, redis_set_list_key, redis_set_set_key, redis_set_zset_key,
-    redis_update_ttl, unified_execute_query, unified_get_schema_overview, unified_get_table_data,
-    unified_get_table_structure, unified_list_tables, unified_test_connection, update_table_row,
-    update_table_row_with_raw_sql,
+    d1_list_databases, delete_table_row, insert_table_row, redis_delete_key, redis_get_key_details,
+    redis_search_keys, redis_set_hash_key, redis_set_key, redis_set_list_key, redis_set_set_key,
+    redis_set_zset_key, redis_update_ttl, unified_execute_query, unified_get_schema_overview,
+    unified_get_table_data, unified_get_table_structure, unified_list_tables,
+    unified_test_connection, update_table_row, update_table_row_with_raw_sql,
 };
 use commands::mcp::{mcp_get_status, mcp_regenerate_token, mcp_set_enabled};
 use commands::pool::{
@@ -32,6 +33,9 @@ use commands::queries::{
     clear_query_history, create_saved_query, delete_saved_query, get_query_history,
     get_saved_queries, record_query_history, update_saved_query,
 };
+use commands::saved_views::{
+    create_saved_view, delete_saved_view, get_saved_views, update_saved_view,
+};
 use commands::settings::{get_all_settings, get_setting, set_setting, set_settings};
 #[cfg(desktop)]
 use commands::updates::check_for_update;
@@ -41,6 +45,7 @@ use docker::{
     docker_get_connection_string, docker_link_connection, docker_list_containers,
     docker_prepare_connection,
 };
+use duckdb_helper::ensure_duckdb_helper;
 use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
@@ -92,7 +97,7 @@ pub fn run() {
                 website: Some("https://dbcooper.amal.sh".into()),
                 website_label: Some("Visit Website".into()),
                 credits: Some(
-                    "A modern database client for PostgreSQL, SQLite, Redis, and ClickHouse."
+                    "A modern database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1."
                         .into(),
                 ),
                 ..Default::default()
@@ -204,6 +209,8 @@ pub fn run() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
+            duckdb_helper::set_app_data_dir(app.path().app_data_dir()?);
+
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             let pool = rt
                 .block_on(db::init_pool())
@@ -233,6 +240,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_connections,
+            ensure_duckdb_helper,
             get_connection_by_uuid,
             create_connection,
             update_connection,
@@ -245,6 +253,7 @@ pub fn run() {
             get_table_structure,
             execute_query,
             unified_test_connection,
+            d1_list_databases,
             unified_list_tables,
             unified_get_table_data,
             unified_get_table_structure,
@@ -270,6 +279,10 @@ pub fn run() {
             record_query_history,
             get_query_history,
             clear_query_history,
+            get_saved_views,
+            create_saved_view,
+            update_saved_view,
+            delete_saved_view,
             get_setting,
             set_setting,
             set_settings,

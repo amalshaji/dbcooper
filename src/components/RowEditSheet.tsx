@@ -29,6 +29,7 @@ import {
 	SheetTitle,
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
+import { supportsStructuredRowMutations } from "@/lib/databaseCapabilities";
 import type { TableColumn } from "@/types/tabTypes";
 
 interface RowEditSheetProps {
@@ -86,8 +87,7 @@ export function RowEditSheet({
 
 	const hasPrimaryKey = primaryKeyColumns.length > 0;
 
-	// ClickHouse doesn't support direct row updates through the edit sheet
-	const isClickHouse = dbType === "clickhouse";
+	const isReadOnly = !supportsStructuredRowMutations(dbType);
 
 	// Reset edited values when row changes
 	useEffect(() => {
@@ -177,16 +177,17 @@ export function RowEditSheet({
 				>
 					<SheetHeader className="shrink-0">
 						<SheetTitle className="flex items-center gap-2">
-							{isClickHouse ? "View Row" : "Edit Row"}
+							{isReadOnly ? "View Row" : "Edit Row"}
 							<Badge variant="secondary" className="font-mono">
 								{tableName}
 							</Badge>
 						</SheetTitle>
 						<SheetDescription>
-							{isClickHouse ? (
+							{isReadOnly ? (
 								<span className="flex items-center gap-1 mt-2 text-amber-600">
-									ClickHouse doesn't support direct row editing. Use ALTER TABLE
-									UPDATE queries in the SQL editor instead.
+									{dbType === "duckdb"
+										? "DuckDB row editing is available through the SQL editor."
+										: "ClickHouse doesn't support direct row editing. Use ALTER TABLE UPDATE queries in the SQL editor instead."}
 								</span>
 							) : hasPrimaryKey ? (
 								<>
@@ -209,7 +210,7 @@ export function RowEditSheet({
 								isRawSql: false,
 							};
 							const isPrimaryKey = column.primary_key;
-							const isReadonly = isPrimaryKey || !hasPrimaryKey || isClickHouse;
+							const isReadonly = isPrimaryKey || !hasPrimaryKey || isReadOnly;
 
 							return (
 								<div key={column.name} className="space-y-1.5">
@@ -241,7 +242,7 @@ export function RowEditSheet({
 						})}
 					</div>
 
-					{!isClickHouse && (
+					{!isReadOnly && (
 						<SheetFooter className="sticky bottom-0 z-10 shrink-0 flex-row gap-2 justify-between border-t bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:justify-between">
 							<Button
 								variant="destructive"

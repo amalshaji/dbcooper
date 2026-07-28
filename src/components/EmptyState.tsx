@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 
 interface EmptyStateAction {
 	label: string;
+	icon?: React.ReactNode;
 	onClick: () => void;
 	variant?: React.ComponentProps<typeof Button>["variant"];
 }
@@ -42,6 +43,7 @@ export function EmptyState({
 							onClick={resolvedAction.onClick}
 							variant={resolvedAction.variant}
 						>
+							{resolvedAction.icon}
 							{resolvedAction.label}
 						</Button>
 					))}

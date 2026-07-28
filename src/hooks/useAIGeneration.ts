@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type AiGenerationListener,
+	AiGenerationSessionRegistry,
 	startAiGenerationSession,
 } from "@/lib/aiGenerationSession";
 import { api } from "@/lib/tauri";
@@ -14,12 +15,8 @@ interface TableSchema {
 }
 
 export function useAIGeneration() {
-	const [generating, setGenerating] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
-	const activeRequestRef = useRef<ReturnType<
-		typeof startAiGenerationSession
-	> | null>(null);
+	const activeRequestsRef = useRef(new AiGenerationSessionRegistry());
 
 	useEffect(() => {
 		const checkConfig = async () => {
@@ -38,15 +35,14 @@ export function useAIGeneration() {
 
 	useEffect(
 		() => () => {
-			const request = activeRequestRef.current;
-			activeRequestRef.current = null;
-			request?.cancel(new Error("AI generation was cancelled"));
+			activeRequestsRef.current.cancelAll();
 		},
 		[],
 	);
 
 	const generateSQL = useCallback(
 		async (
+			requestKey: string,
 			dbType: string,
 			instruction: string,
 			existingSQL: string,
@@ -54,14 +50,6 @@ export function useAIGeneration() {
 			onStream: (chunk: string) => void,
 			onComplete?: (sql: string) => void,
 		) => {
-			const previousRequest = activeRequestRef.current;
-			activeRequestRef.current = null;
-			previousRequest?.cancel(
-				new Error("A newer AI request replaced this one"),
-			);
-			setGenerating(true);
-			setError(null);
-
 			const sessionId = `ai-${Date.now()}-${crypto.randomUUID()}`;
 			const request = startAiGenerationSession({
 				sessionId,
@@ -78,28 +66,20 @@ export function useAIGeneration() {
 				onChunk: onStream,
 				onComplete: (sql) => onComplete?.(sql),
 			});
-			activeRequestRef.current = request;
+			activeRequestsRef.current.replace(requestKey, request);
 
 			try {
 				await request.promise;
-			} catch (requestError) {
-				if (activeRequestRef.current === request) {
-					setError(
-						requestError instanceof Error
-							? requestError.message
-							: String(requestError),
-					);
-				}
-				throw requestError;
 			} finally {
-				if (activeRequestRef.current === request) {
-					activeRequestRef.current = null;
-					setGenerating(false);
-				}
+				activeRequestsRef.current.deleteIfCurrent(requestKey, request);
 			}
 		},
 		[],
 	);
 
-	return { generateSQL, generating, error, isConfigured };
+	const cancelGeneration = useCallback((requestKey: string) => {
+		activeRequestsRef.current.cancel(requestKey);
+	}, []);
+
+	return { generateSQL, cancelGeneration, isConfigured };
 }

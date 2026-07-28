@@ -1,4 +1,12 @@
-export type ConnectionType = "postgres" | "sqlite" | "redis" | "clickhouse";
+export type ConnectionType =
+	| "postgres"
+	| "mysql"
+	| "mariadb"
+	| "sqlite"
+	| "duckdb"
+	| "redis"
+	| "clickhouse"
+	| "d1";
 
 export interface Connection {
 	id: number;
@@ -22,6 +30,16 @@ export interface Connection {
 	ssh_use_key: number;
 	created_at: string;
 	updated_at: string;
+}
+
+export type SqlConnection = Omit<Connection, "type"> & {
+	type: Exclude<ConnectionType, "redis">;
+};
+
+export function isSqlConnection(
+	connection: Connection,
+): connection is SqlConnection {
+	return connection.type !== "redis";
 }
 
 export type ConnectionFormData = {

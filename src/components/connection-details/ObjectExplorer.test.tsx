@@ -81,6 +81,12 @@ mock.module("@/components/ui/switch", () => ({
 mock.module("@/lib/databaseCatalog", () => ({
 	getDefaultSchema: (dbType: "postgres" | "sqlite") =>
 		dbType === "sqlite" ? "main" : "public",
+	getCreateTableModifierCapabilities: () => ({
+		lengthTypes: [],
+		decimalTypes: [],
+		unsignedTypes: [],
+		autoIncrementTypes: [],
+	}),
 }));
 mock.module("@/types/tabTypes", () => ({
 	formatFunctionSignature: () => "",
@@ -131,6 +137,33 @@ describe("ObjectExplorer create table capability", () => {
 
 		expect((screen.getByLabelText("Schema") as HTMLInputElement).value).toBe(
 			"main",
+		);
+	});
+
+	test("uses the selected database for an empty MySQL connection", async () => {
+		render(
+			<ObjectExplorer
+				{...requiredProps}
+				createTable={{
+					dbType: "mysql",
+					defaultSchema: "app",
+					onPreview: async () => "",
+					onCreate: async () => ({
+						schema: "app",
+						name: "events",
+						type: "table",
+					}),
+					onCreated: () => {},
+				}}
+			/>,
+		);
+
+		await userEvent
+			.setup()
+			.click(screen.getByRole("button", { name: "Create table" }));
+
+		expect((screen.getByLabelText("Database") as HTMLInputElement).value).toBe(
+			"app",
 		);
 	});
 

@@ -1,24 +1,24 @@
 //! Unified database commands that dispatch to the correct driver based on db_type.
 //!
 //! This module provides a single set of Tauri commands that work with PostgreSQL,
-//! SQLite, Redis, and ClickHouse databases by dispatching to the appropriate driver.
+//! SQLite, DuckDB, Redis, and ClickHouse databases by dispatching to the appropriate driver.
 
-use crate::commands::pool::with_pooled;
-use crate::database::clickhouse::ClickhouseDriver;
+use crate::commands::pool::{with_pooled_no_retry, with_pooled_read};
+use crate::database::d1::{list_databases, D1DatabaseList};
+use crate::database::driver_factory::{
+    create_driver as build_driver, create_driver_with_ssh as build_driver_with_ssh, DriverConfig,
+};
 use crate::database::pool_manager::PoolManager;
-use crate::database::postgres::PostgresDriver;
 use crate::database::redis::{RedisDriver, RedisKeyDetails, RedisKeyListResponse};
 use crate::database::sql_policy::{
-    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
+    ensure_structured_mutations_supported, escape_sql_identifier, format_sql_value,
+    validate_raw_sql_value,
 };
-use crate::database::sqlite::SqliteDriver;
-use crate::database::{
-    ClickhouseConfig, ClickhouseProtocol, DatabaseDriver, PostgresConfig, RedisConfig, SqliteConfig,
-};
+use crate::database::{DatabaseDriver, DatabaseType};
 use crate::db::models::{
     QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableStructure, TestConnectionResult,
 };
-use crate::ssh_tunnel::{SshAuth, SshTunnel};
+use crate::ssh_tunnel::SshTunnel;
 use serde::Serialize;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -70,95 +70,40 @@ async fn create_driver_with_ssh(
     ssh_key_path: Option<String>,
     ssh_use_key: Option<bool>,
 ) -> Result<(Box<dyn DatabaseDriver>, Option<SshTunnel>), String> {
-    let (effective_host, effective_port, tunnel) = if ssh_enabled.unwrap_or(false) {
-        let ssh_host_val = ssh_host.unwrap_or_default();
-        let ssh_port_val = ssh_port.unwrap_or(22) as u16;
-        let ssh_user_val = ssh_user.unwrap_or_default();
-        let ssh_password_val = ssh_password.unwrap_or_default();
-        let ssh_key_path_val = ssh_key_path.unwrap_or_default();
-        let use_key = ssh_use_key.unwrap_or(false);
-
-        let auth = SshAuth::from_connection(
-            use_key,
-            Some(ssh_password_val.as_str()),
-            Some(ssh_key_path_val.as_str()),
-        );
-
-        let remote_host = host.clone().unwrap_or_default();
-        let remote_port = port.unwrap_or(5432) as u16;
-
-        // Use a 20 second timeout for SSH tunnel creation (can take longer due to network/auth)
-        let tunnel = match tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            SshTunnel::new(
-                &ssh_host_val,
-                ssh_port_val,
-                &ssh_user_val,
-                auth,
-                &remote_host,
-                remote_port,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(tunnel)) => tunnel,
-            Ok(Err(e)) => return Err(format!("SSH tunnel failed: {}", e)),
-            Err(_) => return Err("SSH tunnel connection timed out after 20 seconds".to_string()),
-        };
-
-        (
-            "127.0.0.1".to_string(),
-            tunnel.local_port as i64,
-            Some(tunnel),
-        )
+    let ssh_enabled = ssh_enabled.unwrap_or(false);
+    let host = if ssh_enabled {
+        Some(host.unwrap_or_default())
     } else {
-        (host.clone().unwrap_or_default(), port.unwrap_or(5432), None)
+        host
     };
-
-    let driver: Box<dyn DatabaseDriver> = match db_type {
-        "postgres" | "postgresql" => {
-            let config = PostgresConfig {
-                host: effective_host,
-                port: effective_port,
-                database: database.unwrap_or_default(),
-                username: username.unwrap_or_default(),
-                password: password.unwrap_or_default(),
-                ssl: ssl.unwrap_or(false),
-            };
-            Box::new(PostgresDriver::new(config))
-        }
-        "sqlite" | "sqlite3" => {
-            let path = file_path.ok_or("File path is required for SQLite connections")?;
-            let config = SqliteConfig { file_path: path };
-            Box::new(SqliteDriver::new(config))
-        }
-        "redis" => {
-            let config = RedisConfig {
-                host: effective_host,
-                port: effective_port,
-                username: username.filter(|username| !username.is_empty()),
-                password,
-                db: database.and_then(|d| d.parse().ok()),
-                tls: ssl.unwrap_or(false),
-            };
-            Box::new(RedisDriver::new(config))
-        }
-        "clickhouse" => {
-            let config = ClickhouseConfig {
-                host: effective_host,
-                port: effective_port,
-                database: database.unwrap_or_else(|| "default".to_string()),
-                username: username.unwrap_or_else(|| "default".to_string()),
-                password: password.unwrap_or_default(),
-                protocol: ClickhouseProtocol::Http,
-                ssl: ssl.unwrap_or(false),
-            };
-            Box::new(ClickhouseDriver::new(config))
-        }
-        _ => return Err(format!("Unsupported database type: {}", db_type)),
+    let ssh_host = if ssh_enabled {
+        Some(ssh_host.unwrap_or_default())
+    } else {
+        ssh_host
     };
-
-    Ok((driver, tunnel))
+    let ssh_user = if ssh_enabled {
+        Some(ssh_user.unwrap_or_default())
+    } else {
+        ssh_user
+    };
+    build_driver_with_ssh(&DriverConfig {
+        db_type: db_type.to_string(),
+        host,
+        port,
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+        ssh_enabled,
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        ssh_password,
+        ssh_key_path,
+        ssh_use_key: ssh_use_key.unwrap_or(false),
+    })
+    .await
 }
 
 /// Simple driver creation without SSH support (for backwards compatibility)
@@ -172,48 +117,45 @@ fn create_driver(
     ssl: Option<bool>,
     file_path: Option<String>,
 ) -> Result<Box<dyn DatabaseDriver>, String> {
-    match db_type {
-        "postgres" | "postgresql" => {
-            let config = PostgresConfig {
-                host: host.unwrap_or_default(),
-                port: port.unwrap_or(5432),
-                database: database.unwrap_or_default(),
-                username: username.unwrap_or_default(),
-                password: password.unwrap_or_default(),
-                ssl: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(PostgresDriver::new(config)))
-        }
-        "sqlite" | "sqlite3" => {
-            let path = file_path.ok_or("File path is required for SQLite connections")?;
-            let config = SqliteConfig { file_path: path };
-            Ok(Box::new(SqliteDriver::new(config)))
-        }
-        "redis" => {
-            let config = RedisConfig {
-                host: host.unwrap_or_default(),
-                port: port.unwrap_or(6379),
-                username: username.filter(|username| !username.is_empty()),
-                password,
-                db: database.and_then(|d| d.parse().ok()),
-                tls: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(RedisDriver::new(config)))
-        }
-        "clickhouse" => {
-            let config = ClickhouseConfig {
-                host: host.unwrap_or_else(|| "localhost".to_string()),
-                port: port.unwrap_or(8123),
-                database: database.unwrap_or_else(|| "default".to_string()),
-                username: username.unwrap_or_else(|| "default".to_string()),
-                password: password.unwrap_or_default(),
-                protocol: ClickhouseProtocol::Http,
-                ssl: ssl.unwrap_or(false),
-            };
-            Ok(Box::new(ClickhouseDriver::new(config)))
-        }
-        _ => Err(format!("Unsupported database type: {}", db_type)),
+    build_driver(&DriverConfig {
+        db_type: db_type.to_string(),
+        host,
+        port,
+        database,
+        username,
+        password,
+        ssl,
+        file_path,
+        ssh_enabled: false,
+        ssh_host: None,
+        ssh_port: None,
+        ssh_user: None,
+        ssh_password: None,
+        ssh_key_path: None,
+        ssh_use_key: false,
+    })
+}
+
+fn table_reference(db_type: &str, schema: &str, table: &str) -> Result<String, String> {
+    let engine = DatabaseType::try_from(db_type)?;
+    if engine.qualifies_tables_with_schema() {
+        Ok(format!(
+            "\"{}\".\"{}\"",
+            escape_sql_identifier(schema),
+            escape_sql_identifier(table)
+        ))
+    } else {
+        Ok(format!("\"{}\"", escape_sql_identifier(table)))
     }
+}
+
+#[tauri::command]
+pub async fn d1_list_databases(
+    account_id: String,
+    api_token: String,
+    page: Option<u32>,
+) -> Result<D1DatabaseList, String> {
+    list_databases(&account_id, &api_token, page.unwrap_or(1)).await
 }
 
 #[tauri::command]
@@ -397,6 +339,7 @@ pub async fn update_table_row(
     primary_key_values: Vec<serde_json::Value>,
     updates: serde_json::Map<String, serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -410,15 +353,7 @@ pub async fn update_table_row(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build SET clause
     let set_parts: Vec<String> = updates
@@ -466,6 +401,7 @@ pub async fn update_table_row_with_raw_sql(
     primary_key_values: Vec<serde_json::Value>,
     updates: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -479,15 +415,7 @@ pub async fn update_table_row_with_raw_sql(
     )?;
 
     // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the updates array
     let mut set_parts: Vec<String> = Vec::new();
@@ -566,6 +494,7 @@ pub async fn delete_table_row(
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
         return Err("Primary key columns and values must match".to_string());
     }
@@ -575,15 +504,7 @@ pub async fn delete_table_row(
     )?;
 
     // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Build WHERE clause for primary key
     let where_parts: Vec<String> = primary_key_columns
@@ -616,6 +537,7 @@ pub async fn insert_table_row(
     table: String,
     values: Vec<serde_json::Value>,
 ) -> Result<QueryResult, String> {
+    ensure_structured_mutations_supported(&db_type)?;
     if values.is_empty() {
         return Err("No values provided".to_string());
     }
@@ -625,15 +547,7 @@ pub async fn insert_table_row(
     )?;
 
     // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
+    let table_ref = table_reference(&db_type, &schema, &table)?;
 
     // Extract columns and values from the values array
     // Each value should be an object with: column, value, isRawSql
@@ -727,7 +641,7 @@ pub async fn redis_search_keys(
         }
     };
 
-    with_pooled(
+    with_pooled_read(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -751,7 +665,7 @@ pub async fn redis_get_key_details(
     key: String,
 ) -> Result<RedisKeyDetails, String> {
     // Reuse the pooled connection (and its cached SSH tunnel, if any).
-    with_pooled(
+    with_pooled_read(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -772,7 +686,7 @@ pub async fn redis_delete_key(
     uuid: String,
     key: String,
 ) -> Result<bool, String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -795,7 +709,7 @@ pub async fn redis_set_key(
     value: String,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -818,7 +732,7 @@ pub async fn redis_set_list_key(
     values: Vec<String>,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -843,7 +757,7 @@ pub async fn redis_set_set_key(
     values: Vec<String>,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -868,7 +782,7 @@ pub async fn redis_set_hash_key(
     fields: std::collections::HashMap<String, String>,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -893,7 +807,7 @@ pub async fn redis_set_zset_key(
     members: Vec<(String, f64)>,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,
@@ -917,7 +831,7 @@ pub async fn redis_update_ttl(
     key: String,
     ttl: Option<i64>,
 ) -> Result<(), String> {
-    with_pooled(
+    with_pooled_no_retry(
         &pool_manager,
         sqlite_pool.inner(),
         &uuid,

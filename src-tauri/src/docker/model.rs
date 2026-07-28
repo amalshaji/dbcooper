@@ -12,6 +12,8 @@ pub(crate) const CONNECTION_LABEL_KEY: &str = "com.dbcooper.connection";
 #[serde(rename_all = "snake_case")]
 pub enum DockerDatabaseEngine {
     Postgres,
+    Mysql,
+    Mariadb,
     Redis,
     Clickhouse,
 }
@@ -20,6 +22,8 @@ impl DockerDatabaseEngine {
     pub(crate) fn db_type(self) -> &'static str {
         match self {
             Self::Postgres => "postgres",
+            Self::Mysql => "mysql",
+            Self::Mariadb => "mariadb",
             Self::Redis => "redis",
             Self::Clickhouse => "clickhouse",
         }
@@ -28,6 +32,7 @@ impl DockerDatabaseEngine {
     pub(crate) fn internal_port(self) -> i64 {
         match self {
             Self::Postgres => 5432,
+            Self::Mysql | Self::Mariadb => 3306,
             Self::Redis => 6379,
             Self::Clickhouse => 8123,
         }
@@ -36,6 +41,8 @@ impl DockerDatabaseEngine {
     pub(crate) fn image(self) -> &'static str {
         match self {
             Self::Postgres => "postgres:17-alpine",
+            Self::Mysql => "mysql:8.4",
+            Self::Mariadb => "mariadb:11.4",
             Self::Redis => "redis:7-alpine",
             Self::Clickhouse => "clickhouse/clickhouse-server:25.8-alpine",
         }
@@ -44,6 +51,7 @@ impl DockerDatabaseEngine {
     pub(crate) fn volume_path(self) -> &'static str {
         match self {
             Self::Postgres => "/var/lib/postgresql/data",
+            Self::Mysql | Self::Mariadb => "/var/lib/mysql",
             Self::Redis => "/data",
             Self::Clickhouse => "/var/lib/clickhouse",
         }
@@ -52,6 +60,7 @@ impl DockerDatabaseEngine {
     pub(crate) fn defaults(self) -> (&'static str, &'static str) {
         match self {
             Self::Postgres => ("postgres", "postgres"),
+            Self::Mysql | Self::Mariadb => ("dbcooper", "root"),
             Self::Redis => ("0", "default"),
             Self::Clickhouse => ("default", "default"),
         }
@@ -60,6 +69,8 @@ impl DockerDatabaseEngine {
     pub(crate) fn from_db_type(value: &str) -> Option<Self> {
         match value {
             "postgres" | "postgresql" => Some(Self::Postgres),
+            "mysql" => Some(Self::Mysql),
+            "mariadb" => Some(Self::Mariadb),
             "redis" => Some(Self::Redis),
             "clickhouse" => Some(Self::Clickhouse),
             _ => None,
@@ -128,8 +139,35 @@ pub struct DockerContainerSummary {
     pub name: String,
     pub image: String,
     pub state: String,
-    pub engine: Option<DockerDatabaseEngine>,
-    pub compatible: bool,
+    pub detection: DockerEngineDetection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DockerEngineDetection {
+    Unsupported,
+    Detected { engine: DockerDatabaseEngine },
+    Ambiguous { engines: [DockerDatabaseEngine; 2] },
+}
+
+impl DockerEngineDetection {
+    pub(crate) fn resolve(
+        &self,
+        selected: Option<DockerDatabaseEngine>,
+    ) -> Result<DockerDatabaseEngine, String> {
+        match (self, selected) {
+            (Self::Detected { engine }, None) => Ok(*engine),
+            (Self::Detected { engine }, Some(selected)) if selected == *engine => Ok(*engine),
+            (Self::Ambiguous { engines }, Some(selected)) if engines.contains(&selected) => {
+                Ok(selected)
+            }
+            (Self::Unsupported, _) => Err("This container is not a supported database".to_string()),
+            (Self::Ambiguous { .. }, None) => {
+                Err("Choose whether this port 3306 container is MySQL or MariaDB".to_string())
+            }
+            _ => Err("The selected database type does not match the container".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -229,6 +267,26 @@ impl ManagedDatabasePlan {
                 "-e".into(),
                 format!("POSTGRES_DB={database}"),
             ]),
+            DockerDatabaseEngine::Mysql => run_args.extend([
+                "-e".into(),
+                format!("MYSQL_USER={username}"),
+                "-e".into(),
+                format!("MYSQL_PASSWORD={password}"),
+                "-e".into(),
+                format!("MYSQL_DATABASE={database}"),
+                "-e".into(),
+                format!("MYSQL_ROOT_PASSWORD={password}"),
+            ]),
+            DockerDatabaseEngine::Mariadb => run_args.extend([
+                "-e".into(),
+                format!("MARIADB_USER={username}"),
+                "-e".into(),
+                format!("MARIADB_PASSWORD={password}"),
+                "-e".into(),
+                format!("MARIADB_DATABASE={database}"),
+                "-e".into(),
+                format!("MARIADB_ROOT_PASSWORD={password}"),
+            ]),
             DockerDatabaseEngine::Redis => {}
             DockerDatabaseEngine::Clickhouse => run_args.extend([
                 "-e".into(),
@@ -302,16 +360,34 @@ impl ManagedDatabasePlan {
     }
 }
 
-pub(crate) fn detect_engine(image: &str, ports: &[i64]) -> Option<DockerDatabaseEngine> {
+pub(crate) fn detect_engine(image: &str, ports: &[i64]) -> DockerEngineDetection {
     let image = image.to_ascii_lowercase();
-    if image.contains("postgres") || ports.contains(&5432) {
-        Some(DockerDatabaseEngine::Postgres)
+    if image.contains("mariadb") {
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Mariadb,
+        }
+    } else if image.contains("mysql") {
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Mysql,
+        }
+    } else if image.contains("postgres") || ports.contains(&5432) {
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Postgres,
+        }
     } else if image.contains("redis") || ports.contains(&6379) {
-        Some(DockerDatabaseEngine::Redis)
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Redis,
+        }
     } else if image.contains("clickhouse") || ports.contains(&8123) {
-        Some(DockerDatabaseEngine::Clickhouse)
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Clickhouse,
+        }
+    } else if ports.contains(&3306) {
+        DockerEngineDetection::Ambiguous {
+            engines: [DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb],
+        }
     } else {
-        None
+        DockerEngineDetection::Unsupported
     }
 }
 
@@ -352,6 +428,9 @@ pub(crate) fn connection_string(
     match engine {
         DockerDatabaseEngine::Postgres => {
             format!("postgresql://{user}:{password}@{host}:{port}/{database}?sslmode=disable")
+        }
+        DockerDatabaseEngine::Mysql | DockerDatabaseEngine::Mariadb => {
+            format!("mysql://{user}:{password}@{host}:{port}/{database}")
         }
         DockerDatabaseEngine::Redis => {
             format!("redis://{user}:{password}@{host}:{port}/{database}")
@@ -433,21 +512,79 @@ mod tests {
     fn detects_supported_engines_by_image_or_internal_port() {
         assert_eq!(
             detect_engine("postgres:17-alpine", &[]),
-            Some(DockerDatabaseEngine::Postgres)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Postgres
+            }
         );
         assert_eq!(
             detect_engine("my-company/database", &[6379]),
-            Some(DockerDatabaseEngine::Redis)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Redis
+            }
         );
         assert_eq!(
             detect_engine("clickhouse/clickhouse-server:25.8-alpine", &[]),
-            Some(DockerDatabaseEngine::Clickhouse)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Clickhouse
+            }
         );
         assert_eq!(
             detect_engine("my-company/analytics", &[8123]),
-            Some(DockerDatabaseEngine::Clickhouse)
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Clickhouse
+            }
         );
-        assert_eq!(detect_engine("nginx:alpine", &[80]), None);
+        assert_eq!(
+            detect_engine("nginx:alpine", &[80]),
+            DockerEngineDetection::Unsupported
+        );
+        assert_eq!(
+            detect_engine("company/database", &[3306]),
+            DockerEngineDetection::Ambiguous {
+                engines: [DockerDatabaseEngine::Mysql, DockerDatabaseEngine::Mariadb]
+            }
+        );
+    }
+
+    #[test]
+    fn resolves_only_engines_allowed_by_the_detection_state() {
+        let ambiguous = detect_engine("company/database", &[3306]);
+        assert_eq!(
+            ambiguous.resolve(Some(DockerDatabaseEngine::Mariadb)),
+            Ok(DockerDatabaseEngine::Mariadb)
+        );
+        assert!(ambiguous.resolve(None).is_err());
+
+        let detected = detect_engine("mysql:8.4", &[]);
+        assert!(detected
+            .resolve(Some(DockerDatabaseEngine::Postgres))
+            .is_err());
+    }
+
+    #[test]
+    fn creates_mysql_family_containers_with_persistent_storage() {
+        let mysql = ManagedDatabasePlan::new(DockerDatabaseEngine::Mysql);
+        assert!(mysql.run_args.contains(&"mysql:8.4".to_string()));
+        assert!(
+            mysql
+                .run_args
+                .windows(2)
+                .any(|args| args[0] == "-e"
+                    && args[1] == format!("MYSQL_DATABASE={}", mysql.database))
+        );
+        assert!(mysql
+            .run_args
+            .windows(2)
+            .any(|args| args[0] == "-v"
+                && args[1] == format!("{}:/var/lib/mysql", mysql.volume_name)));
+
+        let mariadb = ManagedDatabasePlan::new(DockerDatabaseEngine::Mariadb);
+        assert!(mariadb.run_args.contains(&"mariadb:11.4".to_string()));
+        assert!(mariadb
+            .run_args
+            .windows(2)
+            .any(|args| args[0] == "-e"
+                && args[1] == format!("MARIADB_DATABASE={}", mariadb.database)));
     }
 
     #[test]

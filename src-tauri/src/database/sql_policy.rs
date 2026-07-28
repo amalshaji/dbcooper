@@ -8,8 +8,29 @@ use serde_json::Value;
 #[serde(rename_all = "camelCase")]
 struct DialectPolicy {
     label: String,
+    file_database: bool,
+    structured_row_mutations: bool,
     create_table_types: Vec<String>,
     expressions_by_type: HashMap<String, Vec<String>>,
+    modifier_policy: Option<String>,
+    create_table_modifiers: Option<CreateTableModifierPolicy>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateTableModifierPolicy {
+    length_types: Vec<String>,
+    decimal_types: Vec<String>,
+    unsigned_types: Vec<String>,
+    auto_increment_types: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+pub enum CreateTableModifier {
+    Length,
+    Decimal,
+    Unsigned,
+    AutoIncrement,
 }
 
 type DatabaseCatalog = HashMap<String, DialectPolicy>;
@@ -23,6 +44,11 @@ fn catalog() -> &'static DatabaseCatalog {
 }
 
 fn dialect_policy(db_type: &str) -> Result<&'static DialectPolicy, String> {
+    let db_type = match db_type {
+        "postgresql" => "postgres",
+        "sqlite3" => "sqlite",
+        other => other,
+    };
     catalog()
         .get(db_type)
         .ok_or_else(|| format!("Unsupported database type: {db_type}"))
@@ -32,10 +58,51 @@ pub fn database_label(db_type: &str) -> Result<&'static str, String> {
     Ok(&dialect_policy(db_type)?.label)
 }
 
+pub fn is_file_database(db_type: &str) -> Result<bool, String> {
+    Ok(dialect_policy(db_type)?.file_database)
+}
+
+pub fn ensure_structured_mutations_supported(db_type: &str) -> Result<(), String> {
+    let policy = dialect_policy(db_type)?;
+    if policy.structured_row_mutations {
+        Ok(())
+    } else {
+        Err(format!(
+            "Structured row editing is not supported for {}; use the SQL editor",
+            policy.label
+        ))
+    }
+}
+
 pub fn supports_create_table_type(db_type: &str, data_type: &str) -> Result<bool, String> {
     let normalized = data_type.trim().to_ascii_uppercase();
     Ok(dialect_policy(db_type)?
         .create_table_types
+        .iter()
+        .any(|candidate| candidate == &normalized))
+}
+
+pub fn supports_create_table_modifier(
+    db_type: &str,
+    data_type: &str,
+    modifier: CreateTableModifier,
+) -> Result<bool, String> {
+    let dialect = dialect_policy(db_type)?;
+    let policy = match &dialect.modifier_policy {
+        Some(source) => dialect_policy(source)?,
+        None => dialect,
+    };
+    let Some(modifiers) = &policy.create_table_modifiers else {
+        return Ok(false);
+    };
+    let supported_types = match modifier {
+        CreateTableModifier::Length => &modifiers.length_types,
+        CreateTableModifier::Decimal => &modifiers.decimal_types,
+        CreateTableModifier::Unsigned => &modifiers.unsigned_types,
+        CreateTableModifier::AutoIncrement => &modifiers.auto_increment_types,
+    };
+    let normalized = data_type.trim().to_ascii_uppercase();
+    Ok(supported_types
         .iter()
         .any(|candidate| candidate == &normalized))
 }
@@ -115,7 +182,11 @@ pub fn format_sql_value(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{supports_create_table_type, validate_default_expression, validate_raw_sql_value};
+    use super::{
+        ensure_structured_mutations_supported, supports_create_table_modifier,
+        supports_create_table_type, validate_default_expression, validate_raw_sql_value,
+        CreateTableModifier,
+    };
 
     #[test]
     fn catalog_scopes_types_and_defaults_to_their_dialect() {
@@ -126,9 +197,39 @@ mod tests {
     }
 
     #[test]
+    fn catalog_shares_mysql_modifier_capabilities_with_mariadb() {
+        assert!(
+            supports_create_table_modifier("mysql", "varchar", CreateTableModifier::Length)
+                .unwrap()
+        );
+        assert!(supports_create_table_modifier(
+            "mariadb",
+            "bigint",
+            CreateTableModifier::AutoIncrement
+        )
+        .unwrap());
+        assert!(!supports_create_table_modifier(
+            "postgres",
+            "varchar",
+            CreateTableModifier::Length
+        )
+        .unwrap());
+    }
+
+    #[test]
     fn raw_sql_values_do_not_cross_dialect_boundaries() {
         assert!(validate_raw_sql_value("now()", "postgres").is_ok());
         assert!(validate_raw_sql_value("today()", "postgres").is_err());
         assert!(validate_raw_sql_value("today()", "clickhouse").is_ok());
+    }
+
+    #[test]
+    fn structured_mutation_capability_comes_from_the_database_catalog() {
+        assert!(ensure_structured_mutations_supported("postgres").is_ok());
+        assert!(ensure_structured_mutations_supported("postgresql").is_ok());
+        assert!(ensure_structured_mutations_supported("sqlite").is_ok());
+        assert!(ensure_structured_mutations_supported("duckdb").is_err());
+        assert!(ensure_structured_mutations_supported("clickhouse").is_err());
+        assert!(ensure_structured_mutations_supported("redis").is_err());
     }
 }

@@ -38,9 +38,62 @@ interface StartAiGenerationSessionOptions {
 	onComplete: (sql: string) => void;
 }
 
-interface AiGenerationSession {
+export interface AiGenerationSession {
 	promise: Promise<void>;
 	cancel: (error: Error) => void;
+}
+
+export type AiGenerationCancellationReason = "cancelled" | "replaced";
+
+export class AiGenerationCancellationError extends Error {
+	readonly reason: AiGenerationCancellationReason;
+
+	constructor(reason: AiGenerationCancellationReason) {
+		super(
+			reason === "replaced"
+				? "A newer AI request replaced this one"
+				: "AI generation was cancelled",
+		);
+		this.name = "AiGenerationCancellationError";
+		this.reason = reason;
+	}
+}
+
+export function isAiGenerationCancellation(
+	error: unknown,
+): error is AiGenerationCancellationError {
+	return error instanceof AiGenerationCancellationError;
+}
+
+export class AiGenerationSessionRegistry {
+	private readonly sessions = new Map<string, AiGenerationSession>();
+
+	replace(key: string, session: AiGenerationSession): void {
+		this.cancel(key, new AiGenerationCancellationError("replaced"));
+		this.sessions.set(key, session);
+	}
+
+	isCurrent(key: string, session: AiGenerationSession): boolean {
+		return this.sessions.get(key) === session;
+	}
+
+	deleteIfCurrent(key: string, session: AiGenerationSession): void {
+		if (this.isCurrent(key, session)) this.sessions.delete(key);
+	}
+
+	cancel(
+		key: string,
+		error: Error = new AiGenerationCancellationError("cancelled"),
+	): void {
+		const session = this.sessions.get(key);
+		if (!session) return;
+		this.sessions.delete(key);
+		session.cancel(error);
+	}
+
+	cancelAll(): void {
+		for (const key of this.sessions.keys()) this.cancel(key);
+	}
 }
 
 export function startAiGenerationSession({

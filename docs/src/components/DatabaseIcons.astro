@@ -1,14 +1,18 @@
 ---
 import PostgresqlIcon from "../icons/postgres.astro";
 import SqliteIcon from "../icons/sqlite.astro";
+import DuckdbIcon from "../icons/duckdb.astro";
 import RedisIcon from "../icons/redis.astro";
 import ClickhouseIcon from "../icons/clickhouse.astro";
+import D1Icon from "../icons/d1.astro";
 
 const databases = [
 	{ Icon: PostgresqlIcon, name: "PostgreSQL" },
 	{ Icon: SqliteIcon, name: "SQLite" },
+	{ Icon: DuckdbIcon, name: "DuckDB" },
 	{ Icon: RedisIcon, name: "Redis" },
 	{ Icon: ClickhouseIcon, name: "ClickHouse" },
+	{ Icon: D1Icon, name: "Cloudflare D1" },
 ];
 ---
 
@@ -25,7 +29,7 @@ const databases = [
 	.database-list {
 		display: grid;
 		width: 100%;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-template-columns: repeat(6, minmax(0, 1fr));
 	}
 
 	.database-item {
@@ -75,11 +79,11 @@ const databases = [
 			font-size: 0.68rem;
 		}
 
-		.database-item:nth-child(2) {
+		.database-item:nth-child(even) {
 			border-right: 0;
 		}
 
-		.database-item:nth-child(n + 3) {
+		.database-item:nth-last-child(-n + 2) {
 			border-bottom: 0;
 		}
 	}

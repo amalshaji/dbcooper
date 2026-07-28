@@ -17,6 +17,7 @@ import {
 	getDefaultExpressions,
 } from "../lib/createTableForm";
 import { CreateTableColumnDefault } from "./CreateTableColumnDefault";
+import { CreateTableMysqlModifiers } from "./CreateTableMysqlModifiers";
 
 interface CreateTableColumnRowProps {
 	column: CreateTableColumnDraft;
@@ -47,6 +48,15 @@ export function CreateTableColumnRow({
 			!nextExpressions.includes(column.default.value);
 		update({
 			dataType,
+			mysqlModifiers: column.mysqlModifiers
+				? {
+						length: "",
+						precision: "",
+						scale: "",
+						unsigned: false,
+						autoIncrement: false,
+					}
+				: null,
 			...(shouldClearExpression ? { default: { kind: "none" as const } } : {}),
 		});
 	};
@@ -99,6 +109,25 @@ export function CreateTableColumnRow({
 				inputId={inputId}
 				onChange={onChange}
 			/>
+
+			{column.mysqlModifiers && (
+				<CreateTableMysqlModifiers
+					columnId={column.id}
+					dbType={dbType}
+					dataType={column.dataType}
+					modifiers={column.mysqlModifiers}
+					onChange={(mysqlModifiers) => update({ mysqlModifiers })}
+					onAutoIncrementChange={(autoIncrement) =>
+						update({
+							mysqlModifiers: {
+								...column.mysqlModifiers!,
+								autoIncrement,
+							},
+							...(autoIncrement ? { primaryKey: true, nullable: false } : {}),
+						})
+					}
+				/>
+			)}
 
 			<fieldset className="flex flex-wrap items-center gap-x-5 gap-y-2">
 				<legend className="sr-only">Column constraints</legend>

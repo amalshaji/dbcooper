@@ -4,15 +4,25 @@ import {
 	ConnectionActionsDropdown,
 } from "@/components/connections/ConnectionActions";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getConnectionDatabaseDisplay } from "@/lib/connectionPresentation";
 import type { Connection } from "@/lib/tauri";
+import { cn } from "@/lib/utils";
 import type { DockerConnectionState } from "@/types/docker";
 
 type DockerAction = "start" | "stop" | "restart";
+
+const CONNECTION_CARD_FRAME_CLASS =
+	"workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm";
 
 interface ConnectionCardProps {
 	connection: Connection;
@@ -26,6 +36,26 @@ interface ConnectionCardProps {
 	onDelete: () => void;
 }
 
+export function ConnectionCardSkeleton() {
+	return (
+		<div
+			data-slot="connection-card-skeleton"
+			className={CONNECTION_CARD_FRAME_CLASS}
+			aria-hidden="true"
+		>
+			<Skeleton className="absolute inset-y-3 left-0 w-0.5 rounded-r-full" />
+			<div className="flex items-center gap-3 pl-1">
+				<Skeleton className="size-9 shrink-0 rounded-md" />
+				<div className="min-w-0 flex-1 space-y-1.5">
+					<Skeleton className="h-4 w-32 rounded" />
+					<Skeleton className="h-3 w-44 max-w-full rounded" />
+				</div>
+				<Skeleton className="size-7 shrink-0 rounded-md" />
+			</div>
+		</div>
+	);
+}
+
 function dbTypeConfig(type: string) {
 	switch (type) {
 		case "postgres":
@@ -36,15 +66,27 @@ function dbTypeConfig(type: string) {
 			};
 		case "mysql":
 			return {
-				icon: Database,
+				icon: MysqlIcon,
 				iconClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
 				accentClass: "bg-orange-500",
+			};
+		case "mariadb":
+			return {
+				icon: MariadbIcon,
+				iconClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+				accentClass: "bg-amber-500",
 			};
 		case "sqlite":
 			return {
 				icon: SqliteIcon,
 				iconClass: "bg-cyan-500/10 text-cyan-700 dark:text-cyan-400",
 				accentClass: "bg-cyan-500",
+			};
+		case "duckdb":
+			return {
+				icon: DuckdbIcon,
+				iconClass: "bg-yellow-300/20 text-yellow-700 dark:text-yellow-300",
+				accentClass: "bg-yellow-400",
 			};
 		case "redis":
 			return {
@@ -57,6 +99,12 @@ function dbTypeConfig(type: string) {
 				icon: ClickhouseIcon,
 				iconClass: "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400",
 				accentClass: "bg-yellow-500",
+			};
+		case "d1":
+			return {
+				icon: CloudflareIcon,
+				iconClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
+				accentClass: "bg-orange-500",
 			};
 		default:
 			return {
@@ -94,7 +142,12 @@ export function ConnectionCard({
 	return (
 		<ContextMenu>
 			<ContextMenuTrigger>
-				<div className="group workspace-panel relative overflow-hidden rounded-lg border p-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40">
+				<div
+					className={cn(
+						CONNECTION_CARD_FRAME_CLASS,
+						"group transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-px hover:border-foreground/20 hover:shadow-md focus-within:ring-2 focus-within:ring-ring/40",
+					)}
+				>
 					<button
 						type="button"
 						onClick={onOpen}
@@ -114,7 +167,9 @@ export function ConnectionCard({
 						<div
 							className={`flex size-9 shrink-0 items-center justify-center rounded-md ${config.iconClass}`}
 						>
-							<DbIcon className="size-4" />
+							<DbIcon
+								className={connection.type === "d1" ? "h-3.5 w-5" : "size-4"}
+							/>
 						</div>
 						<div className="min-w-0 flex-1">
 							<div className="flex items-center gap-2">
@@ -140,9 +195,11 @@ export function ConnectionCard({
 								)}
 							</div>
 							<p className="mt-0.5 truncate text-xs text-muted-foreground">
-								{connection.type === "sqlite"
+								{connection.type === "sqlite" || connection.type === "duckdb"
 									? connection.file_path?.split("/").pop() || "Local file"
-									: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+									: connection.type === "d1"
+										? getConnectionDatabaseDisplay(connection)
+										: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>
 						</div>
 						<ConnectionActionsDropdown {...actionProps} />

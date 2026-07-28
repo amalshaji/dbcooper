@@ -30,11 +30,13 @@ export function CreateTableDefinition({
 		<>
 			<div className="grid gap-3 sm:grid-cols-2">
 				<div className="space-y-1.5">
-					<Label htmlFor="create-table-schema">Schema</Label>
+					<Label htmlFor="create-table-schema">
+						{dbType === "mysql" || dbType === "mariadb" ? "Database" : "Schema"}
+					</Label>
 					<Input
 						id="create-table-schema"
 						value={draft.schema}
-						disabled={dbType === "sqlite"}
+						disabled={dbType === "sqlite" || dbType === "mysql" || dbType === "mariadb"}
 						list={
 							dbType === "postgres"
 								? "create-table-schema-options"
@@ -76,7 +78,7 @@ export function CreateTableDefinition({
 						size="sm"
 						onClick={() =>
 							update({
-								columns: [...draft.columns, createEmptyTableColumn()],
+								columns: [...draft.columns, createEmptyTableColumn(dbType)],
 							})
 						}
 					>

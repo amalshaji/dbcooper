@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { ConnectionType } from "@/types/connection";
-import { api, ConnectionFormData, Connection } from "@/lib/tauri";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import type { ConnectionType } from "@/types/connection";
+import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
 import {
 	AlertDialog,
 	AlertDialogContent,
@@ -23,11 +23,23 @@ import {
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MysqlIcon } from "@/components/icons/mysql";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { DuckdbIcon } from "@/components/icons/duckdb";
+import { CloudflareIcon } from "@/components/icons/cloudflare";
+import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
+import { mergeD1ConnectionFields } from "@/lib/connectionFormState";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
+import { isFileDatabase } from "@/lib/databaseCapabilities";
+import {
+	prepareDuckDbRuntime,
+	type DuckDbHelperProgress as DuckDbHelperProgressValue,
+} from "@/lib/duckdbHelper";
+import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 
 interface ConnectionFormProps {
 	onSubmit: (data: ConnectionFormData) => Promise<void>;
@@ -49,10 +61,28 @@ const databaseTypes: {
 		icon: <PostgresqlIcon className="w-4 h-4" />,
 	},
 	{
+		value: "mysql",
+		label: "MySQL",
+		disabled: false,
+		icon: <MysqlIcon className="w-4 h-4" />,
+	},
+	{
+		value: "mariadb",
+		label: "MariaDB",
+		disabled: false,
+		icon: <MariadbIcon className="w-4 h-4" />,
+	},
+	{
 		value: "sqlite",
 		label: "SQLite",
 		disabled: false,
 		icon: <SqliteIcon className="w-4 h-4" />,
+	},
+	{
+		value: "duckdb",
+		label: "DuckDB",
+		disabled: false,
+		icon: <DuckdbIcon className="w-4 h-4" />,
 	},
 	{
 		value: "redis",
@@ -66,13 +96,23 @@ const databaseTypes: {
 		disabled: false,
 		icon: <ClickhouseIcon className="w-4 h-4" />,
 	},
+	{
+		value: "d1",
+		label: "Cloudflare D1",
+		disabled: false,
+		icon: <CloudflareIcon className="h-3.5 w-5" />,
+	},
 ];
 
 const defaultPorts: Record<ConnectionType, number> = {
 	postgres: 5432,
+	mysql: 3306,
+	mariadb: 3306,
 	sqlite: 0,
+	duckdb: 0,
 	redis: 6379,
 	clickhouse: 9000,
+	d1: 443,
 };
 
 const defaultFormData: ConnectionFormData = {
@@ -106,8 +146,12 @@ export function ConnectionForm({
 	const [isTesting, setIsTesting] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
 	const [showSshPassword, setShowSshPassword] = useState(false);
+	const [duckDbHelperProgress, setDuckDbHelperProgress] =
+		useState<DuckDbHelperProgressValue | null>(null);
 
 	const isEditMode = !!initialData;
+	const usesFile = isFileDatabase(formData.type);
+	const isBusy = isSubmitting || isTesting;
 
 	useEffect(() => {
 		if (initialData) {
@@ -133,25 +177,40 @@ export function ConnectionForm({
 		} else {
 			setFormData(defaultFormData);
 		}
+		setDuckDbHelperProgress(null);
 	}, [initialData, isOpen]);
 
 	const handleTypeChange = (type: ConnectionType) => {
+		setDuckDbHelperProgress(null);
 		setFormData({
 			...formData,
 			type,
 			db_type: type,
 			port: defaultPorts[type],
+			host:
+				type === "d1"
+					? "api.cloudflare.com"
+					: formData.type === "d1"
+						? "localhost"
+						: formData.host,
+			ssl: type === "d1" ? true : formData.type === "d1" ? false : formData.ssl,
+			ssh_enabled: type === "d1" ? false : formData.ssh_enabled,
 		});
 	};
 
 	const handleTestConnection = async () => {
 		setIsTesting(true);
 		try {
-			// Use unified test connection for Redis, SQLite, and ClickHouse; postgres test for Postgres
+			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
+			// Use unified test connection for non-Postgres engines; keep the legacy Postgres command.
 			const result =
 				formData.type === "redis" ||
+				formData.type === "mysql" ||
+				formData.type === "mariadb" ||
 				formData.type === "sqlite" ||
-				formData.type === "clickhouse"
+				formData.type === "duckdb" ||
+				formData.type === "clickhouse" ||
+				formData.type === "d1"
 					? await api.database.testConnection({
 							id: 0,
 							uuid: "",
@@ -196,8 +255,10 @@ export function ConnectionForm({
 			} else {
 				toast.error(result.message || "Connection failed");
 			}
-		} catch {
-			toast.error("Failed to test connection");
+		} catch (error) {
+			toast.error("Failed to test connection", {
+				description: error instanceof Error ? error.message : String(error),
+			});
 		} finally {
 			setIsTesting(false);
 		}
@@ -206,6 +267,15 @@ export function ConnectionForm({
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		setIsSubmitting(true);
+		try {
+			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
+		} catch (error) {
+			toast.error("Could not prepare DuckDB support", {
+				description: error instanceof Error ? error.message : String(error),
+			});
+			setIsSubmitting(false);
+			return;
+		}
 		try {
 			await onSubmit(formData);
 			if (!isEditMode) {
@@ -217,7 +287,10 @@ export function ConnectionForm({
 	};
 
 	return (
-		<AlertDialog open={isOpen} onOpenChange={(open) => !open && onCancel()}>
+		<AlertDialog
+			open={isOpen}
+			onOpenChange={(open) => !open && !isBusy && onCancel()}
+		>
 			<AlertDialogContent className="max-h-[85vh] overflow-y-auto">
 				<AlertDialogHeader>
 					<AlertDialogTitle>
@@ -288,8 +361,7 @@ export function ConnectionForm({
 							/>
 						</Field>
 
-						{/* SQLite-specific fields */}
-						{formData.type === "sqlite" && (
+						{usesFile && (
 							<Field>
 								<FieldLabel htmlFor="connection-file-path">
 									Database File
@@ -303,7 +375,11 @@ export function ConnectionForm({
 										onChange={(e) =>
 											setFormData({ ...formData, file_path: e.target.value })
 										}
-										placeholder="/path/to/database.db"
+										placeholder={
+											formData.type === "duckdb"
+												? "/path/to/analytics.duckdb"
+												: "/path/to/database.db"
+										}
 										className="flex-1"
 									/>
 									<Button
@@ -314,8 +390,14 @@ export function ConnectionForm({
 												multiple: false,
 												filters: [
 													{
-														name: "SQLite Database",
-														extensions: ["db", "sqlite", "sqlite3"],
+														name:
+															formData.type === "duckdb"
+																? "DuckDB Database"
+																: "SQLite Database",
+														extensions:
+															formData.type === "duckdb"
+																? ["duckdb", "db"]
+																: ["db", "sqlite", "sqlite3"],
 													},
 												],
 											});
@@ -327,14 +409,50 @@ export function ConnectionForm({
 											}
 										}}
 									>
-										Browse
+										{formData.type === "duckdb" ? "Open existing" : "Browse"}
 									</Button>
+									{formData.type === "duckdb" && (
+										<Button
+											type="button"
+											variant="outline"
+											onClick={async () => {
+												const selected = await save({
+													defaultPath: "analytics.duckdb",
+													filters: [
+														{
+															name: "DuckDB Database",
+															extensions: ["duckdb"],
+														},
+													],
+												});
+												if (selected) {
+													setFormData({ ...formData, file_path: selected });
+												}
+											}}
+										>
+											Create new
+										</Button>
+									)}
 								</div>
 							</Field>
 						)}
 
+						{formData.type === "d1" && (
+							<D1ConnectionFields
+								accountId={formData.username}
+								apiToken={formData.password}
+								databaseId={formData.database}
+								onChange={(values) =>
+									setFormData((current) =>
+										mergeD1ConnectionFields(current, values),
+									)
+								}
+								listDatabases={api.d1.listDatabases}
+							/>
+						)}
+
 						{/* Postgres/Server-based connection fields */}
-						{formData.type !== "sqlite" && (
+						{!usesFile && formData.type !== "d1" && (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<Field>
@@ -418,7 +536,11 @@ export function ConnectionForm({
 											setFormData({ ...formData, username: e.target.value })
 										}
 										placeholder={
-											formData.type === "redis" ? "default" : "postgres"
+											formData.type === "redis"
+												? "default"
+												: formData.type === "mysql" || formData.type === "mariadb"
+													? "root"
+													: "postgres"
 										}
 									/>
 								</Field>
@@ -656,12 +778,22 @@ export function ConnectionForm({
 							</>
 						)}
 					</FieldGroup>
+					{formData.type === "duckdb" && duckDbHelperProgress && (
+						<div className="mt-4">
+							<DuckDbHelperProgress progress={duckDbHelperProgress} />
+						</div>
+					)}
 
 					<AlertDialogFooter className="mt-6">
-						<Button variant="outline" type="button" onClick={onCancel}>
+						<Button
+							variant="outline"
+							type="button"
+							onClick={onCancel}
+							disabled={isBusy}
+						>
 							Cancel
 						</Button>
-						{formData.type !== "sqlite" && (
+						{!usesFile && (
 							<Button
 								variant="secondary"
 								type="button"

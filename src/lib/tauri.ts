@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/databaseCatalog";
-import type { FilterColumnKind, FilterExpression } from "@/lib/resultFilters";
+import type {
+	FilterColumnKind,
+	FilterExpression,
+	TableFilter,
+} from "@/lib/resultFilters";
 import type { Connection, ConnectionFormData } from "@/types/connection";
 import type {
 	DeleteConnectionResult,
@@ -10,7 +14,10 @@ import type {
 	DockerDatabaseEngine,
 } from "@/types/docker";
 
-export { DOCKER_DATABASE_ENGINES } from "@/types/docker";
+export {
+	DOCKER_DATABASE_ENGINES,
+	isDockerDatabaseEngine,
+} from "@/types/docker";
 export type {
 	DeleteConnectionResult,
 	DockerConnectionDraft,
@@ -37,6 +44,13 @@ export interface CreateTableColumn {
 	primary_key: boolean;
 	unique: boolean;
 	default: ColumnDefault | null;
+	mysql_modifiers?: {
+		length: number | null;
+		precision: number | null;
+		scale: number | null;
+		unsigned: boolean;
+		auto_increment: boolean;
+	};
 }
 
 export interface CreateTableRequest {
@@ -122,6 +136,18 @@ export interface TestConnectionResult {
 	message: string;
 }
 
+export interface D1Database {
+	uuid: string;
+	name: string;
+	created_at: string | null;
+}
+
+export interface D1DatabaseList {
+	databases: D1Database[];
+	page: number;
+	total_pages: number;
+}
+
 export interface SavedQuery {
 	id: number;
 	connection_uuid: string;
@@ -134,6 +160,40 @@ export interface SavedQuery {
 export interface SavedQueryFormData {
 	name: string;
 	query: string;
+}
+
+export interface SavedViewStateV1 {
+	version: 1;
+	filter: TableFilter | null;
+	sort: { column: string; direction: "asc" | "desc" } | null;
+	column_order: string[];
+	hidden_columns: string[];
+	column_widths: Record<string, number>;
+}
+
+export type SavedViewStatePayload =
+	| { status: "current"; state: SavedViewStateV1 }
+	| { status: "unsupported"; version: number };
+
+export interface SavedView {
+	id: number;
+	connection_uuid: string;
+	table_name: string;
+	name: string;
+	state: SavedViewStatePayload;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface SavedViewFormData {
+	table_name: string;
+	name: string;
+	state: SavedViewStateV1;
+}
+
+export interface SavedViewUpdateData {
+	name: string;
+	state: SavedViewStateV1;
 }
 
 export interface QueryHistory {
@@ -259,9 +319,10 @@ export const api = {
 	docker: {
 		listContainers: () =>
 			invoke<DockerContainerSummary[]>("docker_list_containers"),
-		prepareConnection: (containerId: string) =>
+		prepareConnection: (containerId: string, engine?: DockerDatabaseEngine) =>
 			invoke<DockerConnectionDraft>("docker_prepare_connection", {
 				containerId,
+				engine,
 			}),
 		createDatabase: (engine: DockerDatabaseEngine, name: string) =>
 			invoke<Connection>("docker_create_database", {
@@ -282,6 +343,15 @@ export const api = {
 			invoke<void>("docker_control_connection", { uuid, action }),
 		connectionString: (uuid: string) =>
 			invoke<string>("docker_get_connection_string", { uuid }),
+	},
+
+	d1: {
+		listDatabases: (accountId: string, apiToken: string, page = 1) =>
+			invoke<D1DatabaseList>("d1_list_databases", {
+				accountId,
+				apiToken,
+				page,
+			}),
 	},
 
 	postgres: {
@@ -708,6 +778,19 @@ export const api = {
 
 		clearHistory: (connectionUuid: string) =>
 			invoke<boolean>("clear_query_history", { connectionUuid }),
+	},
+
+	savedViews: {
+		list: (connectionUuid: string, tableName: string) =>
+			invoke<SavedView[]>("get_saved_views", { connectionUuid, tableName }),
+
+		create: (connectionUuid: string, data: SavedViewFormData) =>
+			invoke<SavedView>("create_saved_view", { connectionUuid, data }),
+
+		update: (id: number, data: SavedViewUpdateData) =>
+			invoke<SavedView>("update_saved_view", { id, data }),
+
+		delete: (id: number) => invoke<boolean>("delete_saved_view", { id }),
 	},
 
 	settings: {

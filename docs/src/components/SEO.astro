@@ -9,7 +9,7 @@ export interface Props {
 
 const {
   title = "DBcooper — database client for developers",
-  description = "A fast, native macOS database client for PostgreSQL, SQLite, Redis, and ClickHouse. Browse data, run SQL, visualize schemas, and generate queries with AI.",
+  description = "A fast, native macOS database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1. Browse data, run SQL, visualize schemas, and generate queries with AI.",
   ogImage = "/og.png",
 } = Astro.props;
 
@@ -38,7 +38,7 @@ const absoluteImage = ogImage.startsWith("http") ? ogImage : SITE + ogImage;
 <meta property="og:image:height" content="630" />
 <meta
   property="og:image:alt"
-  content="DBcooper — a database client for PostgreSQL, SQLite, Redis, and ClickHouse"
+  content="DBcooper — a database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1"
 />
 
 <!-- X (Twitter) -->
@@ -49,5 +49,5 @@ const absoluteImage = ogImage.startsWith("http") ? ogImage : SITE + ogImage;
 <meta name="twitter:image" content={absoluteImage} />
 <meta
   name="twitter:image:alt"
-  content="DBcooper — a database client for PostgreSQL, SQLite, Redis, and ClickHouse"
+  content="DBcooper — a database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHouse, and Cloudflare D1"
 />

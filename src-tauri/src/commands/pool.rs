@@ -4,8 +4,15 @@
 
 use std::sync::Arc;
 
+use crate::database::mutation::{
+    build_delete, build_insert, build_update, MutationPlan, MutationValue,
+};
 use crate::database::pool_manager::{ConnectionStatus, PoolManager};
-use crate::db::models::{CreateTableRequest, TableInfo, TestConnectionResult};
+use crate::database::sql_policy::ensure_structured_mutations_supported;
+use crate::database::DatabaseType;
+use crate::db::models::{
+    Connection, CreateTableRequest, QueryResult, TableInfo, TestConnectionResult,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -82,25 +89,6 @@ async fn ensure_connection(
     pool_manager.ensure_connected(sqlite_pool, uuid).await
 }
 
-/// Whether an error indicates a connection-level failure worth dropping and
-/// rebuilding the connection (and, over SSH, re-doing the handshake) — as
-/// opposed to a query-level error (bad SQL, missing table) that a reconnect
-/// won't fix.
-fn is_connection_error(err: &str) -> bool {
-    let e = err.to_lowercase();
-    e.contains("connection reset")
-        || e.contains("broken pipe")
-        || e.contains("connection closed")
-        || e.contains("server closed")
-        || e.contains("connection refused")
-        || e.contains("connection not found")
-        || e.contains("not connected")
-        || e.contains("timed out")
-        || e.contains("timeout")
-        || e.contains("os error")
-        || e.contains("eof")
-}
-
 /// Disconnect and reconnect (with lock).
 async fn reconnect(
     pool_manager: &PoolManager,
@@ -119,31 +107,80 @@ async fn reconnect(
     Ok(())
 }
 
-/// Run a pooled operation: auto-connect first, then run `op`. If it fails with a
-/// connection-level error, reconnect once and retry. Query-level errors (bad
-/// SQL, missing table) are returned as-is — reconnecting wouldn't help and would
-/// force a needless SSH handshake.
-pub(crate) async fn with_pooled<T, F, Fut>(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RetryPolicy {
+    Never,
+    ReconnectOnce,
+}
+
+async fn read_retry_policy(pool_manager: &PoolManager, uuid: &str) -> RetryPolicy {
+    if pool_manager.allows_reconnect_retry(uuid).await {
+        RetryPolicy::ReconnectOnce
+    } else {
+        RetryPolicy::Never
+    }
+}
+
+async fn execute_with_retry_policy<T, Operation, OperationFuture, Reconnect, ReconnectFuture>(
+    operation_name: &str,
+    retry_policy: RetryPolicy,
+    mut operation: Operation,
+    reconnect: Reconnect,
+) -> Result<T, String>
+where
+    Operation: FnMut() -> OperationFuture,
+    OperationFuture: std::future::Future<Output = Result<T, String>>,
+    Reconnect: FnOnce() -> ReconnectFuture,
+    ReconnectFuture: std::future::Future<Output = Result<(), String>>,
+{
+    match operation().await {
+        Ok(result) => Ok(result),
+        Err(error) if retry_policy == RetryPolicy::Never => Err(error),
+        Err(error) => {
+            println!(
+                "[Pool] {} failed: {}, retrying with fresh connection",
+                operation_name, error
+            );
+            reconnect().await?;
+            operation().await
+        }
+    }
+}
+
+pub(crate) async fn with_pooled_read<T, F, Fut>(
     pool_manager: &PoolManager,
     sqlite_pool: &SqlitePool,
     uuid: &str,
-    label: &str,
-    op: F,
+    operation_name: &str,
+    operation: F,
 ) -> Result<T, String>
 where
-    F: Fn() -> Fut,
+    F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, String>>,
 {
     ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    execute_with_retry_policy(
+        operation_name,
+        read_retry_policy(pool_manager, uuid).await,
+        operation,
+        || reconnect(pool_manager, sqlite_pool, uuid),
+    )
+    .await
+}
 
-    match op().await {
-        Err(e) if is_connection_error(&e) => {
-            println!("[Pool] {label} failed: {e}, retrying with fresh connection");
-            reconnect(pool_manager, sqlite_pool, uuid).await?;
-            op().await
-        }
-        result => result,
-    }
+pub(crate) async fn with_pooled_no_retry<T, F, Fut>(
+    pool_manager: &PoolManager,
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+    _operation_name: &str,
+    operation: F,
+) -> Result<T, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    operation().await
 }
 
 /// List tables using the pooled connection (auto-connects if needed, auto-retries on error)
@@ -153,12 +190,13 @@ pub async fn pool_list_tables(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<Vec<crate::db::models::TableInfo>, String> {
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    execute_with_retry_policy(
         "list_tables",
+        read_retry_policy(&pool_manager, &uuid).await,
         || pool_manager.list_tables(&uuid),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -179,11 +217,11 @@ pub async fn pool_get_table_data(
     sort_direction: Option<String>,
 ) -> Result<crate::db::models::TableDataResponse, String> {
     let table_filter = crate::db::models::TableFilter::from_parts(filter, structured_filter)?;
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+    execute_with_retry_policy(
         "get_table_data",
+        read_retry_policy(&pool_manager, &uuid).await,
         || {
             pool_manager.get_table_data(
                 &uuid,
@@ -196,6 +234,7 @@ pub async fn pool_get_table_data(
                 sort_direction.clone(),
             )
         },
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -209,12 +248,13 @@ pub async fn pool_get_table_structure(
     schema: String,
     table: String,
 ) -> Result<crate::db::models::TableStructure, String> {
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    execute_with_retry_policy(
         "get_table_structure",
+        read_retry_policy(&pool_manager, &uuid).await,
         || pool_manager.get_table_structure(&uuid, &schema, &table),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -249,12 +289,13 @@ pub async fn pool_execute_query(
     uuid: String,
     query: String,
 ) -> Result<crate::db::models::QueryResult, String> {
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    execute_with_retry_policy(
         "execute_query",
+        RetryPolicy::Never,
         || pool_manager.execute_query(&uuid, &query),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -266,12 +307,13 @@ pub async fn pool_get_schema_overview(
     sqlite_pool: State<'_, SqlitePool>,
     uuid: String,
 ) -> Result<crate::db::models::SchemaOverview, String> {
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    execute_with_retry_policy(
         "get_schema_overview",
+        read_retry_policy(&pool_manager, &uuid).await,
         || pool_manager.get_schema_overview(&uuid),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -286,12 +328,13 @@ pub async fn pool_get_function_definition(
     name: String,
     identity_args: String,
 ) -> Result<crate::db::models::FunctionDefinition, String> {
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
+    ensure_connection(&pool_manager, sqlite_pool.inner(), &uuid).await?;
+
+    execute_with_retry_policy(
         "get_function_definition",
+        read_retry_policy(&pool_manager, &uuid).await,
         || pool_manager.get_function_definition(&uuid, &schema, &name, &identity_args),
+        || reconnect(&pool_manager, sqlite_pool.inner(), &uuid),
     )
     .await
 }
@@ -300,9 +343,25 @@ pub async fn pool_get_function_definition(
 // Row editing commands (UPDATE/DELETE/INSERT) using connection pool
 // ============================================================================
 
-use crate::database::sql_policy::{
-    escape_sql_identifier, format_sql_value, validate_raw_sql_value,
-};
+async fn mutation_engine(sqlite_pool: &SqlitePool, uuid: &str) -> Result<DatabaseType, String> {
+    let connection: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(uuid)
+        .fetch_one(sqlite_pool)
+        .await
+        .map_err(|error| format!("Failed to get connection: {error}"))?;
+    ensure_structured_mutations_supported(&connection.db_type)?;
+    DatabaseType::try_from(connection.db_type.as_str())
+}
+
+async fn run_mutation(
+    pool_manager: &PoolManager,
+    sqlite_pool: &SqlitePool,
+    uuid: &str,
+    mutation: &MutationPlan,
+) -> Result<QueryResult, String> {
+    ensure_connection(pool_manager, sqlite_pool, uuid).await?;
+    pool_manager.execute_mutation(uuid, mutation).await
+}
 
 /// Update a row in a table using the pooled connection
 #[tauri::command]
@@ -314,97 +373,18 @@ pub async fn pool_update_table_row(
     table: String,
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
-    updates: Vec<serde_json::Value>,
+    updates: Vec<MutationValue>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
-        return Err("Primary key columns and values must match".to_string());
-    }
-
-    if updates.is_empty() {
-        return Err("No updates provided".to_string());
-    }
-
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let db_type = &conn.db_type;
-
-    // Build the UPDATE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
-
-    // Extract columns and values from the updates array
-    let mut set_parts: Vec<String> = Vec::new();
-
-    for update_obj in updates.iter() {
-        let update_map = update_obj
-            .as_object()
-            .ok_or("Each update must be an object")?;
-
-        let column = update_map
-            .get("column")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing column name")?;
-        let value = update_map.get("value").ok_or("Missing value")?;
-        let is_raw_sql = update_map
-            .get("isRawSql")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let formatted_value = if is_raw_sql {
-            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
-            validate_raw_sql_value(raw_value, db_type)
-                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
-            raw_value.to_string()
-        } else {
-            format_sql_value(value)
-        };
-
-        set_parts.push(format!(
-            "\"{}\" = {}",
-            escape_sql_identifier(column),
-            formatted_value
-        ));
-    }
-
-    let set_clause = set_parts.join(", ");
-
-    // Build WHERE clause for primary key
-    let where_parts: Vec<String> = primary_key_columns
-        .iter()
-        .zip(primary_key_values.iter())
-        .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
-        })
-        .collect();
-    let where_clause = where_parts.join(" AND ");
-
-    let query = format!(
-        "UPDATE {} SET {} WHERE {}",
-        table_ref, set_clause, where_clause
-    );
-
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
-        "update_table_row",
-        || pool_manager.execute_query(&uuid, &query),
-    )
-    .await
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_update(
+        engine,
+        &schema,
+        &table,
+        &primary_key_columns,
+        &primary_key_values,
+        &updates,
+    )?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
 }
 
 /// Delete a row from a table using the pooled connection
@@ -418,52 +398,15 @@ pub async fn pool_delete_table_row(
     primary_key_columns: Vec<String>,
     primary_key_values: Vec<serde_json::Value>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if primary_key_columns.is_empty() || primary_key_columns.len() != primary_key_values.len() {
-        return Err("Primary key columns and values must match".to_string());
-    }
-
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
-
-    let db_type = &conn.db_type;
-
-    // Build the DELETE query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
-        )
-    };
-
-    // Build WHERE clause for primary key
-    let where_parts: Vec<String> = primary_key_columns
-        .iter()
-        .zip(primary_key_values.iter())
-        .map(|(col, val)| {
-            let formatted_value = format_sql_value(val);
-            format!("\"{}\" = {}", escape_sql_identifier(col), formatted_value)
-        })
-        .collect();
-    let where_clause = where_parts.join(" AND ");
-
-    let query = format!("DELETE FROM {} WHERE {}", table_ref, where_clause);
-
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
-        "delete_table_row",
-        || pool_manager.execute_query(&uuid, &query),
-    )
-    .await
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_delete(
+        engine,
+        &schema,
+        &table,
+        &primary_key_columns,
+        &primary_key_values,
+    )?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
 }
 
 /// Insert a new row into a table using the pooled connection
@@ -474,80 +417,67 @@ pub async fn pool_insert_table_row(
     uuid: String,
     schema: String,
     table: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<MutationValue>,
 ) -> Result<crate::db::models::QueryResult, String> {
-    if values.is_empty() {
-        return Err("No values provided".to_string());
-    }
+    let engine = mutation_engine(sqlite_pool.inner(), &uuid).await?;
+    let mutation = build_insert(engine, &schema, &table, &values)?;
+    run_mutation(&pool_manager, sqlite_pool.inner(), &uuid, &mutation).await
+}
 
-    // Get db_type from connection
-    let conn: crate::db::models::Connection =
-        sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
-            .bind(&uuid)
-            .fetch_one(sqlite_pool.inner())
-            .await
-            .map_err(|e| format!("Failed to get connection: {}", e))?;
+#[cfg(test)]
+mod tests {
+    use super::{execute_with_retry_policy, RetryPolicy};
+    use std::cell::Cell;
 
-    let db_type = &conn.db_type;
+    #[tokio::test]
+    async fn never_retry_policy_returns_the_first_error_without_reconnecting() {
+        let operation_calls = Cell::new(0);
+        let reconnect_calls = Cell::new(0);
 
-    // Build the INSERT query
-    let table_ref = if db_type == "sqlite" || db_type == "sqlite3" {
-        format!("\"{}\"", escape_sql_identifier(&table))
-    } else {
-        format!(
-            "\"{}\".\"{}\"",
-            escape_sql_identifier(&schema),
-            escape_sql_identifier(&table)
+        let result: Result<(), String> = execute_with_retry_policy(
+            "d1 query",
+            RetryPolicy::Never,
+            || async {
+                operation_calls.set(operation_calls.get() + 1);
+                Err("request outcome is unknown".to_string())
+            },
+            || async {
+                reconnect_calls.set(reconnect_calls.get() + 1);
+                Ok(())
+            },
         )
-    };
+        .await;
 
-    // Extract columns and values from the values array
-    let mut columns: Vec<String> = Vec::new();
-    let mut value_parts: Vec<String> = Vec::new();
-
-    for value_obj in values.iter() {
-        let value_map = value_obj
-            .as_object()
-            .ok_or("Each value must be an object")?;
-
-        let column = value_map
-            .get("column")
-            .and_then(|v| v.as_str())
-            .ok_or("Missing column name")?;
-        let value = value_map.get("value").ok_or("Missing value")?;
-        let is_raw_sql = value_map
-            .get("isRawSql")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        columns.push(format!("\"{}\"", escape_sql_identifier(column)));
-
-        let formatted_value = if is_raw_sql {
-            let raw_value = value.as_str().ok_or("Raw SQL value must be a string")?;
-            validate_raw_sql_value(raw_value, db_type)
-                .map_err(|e| format!("Invalid raw SQL value: {}", e))?;
-            raw_value.to_string()
-        } else {
-            format_sql_value(value)
-        };
-
-        value_parts.push(formatted_value);
+        assert_eq!(result, Err("request outcome is unknown".to_string()));
+        assert_eq!(operation_calls.get(), 1);
+        assert_eq!(reconnect_calls.get(), 0);
     }
 
-    let columns_clause = columns.join(", ");
-    let values_clause = value_parts.join(", ");
+    #[tokio::test]
+    async fn reconnect_once_policy_retries_a_safe_read_once() {
+        let operation_calls = Cell::new(0);
+        let reconnect_calls = Cell::new(0);
 
-    let query = format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        table_ref, columns_clause, values_clause
-    );
+        let result = execute_with_retry_policy(
+            "safe read",
+            RetryPolicy::ReconnectOnce,
+            || async {
+                operation_calls.set(operation_calls.get() + 1);
+                if operation_calls.get() == 1 {
+                    Err("stale connection".to_string())
+                } else {
+                    Ok("rows")
+                }
+            },
+            || async {
+                reconnect_calls.set(reconnect_calls.get() + 1);
+                Ok(())
+            },
+        )
+        .await;
 
-    with_pooled(
-        &pool_manager,
-        sqlite_pool.inner(),
-        &uuid,
-        "insert_table_row",
-        || pool_manager.execute_query(&uuid, &query),
-    )
-    .await
+        assert_eq!(result, Ok("rows"));
+        assert_eq!(operation_calls.get(), 2);
+        assert_eq!(reconnect_calls.get(), 1);
+    }
 }
