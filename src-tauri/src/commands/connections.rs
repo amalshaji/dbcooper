@@ -278,7 +278,7 @@ pub async fn import_connections(
         .bind(&conn.file_path)
         .bind(
             (conn.db_type == "mongodb")
-                .then(|| conn.connection_uri.as_deref())
+                .then_some(conn.connection_uri.as_deref())
                 .flatten(),
         )
         .bind(ssh_enabled)
@@ -319,6 +319,6 @@ fn validate_connection_data(data: &ConnectionFormData) -> Result<(), String> {
 
 fn connection_uri_for(data: &ConnectionFormData) -> Option<&str> {
     (data.db_type == "mongodb")
-        .then(|| data.connection_uri.as_deref())
+        .then_some(data.connection_uri.as_deref())
         .flatten()
 }
