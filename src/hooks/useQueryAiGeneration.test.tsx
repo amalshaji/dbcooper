@@ -190,6 +190,7 @@ test("keeps edits to a completed draft in its query tab", () => {
 	const queryTab = createQuery();
 	queryTab.ai.draft = {
 		status: "ready",
+		originalSql: "SELECT * FROM users",
 		sql: "SELECT * FROM users",
 	};
 

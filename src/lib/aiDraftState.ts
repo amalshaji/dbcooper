@@ -1,11 +1,16 @@
 export type AiDraftState =
 	| { status: "idle" }
-	| { status: "generating"; requestId: string; sql: string }
-	| { status: "ready"; sql: string }
+	| {
+			status: "generating";
+			requestId: string;
+			originalSql: string;
+			sql: string;
+	  }
+	| { status: "ready"; originalSql: string; sql: string }
 	| { status: "error"; message: string };
 
 export type AiDraftAction =
-	| { type: "start"; requestId: string }
+	| { type: "start"; requestId: string; originalSql: string }
 	| { type: "preview"; requestId: string; sql: string }
 	| { type: "complete"; requestId: string; sql: string }
 	| { type: "edit"; sql: string }
@@ -44,11 +49,16 @@ export function aiDraftReducer(
 ): AiDraftState {
 	switch (action.type) {
 		case "start":
-			return { status: "generating", requestId: action.requestId, sql: "" };
+			return {
+				status: "generating",
+				requestId: action.requestId,
+				originalSql: action.originalSql,
+				sql: "",
+			};
 		case "preview":
 			return state.status === "generating" &&
 				state.requestId === action.requestId
-				? { status: "generating", requestId: action.requestId, sql: action.sql }
+				? { ...state, sql: action.sql }
 				: state;
 		case "complete":
 			if (
@@ -57,14 +67,14 @@ export function aiDraftReducer(
 			)
 				return state;
 			return action.sql.trim()
-				? { status: "ready", sql: action.sql }
+				? { status: "ready", originalSql: state.originalSql, sql: action.sql }
 				: {
 						status: "error",
 						message: "The AI provider returned an empty response",
 					};
 		case "edit":
 			return state.status === "ready"
-				? { status: "ready", sql: action.sql }
+				? { ...state, sql: action.sql }
 				: state;
 		case "fail":
 			return state.status === "generating" &&

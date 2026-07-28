@@ -51,7 +51,7 @@ afterEach(cleanup);
 test("uses the standard app border radius", () => {
 	const { container } = render(
 		<SqlAIPreview
-			draft={{ status: "ready", sql: "SELECT 1;" }}
+			draft={{ status: "ready", originalSql: "", sql: "SELECT 1;" }}
 			hasExistingSql={false}
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
@@ -69,6 +69,7 @@ test("renders streamed SQL in a read-only draft editor", () => {
 			draft={{
 				status: "generating",
 				requestId: "request-1",
+				originalSql: "",
 				sql: "SELECT *",
 			}}
 			hasExistingSql={false}
@@ -91,6 +92,7 @@ test("keeps the empty loading state compact until SQL starts streaming", () => {
 			draft={{
 				status: "generating",
 				requestId: "request-1",
+				originalSql: "",
 				sql: "",
 			}}
 			hasExistingSql={false}
@@ -110,7 +112,11 @@ test("allows a completed draft to be edited before it is applied", () => {
 	let editedSql = "";
 	render(
 		<SqlAIPreview
-			draft={{ status: "ready", sql: "SELECT * FROM users" }}
+			draft={{
+				status: "ready",
+				originalSql: "SELECT id FROM users",
+				sql: "SELECT * FROM users",
+			}}
 			hasExistingSql={true}
 			onDraftChange={(sql) => {
 				editedSql = sql;

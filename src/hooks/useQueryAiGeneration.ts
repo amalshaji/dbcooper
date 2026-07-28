@@ -68,7 +68,7 @@ export function useQueryAiGeneration({
 			const requestId = crypto.randomUUID();
 			updateAiState(tabId, {
 				type: "update-draft",
-				action: { type: "start", requestId },
+				action: { type: "start", requestId, originalSql: existingSQL },
 			});
 
 			const viewQuery = () => {

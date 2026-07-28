@@ -107,6 +107,7 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 					draft: {
 						status: "generating",
 						requestId: "request-1",
+						originalSql: "SELECT * FROM users",
 						sql: "SELECT *",
 					},
 				},
@@ -140,6 +141,7 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 					instruction: "List active users",
 					draft: {
 						status: "ready",
+						originalSql: "SELECT * FROM users",
 						sql: "SELECT * FROM users WHERE active = true",
 					},
 				},
