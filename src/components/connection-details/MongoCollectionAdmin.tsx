@@ -1,10 +1,27 @@
-import { json } from "@codemirror/lang-json";
 import { Plus, Trash } from "@phosphor-icons/react";
-import CodeMirror from "@uiw/react-codemirror";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { MongoJsonEditor } from "@/components/connection-details/MongoJsonEditor";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -39,7 +56,7 @@ export function MongoCollectionAdmin({
 	const [validationAction, setValidationAction] =
 		useState<MongoValidatorSettings["validation_action"]>("error");
 	const [loading, setLoading] = useState(false);
-	const jsonExtension = useMemo(() => [json()], []);
+	const [indexToDrop, setIndexToDrop] = useState<string | null>(null);
 
 	const loadIndexes = useCallback(async () => {
 		if (!collection) return;
@@ -97,6 +114,42 @@ export function MongoCollectionAdmin({
 		}
 	};
 
+	const dropIndex = async () => {
+		if (!indexToDrop) return;
+		setLoading(true);
+		try {
+			await api.mongo.dropIndex(uuid, database, collection, indexToDrop);
+			setIndexToDrop(null);
+			await loadIndexes();
+			toast.success("Index dropped");
+		} catch (error) {
+			toast.error("Could not drop index", { description: String(error) });
+		} finally {
+			setLoading(false);
+		}
+	};
+
+	const saveValidator = async () => {
+		setLoading(true);
+		try {
+			const validator = JSON.parse(validatorText) as Record<string, unknown>;
+			await api.mongo.setValidator(uuid, {
+				database,
+				collection,
+				validator,
+				validation_level: validationLevel,
+				validation_action: validationAction,
+			});
+			toast.success("Validator updated");
+		} catch (error) {
+			toast.error("Could not update validator", {
+				description: String(error),
+			});
+		} finally {
+			setLoading(false);
+		}
+	};
+
 	if (!collection)
 		return (
 			<div className="p-6 text-sm text-muted-foreground">
@@ -106,64 +159,100 @@ export function MongoCollectionAdmin({
 
 	if (view === "indexes") {
 		return (
-			<div className="min-h-0 flex-1 overflow-auto p-4">
-				<div className="mb-4 flex items-end gap-2 rounded-lg border bg-card p-3">
-					<label className="flex-1 text-xs text-muted-foreground">
-						Field
-						<Input
-							className="mt-1"
-							value={indexField}
-							onChange={(e) => setIndexField(e.target.value)}
-							placeholder="createdAt"
-						/>
-					</label>
-					<label className="w-32 text-xs text-muted-foreground">
-						Direction
-						<select
-							className="mt-1 h-9 w-full rounded-md border bg-background px-2 text-sm"
-							value={indexDirection}
-							onChange={(e) =>
-								setIndexDirection(Number(e.target.value) as 1 | -1)
-							}
+			<div className="min-h-0 flex-1 overflow-auto bg-muted/15 p-4">
+				<div className="mb-4 rounded-xl border bg-card p-4 shadow-sm">
+					<div className="mb-3">
+						<h2 className="text-sm font-semibold">Create index</h2>
+						<p className="mt-0.5 text-xs text-muted-foreground">
+							Add a single-field index to {database}.{collection}.
+						</p>
+					</div>
+					<div className="grid grid-cols-[minmax(150px,1fr)_140px_minmax(150px,1fr)_110px_auto] items-end gap-3">
+						<div className="space-y-1.5">
+							<Label htmlFor="mongo-index-field">Field</Label>
+							<Input
+								id="mongo-index-field"
+								value={indexField}
+								onChange={(e) => setIndexField(e.target.value)}
+								placeholder="createdAt"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<Label>Direction</Label>
+							<Select
+								value={indexDirection}
+								onValueChange={(value) =>
+									setIndexDirection(Number(value) as 1 | -1)
+								}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={1}>Ascending</SelectItem>
+									<SelectItem value={-1}>Descending</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor="mongo-index-name">Name</Label>
+							<Input
+								id="mongo-index-name"
+								value={indexName}
+								onChange={(e) => setIndexName(e.target.value)}
+								placeholder="Optional"
+							/>
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor="mongo-index-ttl">TTL seconds</Label>
+							<Input
+								id="mongo-index-ttl"
+								type="number"
+								min={0}
+								value={ttl}
+								onChange={(e) => setTtl(e.target.value)}
+							/>
+						</div>
+						<div className="flex h-8 items-center gap-4">
+							<Label className="gap-2">
+								<Switch
+									size="sm"
+									checked={unique}
+									onCheckedChange={setUnique}
+								/>
+								Unique
+							</Label>
+							<Label className="gap-2">
+								<Switch
+									size="sm"
+									checked={sparse}
+									onCheckedChange={setSparse}
+								/>
+								Sparse
+							</Label>
+						</div>
+					</div>
+					<div className="mt-3 flex justify-end">
+						<Button
+							size="sm"
+							onClick={() => void createIndex()}
+							disabled={loading}
 						>
-							<option value={1}>Ascending</option>
-							<option value={-1}>Descending</option>
-						</select>
-					</label>
-					<label className="flex-1 text-xs text-muted-foreground">
-						Name
-						<Input
-							className="mt-1"
-							value={indexName}
-							onChange={(e) => setIndexName(e.target.value)}
-							placeholder="Optional"
-						/>
-					</label>
-					<label className="w-28 text-xs text-muted-foreground">
-						TTL seconds
-						<Input
-							className="mt-1"
-							type="number"
-							min={0}
-							value={ttl}
-							onChange={(e) => setTtl(e.target.value)}
-						/>
-					</label>
-					<label className="flex items-center gap-2 pb-2 text-sm">
-						<Switch checked={unique} onCheckedChange={setUnique} />
-						Unique
-					</label>
-					<label className="flex items-center gap-2 pb-2 text-sm">
-						<Switch checked={sparse} onCheckedChange={setSparse} />
-						Sparse
-					</label>
-					<Button onClick={() => void createIndex()} disabled={loading}>
-						{loading && <Spinner />}
-						<Plus />
-						Create
-					</Button>
+							{loading && <Spinner />}
+							<Plus />
+							Create index
+						</Button>
+					</div>
 				</div>
-				<div className="overflow-hidden rounded-lg border">
+				<div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+					<div className="border-b px-4 py-3">
+						<h2 className="text-sm font-semibold">Indexes</h2>
+					</div>
+					{!loading && indexes.length === 0 && (
+						<div className="p-8 text-center text-xs text-muted-foreground">
+							No indexes found
+						</div>
+					)}
 					{indexes.map((index) => (
 						<div
 							key={index.name}
@@ -189,23 +278,7 @@ export function MongoCollectionAdmin({
 								size="icon-sm"
 								variant="ghost"
 								disabled={index.name === "_id_"}
-								onClick={async () => {
-									if (!window.confirm(`Drop index ${index.name}?`)) return;
-									try {
-										await api.mongo.dropIndex(
-											uuid,
-											database,
-											collection,
-											index.name,
-										);
-										await loadIndexes();
-										toast.success("Index dropped");
-									} catch (error) {
-										toast.error("Could not drop index", {
-											description: String(error),
-										});
-									}
-								}}
+								onClick={() => setIndexToDrop(index.name)}
 								aria-label={`Drop ${index.name}`}
 							>
 								<Trash />
@@ -213,83 +286,91 @@ export function MongoCollectionAdmin({
 						</div>
 					))}
 				</div>
+				<AlertDialog
+					open={indexToDrop !== null}
+					onOpenChange={(open) => !open && setIndexToDrop(null)}
+				>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Drop “{indexToDrop}”?</AlertDialogTitle>
+							<AlertDialogDescription>
+								Queries that rely on this index may become slower.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel>Cancel</AlertDialogCancel>
+							<AlertDialogAction
+								variant="destructive"
+								disabled={loading}
+								onClick={() => void dropIndex()}
+							>
+								{loading && <Spinner />} Drop index
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
 			</div>
 		);
 	}
 
 	return (
-		<div className="flex min-h-0 flex-1 flex-col p-4">
-			<div className="mb-3 flex items-end gap-3">
-				<label className="text-xs text-muted-foreground">
-					Validation level
-					<select
-						className="mt-1 block h-9 rounded-md border bg-background px-3 text-sm"
-						value={validationLevel}
-						onChange={(e) =>
-							setValidationLevel(
-								e.target.value as MongoValidatorSettings["validation_level"],
-							)
-						}
+		<div className="flex min-h-0 flex-1 flex-col bg-muted/15 p-4">
+			<div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
+				<div className="flex items-end gap-3 border-b p-4">
+					<div className="space-y-1.5">
+						<Label>Validation level</Label>
+						<Select
+							value={validationLevel}
+							onValueChange={(value) =>
+								setValidationLevel(
+									value as MongoValidatorSettings["validation_level"],
+								)
+							}
+						>
+							<SelectTrigger className="w-36">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="off">Off</SelectItem>
+								<SelectItem value="strict">Strict</SelectItem>
+								<SelectItem value="moderate">Moderate</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className="space-y-1.5">
+						<Label>Validation action</Label>
+						<Select
+							value={validationAction}
+							onValueChange={(value) =>
+								setValidationAction(
+									value as MongoValidatorSettings["validation_action"],
+								)
+							}
+						>
+							<SelectTrigger className="w-36">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="error">Error</SelectItem>
+								<SelectItem value="warn">Warn</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<Button
+						className="ml-auto"
+						size="sm"
+						disabled={loading}
+						onClick={() => void saveValidator()}
 					>
-						<option value="off">Off</option>
-						<option value="strict">Strict</option>
-						<option value="moderate">Moderate</option>
-					</select>
-				</label>
-				<label className="text-xs text-muted-foreground">
-					Validation action
-					<select
-						className="mt-1 block h-9 rounded-md border bg-background px-3 text-sm"
-						value={validationAction}
-						onChange={(e) =>
-							setValidationAction(
-								e.target.value as MongoValidatorSettings["validation_action"],
-							)
-						}
-					>
-						<option value="error">Error</option>
-						<option value="warn">Warn</option>
-					</select>
-				</label>
-				<Button
-					className="ml-auto"
-					disabled={loading}
-					onClick={async () => {
-						if (
-							!window.confirm(
-								`Update validation rules for ${database}.${collection}?`,
-							)
-						)
-							return;
-						try {
-							const validator = JSON.parse(validatorText) as Record<
-								string,
-								unknown
-							>;
-							await api.mongo.setValidator(uuid, {
-								database,
-								collection,
-								validator,
-								validation_level: validationLevel,
-								validation_action: validationAction,
-							});
-							toast.success("Validator updated");
-						} catch (error) {
-							toast.error("Could not update validator", {
-								description: String(error),
-							});
-						}
-					}}
-				>
-					{loading && <Spinner />}Save validator
-				</Button>
-			</div>
-			<div className="min-h-0 flex-1 overflow-hidden rounded-lg border">
-				<CodeMirror
+						{loading && <Spinner />} Save validator
+					</Button>
+				</div>
+				<MongoJsonEditor
+					className="min-h-0 flex-1 rounded-none border-0"
 					value={validatorText}
 					height="100%"
-					extensions={jsonExtension}
 					onChange={setValidatorText}
+					ariaLabel="Collection validator"
 				/>
 			</div>
 		</div>

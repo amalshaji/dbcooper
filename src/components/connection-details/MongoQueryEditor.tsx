@@ -1,6 +1,5 @@
-import { json } from "@codemirror/lang-json";
-import CodeMirror from "@uiw/react-codemirror";
-import { useMemo } from "react";
+import { Funnel, ListDashes, SortAscending } from "@phosphor-icons/react";
+import { MongoJsonEditor } from "@/components/connection-details/MongoJsonEditor";
 import type { MongoQueryEditor as MongoQueryEditorState } from "@/lib/mongo/querySpec";
 
 export function MongoQueryEditor({
@@ -10,40 +9,45 @@ export function MongoQueryEditor({
 	editor: MongoQueryEditorState;
 	onChange: (editor: MongoQueryEditorState) => void;
 }) {
-	const extensions = useMemo(() => [json()], []);
 	if (editor.type === "aggregate") {
 		return (
-			<div className="border-b bg-card">
-				<div className="px-3 py-1 text-xs text-muted-foreground">Pipeline</div>
-				<CodeMirror
+			<section className="border-b bg-muted/20 p-3">
+				<div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+					<ListDashes className="size-3.5" />
+					Aggregation pipeline
+				</div>
+				<MongoJsonEditor
 					value={editor.pipeline}
-					height="120px"
-					extensions={extensions}
+					height="132px"
+					ariaLabel="Aggregation pipeline"
 					onChange={(pipeline) => onChange({ type: "aggregate", pipeline })}
 				/>
-			</div>
+			</section>
 		);
 	}
 
+	const fields = [
+		["filter", "Filter", Funnel],
+		["projection", "Projection", ListDashes],
+		["sort", "Sort", SortAscending],
+	] as const;
+
 	return (
-		<div className="grid grid-cols-3 border-b bg-card">
-			{(
-				[
-					["filter", "Filter"],
-					["projection", "Projection"],
-					["sort", "Sort"],
-				] as const
-			).map(([field, label], index) => (
-				<div key={field} className={index < 2 ? "border-r" : undefined}>
-					<div className="px-3 py-1 text-xs text-muted-foreground">{label}</div>
-					<CodeMirror
+		<section className="grid grid-cols-3 gap-2 border-b bg-muted/20 p-3">
+			{fields.map(([field, label, Icon]) => (
+				<div key={field} className="min-w-0">
+					<div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+						<Icon className="size-3.5" />
+						{label}
+					</div>
+					<MongoJsonEditor
 						value={editor[field]}
-						height="120px"
-						extensions={extensions}
+						height="132px"
+						ariaLabel={`${label} JSON`}
 						onChange={(value) => onChange({ ...editor, [field]: value })}
 					/>
 				</div>
 			))}
-		</div>
+		</section>
 	);
 }
