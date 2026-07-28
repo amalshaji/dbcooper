@@ -192,6 +192,7 @@ export function MongoConnectionWorkspace({
 								onDiscard={ai.discard}
 							/>
 							<MongoQueryEditor
+								key={workbench.editorLoadRevision}
 								editor={workbench.editor}
 								onChange={workbench.actions.setEditor}
 								onRun={() => void workbench.actions.run()}

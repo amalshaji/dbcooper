@@ -37,6 +37,21 @@ describe("MongoDB query specifications", () => {
 		).toThrow("filter must be a JSON object");
 	});
 
+	test("rejects find queries that omit the filter instead of loading an empty one", () => {
+		expect(() =>
+			parseMongoQuerySpec(
+				JSON.stringify({
+					version: 1,
+					type: "find",
+					database: "app",
+					collection: "users",
+					projection: {},
+					sort: {},
+				}),
+			),
+		).toThrow("filter must be a JSON object");
+	});
+
 	test("rejects unsupported query versions", () => {
 		expect(() =>
 			parseMongoQuerySpec(

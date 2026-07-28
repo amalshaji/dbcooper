@@ -85,6 +85,7 @@ test("restores a history query without executing or recording it again", async (
 	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
 
 	await waitFor(() => expect(result.current.result?.returned_count).toBe(1));
+	expect(result.current.editorLoadRevision).toBe(0);
 	findRequests.length = 0;
 	historyRecords.length = 0;
 
@@ -109,6 +110,7 @@ test("restores a history query without executing or recording it again", async (
 		projection: '{\n  "name": 1\n}',
 	});
 	expect(result.current.result).toBeNull();
+	expect(result.current.editorLoadRevision).toBe(1);
 	expect(findRequests).toHaveLength(0);
 	expect(historyRecords).toHaveLength(0);
 });

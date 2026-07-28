@@ -75,6 +75,7 @@ export function useMongoWorkbench(uuid: string) {
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [history, setHistory] = useState<QueryHistory[]>([]);
 	const [queryName, setQueryName] = useState("");
+	const [editorLoadRevision, setEditorLoadRevision] = useState(0);
 	const initializedCatalog = useRef(false);
 	const suppressNextNamespaceRun = useRef(false);
 
@@ -202,6 +203,7 @@ export function useMongoWorkbench(uuid: string) {
 				mode: nextEditor.type,
 				[nextEditor.type]: nextEditor,
 			}));
+			setEditorLoadRevision((current) => current + 1);
 			setResult(null);
 			setInspector({
 				selectedIndex: null,
@@ -284,6 +286,7 @@ export function useMongoWorkbench(uuid: string) {
 		savedQueries,
 		history,
 		queryName,
+		editorLoadRevision,
 		actions: {
 			setEditor: (nextEditor: MongoQueryEditor) =>
 				setEditorSession((current) => ({

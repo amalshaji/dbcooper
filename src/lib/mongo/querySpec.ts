@@ -89,7 +89,7 @@ export function parseMongoQuerySpec(value: string): MongoQuerySpec {
 			type: "find",
 			database,
 			collection,
-			filter: readObject(parsed.filter, "filter", {}),
+			filter: readObject(parsed.filter, "filter"),
 			projection: readObject(parsed.projection, "projection", {}),
 			sort: readObject(parsed.sort, "sort", {}),
 			limit,
