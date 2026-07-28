@@ -29,9 +29,20 @@ export function useMongoAiGeneration(
 		const requestId = crypto.randomUUID();
 		dispatch({ type: "update-draft", action: { type: "start", requestId } });
 		try {
-			const existingQuery = serializeMongoQuerySpec(
-				buildMongoQuerySpec(workbench.editor, workbench.namespace),
-			);
+			let existingQuery: string;
+			try {
+				existingQuery = serializeMongoQuerySpec(
+					buildMongoQuerySpec(workbench.editor, workbench.namespace),
+				);
+			} catch {
+				const baselineEditor =
+					workbench.editor.type === "find"
+						? { type: "find" as const, filter: "{}", projection: "{}", sort: "{}" }
+						: { type: "aggregate" as const, pipeline: "[]" };
+				existingQuery = serializeMongoQuerySpec(
+					buildMongoQuerySpec(baselineEditor, workbench.namespace),
+				);
+			}
 			let accumulated = "";
 			let completed = "";
 			await generation.generateSQL(

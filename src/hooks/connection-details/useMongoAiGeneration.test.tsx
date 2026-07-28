@@ -80,3 +80,41 @@ test("generates a MongoDB draft and loads it only after explicit approval", asyn
 	expect(loadedQueries).toEqual([generatedQuery]);
 	expect(result.current.state.draft.status).toBe("idle");
 });
+
+test("generates from a clean baseline when the current MongoDB editor is invalid", async () => {
+	const workbench = {
+		editor: {
+			type: "find",
+			filter: '{ name: "Amal" }',
+			projection: "{}",
+			sort: "{}",
+		},
+		namespace: { database: "app", collection: "users" },
+		catalog: [
+			{
+				name: "app",
+				collections: [{ database: "app", name: "users" }],
+			},
+		],
+		actions: { loadQuery: () => undefined },
+	} as unknown as MongoWorkbenchController;
+	const { result } = renderHook(() =>
+		useMongoAiGeneration("connection-1", workbench),
+	);
+
+	act(() => result.current.setInstruction('Search for names "Amal"'));
+	await act(async () => result.current.generate());
+
+	expect(generationCalls).toHaveLength(1);
+	expect(JSON.parse(generationCalls[0].existingQuery)).toEqual({
+		version: 1,
+		type: "find",
+		database: "app",
+		collection: "users",
+		filter: {},
+		projection: {},
+		sort: {},
+		limit: 100,
+	});
+	expect(result.current.state.draft.status).toBe("ready");
+});
