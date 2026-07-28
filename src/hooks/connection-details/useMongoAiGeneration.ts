@@ -6,12 +6,57 @@ import {
 	queryAiStateReducer,
 } from "../../lib/aiDraftState";
 import { isAiGenerationCancellation } from "../../lib/aiGenerationSession";
+import { api } from "../../lib/tauri";
 import {
 	buildMongoQuerySpec,
 	parseMongoQuerySpec,
 	serializeMongoQuerySpec,
 } from "../../lib/mongo/querySpec";
 import type { MongoWorkbenchController } from "./useMongoWorkbench";
+
+const MAX_MONGO_FIELD_HINTS = 80;
+const MAX_MONGO_DOCUMENT_SAMPLES = 20;
+
+function mongoFieldType(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value === "object" ? "object" : typeof value;
+}
+
+function inferMongoColumns(documents: Array<Record<string, unknown>>) {
+	const sample = documents.slice(0, MAX_MONGO_DOCUMENT_SAMPLES);
+	const fields = new Map<
+		string,
+		{ types: Set<string>; presentCount: number; nullable: boolean }
+	>();
+
+	for (const document of sample) {
+		for (const [name, value] of Object.entries(document)) {
+			const field = fields.get(name) ?? {
+				types: new Set<string>(),
+				presentCount: 0,
+				nullable: false,
+			};
+			field.presentCount += 1;
+			field.nullable ||= value === null;
+			if (value !== null) field.types.add(mongoFieldType(value));
+			fields.set(name, field);
+		}
+	}
+
+	return [...fields.entries()].slice(0, MAX_MONGO_FIELD_HINTS).map(
+		([name, field]) => ({
+			name,
+			type:
+				field.types.size === 0
+					? "unknown"
+					: field.types.size === 1
+						? [...field.types][0]
+						: "mixed",
+			nullable: field.nullable || field.presentCount < sample.length,
+		}),
+	);
+}
 
 export function useMongoAiGeneration(
 	connectionUuid: string,
@@ -45,16 +90,44 @@ export function useMongoAiGeneration(
 			}
 			let accumulated = "";
 			let completed = "";
+			let sampleDocuments = workbench.result?.documents ?? [];
+			if (
+				sampleDocuments.length === 0 &&
+				workbench.namespace.database &&
+				workbench.namespace.collection
+			) {
+				try {
+					const sample = await api.mongo.find(connectionUuid, {
+						...workbench.namespace,
+						filter: {},
+						projection: {},
+						sort: {},
+						limit: MAX_MONGO_DOCUMENT_SAMPLES,
+					});
+					sampleDocuments = sample.documents;
+				} catch {
+					sampleDocuments = [];
+				}
+			}
+			const observedColumns = inferMongoColumns(sampleDocuments);
 			await generation.generateSQL(
 				requestKey,
 				"mongodb",
 				state.instruction,
 				existingQuery,
 				workbench.catalog.flatMap((database) =>
-					database.collections.map((collection) => ({
-						schema: database.name,
-						name: collection.name,
-					})),
+					database.collections.map((collection) => {
+						const selected =
+							database.name === workbench.namespace.database &&
+							collection.name === workbench.namespace.collection;
+						return {
+							schema: database.name,
+							name: collection.name,
+							...(selected && observedColumns.length > 0
+								? { columns: observedColumns }
+								: {}),
+						};
+					}),
 				),
 				(chunk) => {
 					accumulated += chunk;
