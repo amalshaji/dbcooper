@@ -46,6 +46,7 @@ export function MongoJsonEditor({
 				".cm-scroller, .cm-content": {
 					fontFamily: "'Google Sans Code Variable', monospace",
 				},
+				".cm-scroller": { overflowY: "auto" },
 				".cm-content": { padding: "8px 0" },
 				".cm-line": { padding: "0 10px" },
 				".cm-gutters": { border: "none", backgroundColor: "transparent" },
@@ -62,6 +63,7 @@ export function MongoJsonEditor({
 			)}
 		>
 			<CodeMirror
+				className={height === "100%" ? "h-full min-h-0" : undefined}
 				value={value}
 				height={height}
 				width="100%"
