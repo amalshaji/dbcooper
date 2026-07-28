@@ -30,6 +30,7 @@ import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { MongodbIcon } from "@/components/icons/mongodb";
 import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
+import { MongoConnectionFields } from "@/components/connections/MongoConnectionFields";
 import { mergeD1ConnectionFields } from "@/lib/connectionFormState";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
@@ -191,6 +192,8 @@ export function ConnectionForm({
 
 	const isEditMode = !!initialData;
 	const usesFile = isFileDatabase(formData.type);
+	const usesServerFields =
+		!usesFile && formData.type !== "d1" && formData.type !== "mongodb";
 	const isBusy = isSubmitting || isTesting;
 
 	useEffect(() => {
@@ -205,24 +208,24 @@ export function ConnectionForm({
 							connection_uri: initialData.connection_uri,
 						}
 					: {
-				type: initialData.type || "postgres",
-				name: initialData.name,
-				host: initialData.host,
-				port: initialData.port,
-				database: initialData.database,
-				username: initialData.username,
-				password: initialData.password,
-				ssl: initialData.ssl === 1,
-				db_type: initialData.db_type || "postgres",
-				file_path: initialData.file_path || undefined,
-				ssh_enabled: initialData.ssh_enabled === 1,
-				ssh_host: initialData.ssh_host || "",
-				ssh_port: initialData.ssh_port || 22,
-				ssh_user: initialData.ssh_user || "",
-				ssh_password: initialData.ssh_password || "",
-				ssh_key_path: initialData.ssh_key_path || "",
-				ssh_use_key: initialData.ssh_use_key === 1,
-					},
+							type: initialData.type || "postgres",
+							name: initialData.name,
+							host: initialData.host,
+							port: initialData.port,
+							database: initialData.database,
+							username: initialData.username,
+							password: initialData.password,
+							ssl: initialData.ssl === 1,
+							db_type: initialData.db_type || "postgres",
+							file_path: initialData.file_path || undefined,
+							ssh_enabled: initialData.ssh_enabled === 1,
+							ssh_host: initialData.ssh_host || "",
+							ssh_port: initialData.ssh_port || 22,
+							ssh_user: initialData.ssh_user || "",
+							ssh_password: initialData.ssh_password || "",
+							ssh_key_path: initialData.ssh_key_path || "",
+							ssh_use_key: initialData.ssh_use_key === 1,
+						},
 			);
 		} else {
 			setFormData(defaultFormData);
@@ -483,373 +486,341 @@ export function ConnectionForm({
 						)}
 
 						{formData.type === "mongodb" && (
-							<Field>
-								<FieldLabel htmlFor="connection-uri">Connection URI</FieldLabel>
-								<div className="relative">
-									<Input
-										id="connection-uri"
-										type={showPassword ? "text" : "password"}
-										required
-										maxLength={8192}
-										value={formData.connection_uri || ""}
-										onChange={(event) =>
-											setFormData({
-												...formData,
-												connection_uri: event.target.value,
-											})
-										}
-										placeholder="mongodb+srv://user:password@cluster.example.com/app"
-										className="pr-10 font-mono text-xs"
-									/>
-									<button
-										type="button"
-										onClick={() => setShowPassword(!showPassword)}
-										className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-										aria-label={
-											showPassword
-												? "Hide connection URI"
-												: "Show connection URI"
-										}
-									>
-										{showPassword ? (
-											<EyeSlash className="w-3 h-3" />
-										) : (
-											<Eye className="w-3 h-3" />
-										)}
-									</button>
-								</div>
-							</Field>
+							<MongoConnectionFields
+								connectionUri={formData.connection_uri || ""}
+								onChange={(connectionUri) =>
+									setFormData({ ...formData, connection_uri: connectionUri })
+								}
+							/>
 						)}
 
 						{/* Postgres/Server-based connection fields */}
-						{!usesFile &&
-							formData.type !== "d1" &&
-							formData.type !== "mongodb" && (
-								<>
-									<div className="grid grid-cols-2 gap-4">
-										<Field>
-											<FieldLabel htmlFor="connection-host">Host</FieldLabel>
-											<Input
-												id="connection-host"
-												type="text"
-												required
-												value={formData.host}
-												onChange={(e) =>
-													setFormData({ ...formData, host: e.target.value })
-												}
-											/>
-										</Field>
-
-										<Field>
-											<FieldLabel htmlFor="connection-port">Port</FieldLabel>
-											<Input
-												id="connection-port"
-												type="number"
-												required
-												value={formData.port}
-												onChange={(e) =>
-													setFormData({
-														...formData,
-														port: Number(e.target.value),
-													})
-												}
-											/>
-										</Field>
-									</div>
-
-									{/* Redis uses database index, not database name */}
-									{formData.type === "redis" ? (
-										<Field>
-											<FieldLabel htmlFor="connection-database">
-												Database Index (0-15)
-											</FieldLabel>
-											<Input
-												id="connection-database"
-												type="number"
-												min="0"
-												max="15"
-												value={formData.database}
-												onChange={(e) =>
-													setFormData({ ...formData, database: e.target.value })
-												}
-												placeholder="0"
-											/>
-										</Field>
-									) : (
-										<Field>
-											<FieldLabel htmlFor="connection-database">
-												Database
-											</FieldLabel>
-											<Input
-												id="connection-database"
-												type="text"
-												required
-												value={formData.database}
-												onChange={(e) =>
-													setFormData({ ...formData, database: e.target.value })
-												}
-												placeholder="my_database"
-											/>
-										</Field>
-									)}
+						{usesServerFields && (
+							<>
+								<div className="grid grid-cols-2 gap-4">
+									<Field>
+										<FieldLabel htmlFor="connection-host">Host</FieldLabel>
+										<Input
+											id="connection-host"
+											type="text"
+											required
+											value={formData.host}
+											onChange={(e) =>
+												setFormData({ ...formData, host: e.target.value })
+											}
+										/>
+									</Field>
 
 									<Field>
-										<FieldLabel htmlFor="connection-username">
-											{formData.type === "redis"
-												? "Username (Optional)"
-												: "Username"}
+										<FieldLabel htmlFor="connection-port">Port</FieldLabel>
+										<Input
+											id="connection-port"
+											type="number"
+											required
+											value={formData.port}
+											onChange={(e) =>
+												setFormData({
+													...formData,
+													port: Number(e.target.value),
+												})
+											}
+										/>
+									</Field>
+								</div>
+
+								{/* Redis uses database index, not database name */}
+								{formData.type === "redis" ? (
+									<Field>
+										<FieldLabel htmlFor="connection-database">
+											Database Index (0-15)
 										</FieldLabel>
 										<Input
-											id="connection-username"
-											type="text"
-											required={formData.type !== "redis"}
-											value={formData.username}
+											id="connection-database"
+											type="number"
+											min="0"
+											max="15"
+											value={formData.database}
 											onChange={(e) =>
-												setFormData({ ...formData, username: e.target.value })
+												setFormData({ ...formData, database: e.target.value })
 											}
-											placeholder={
-												formData.type === "redis"
-													? "default"
-													: formData.type === "mysql" ||
-															formData.type === "mariadb"
-														? "root"
-														: "postgres"
-											}
+											placeholder="0"
 										/>
 									</Field>
-
+								) : (
 									<Field>
-										<FieldLabel htmlFor="connection-password">
-											{formData.type === "redis"
-												? "Password (Optional)"
-												: "Password"}
+										<FieldLabel htmlFor="connection-database">
+											Database
 										</FieldLabel>
-										<div className="relative">
-											<Input
-												id="connection-password"
-												type={showPassword ? "text" : "password"}
-												value={formData.password}
-												onChange={(e) =>
-													setFormData({ ...formData, password: e.target.value })
-												}
-												className="pr-10"
-											/>
-											<button
-												type="button"
-												onClick={() => setShowPassword(!showPassword)}
-												className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-											>
-												{showPassword ? (
-													<EyeSlash className="w-3 h-3" />
-												) : (
-													<Eye className="w-3 h-3" />
-												)}
-											</button>
-										</div>
+										<Input
+											id="connection-database"
+											type="text"
+											required
+											value={formData.database}
+											onChange={(e) =>
+												setFormData({ ...formData, database: e.target.value })
+											}
+											placeholder="my_database"
+										/>
 									</Field>
+								)}
 
-									{/* SSL/TLS toggle - available for all server-based DBs */}
+								<Field>
+									<FieldLabel htmlFor="connection-username">
+										{formData.type === "redis"
+											? "Username (Optional)"
+											: "Username"}
+									</FieldLabel>
+									<Input
+										id="connection-username"
+										type="text"
+										required={formData.type !== "redis"}
+										value={formData.username}
+										onChange={(e) =>
+											setFormData({ ...formData, username: e.target.value })
+										}
+										placeholder={
+											formData.type === "redis"
+												? "default"
+												: formData.type === "mysql" ||
+														formData.type === "mariadb"
+													? "root"
+													: "postgres"
+										}
+									/>
+								</Field>
+
+								<Field>
+									<FieldLabel htmlFor="connection-password">
+										{formData.type === "redis"
+											? "Password (Optional)"
+											: "Password"}
+									</FieldLabel>
+									<div className="relative">
+										<Input
+											id="connection-password"
+											type={showPassword ? "text" : "password"}
+											value={formData.password}
+											onChange={(e) =>
+												setFormData({ ...formData, password: e.target.value })
+											}
+											className="pr-10"
+										/>
+										<button
+											type="button"
+											onClick={() => setShowPassword(!showPassword)}
+											className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+										>
+											{showPassword ? (
+												<EyeSlash className="w-3 h-3" />
+											) : (
+												<Eye className="w-3 h-3" />
+											)}
+										</button>
+									</div>
+								</Field>
+
+								{/* SSL/TLS toggle - available for all server-based DBs */}
+								<Field orientation="horizontal">
+									<Switch
+										id="connection-ssl"
+										size="sm"
+										checked={formData.ssl}
+										onCheckedChange={(checked) =>
+											setFormData({ ...formData, ssl: checked })
+										}
+									/>
+									<FieldLabel htmlFor="connection-ssl">
+										{formData.type === "redis" ? "Use TLS" : "Use SSL"}
+									</FieldLabel>
+								</Field>
+
+								{/* SSH Tunnel Section */}
+								<div className="border-t pt-4 mt-2">
 									<Field orientation="horizontal">
 										<Switch
-											id="connection-ssl"
+											id="connection-ssh-enabled"
 											size="sm"
-											checked={formData.ssl}
+											checked={formData.ssh_enabled}
 											onCheckedChange={(checked) =>
-												setFormData({ ...formData, ssl: checked })
+												setFormData({
+													...formData,
+													ssh_enabled: checked,
+												})
 											}
 										/>
-										<FieldLabel htmlFor="connection-ssl">
-											{formData.type === "redis" ? "Use TLS" : "Use SSL"}
+										<FieldLabel htmlFor="connection-ssh-enabled">
+											Connect over SSH
 										</FieldLabel>
 									</Field>
 
-									{/* SSH Tunnel Section */}
-									<div className="border-t pt-4 mt-2">
-										<Field orientation="horizontal">
-											<Switch
-												id="connection-ssh-enabled"
-												size="sm"
-												checked={formData.ssh_enabled}
-												onCheckedChange={(checked) =>
-													setFormData({
-														...formData,
-														ssh_enabled: checked,
-													})
-												}
-											/>
-											<FieldLabel htmlFor="connection-ssh-enabled">
-												Connect over SSH
-											</FieldLabel>
-										</Field>
-
-										{formData.ssh_enabled && (
-											<div className="mt-4 space-y-4 pl-6 border-l-2 border-muted">
-												<div className="grid grid-cols-2 gap-4">
-													<Field>
-														<FieldLabel htmlFor="ssh-host">SSH Host</FieldLabel>
-														<Input
-															id="ssh-host"
-															type="text"
-															value={formData.ssh_host}
-															onChange={(e) =>
-																setFormData({
-																	...formData,
-																	ssh_host: e.target.value,
-																})
-															}
-															placeholder="jump-server.example.com"
-														/>
-													</Field>
-
-													<Field>
-														<FieldLabel htmlFor="ssh-port">SSH Port</FieldLabel>
-														<Input
-															id="ssh-port"
-															type="number"
-															value={formData.ssh_port}
-															onChange={(e) =>
-																setFormData({
-																	...formData,
-																	ssh_port: Number(e.target.value),
-																})
-															}
-														/>
-													</Field>
-												</div>
-
+									{formData.ssh_enabled && (
+										<div className="mt-4 space-y-4 pl-6 border-l-2 border-muted">
+											<div className="grid grid-cols-2 gap-4">
 												<Field>
-													<FieldLabel htmlFor="ssh-user">SSH User</FieldLabel>
+													<FieldLabel htmlFor="ssh-host">SSH Host</FieldLabel>
 													<Input
-														id="ssh-user"
+														id="ssh-host"
 														type="text"
-														value={formData.ssh_user}
+														value={formData.ssh_host}
 														onChange={(e) =>
 															setFormData({
 																...formData,
-																ssh_user: e.target.value,
+																ssh_host: e.target.value,
 															})
 														}
-														placeholder="ubuntu"
+														placeholder="jump-server.example.com"
 													/>
 												</Field>
 
-												<Field orientation="horizontal">
-													<Switch
-														id="ssh-use-key"
-														size="sm"
-														checked={formData.ssh_use_key}
-														onCheckedChange={(checked) =>
+												<Field>
+													<FieldLabel htmlFor="ssh-port">SSH Port</FieldLabel>
+													<Input
+														id="ssh-port"
+														type="number"
+														value={formData.ssh_port}
+														onChange={(e) =>
 															setFormData({
 																...formData,
-																ssh_use_key: checked,
-																ssh_password: "",
+																ssh_port: Number(e.target.value),
 															})
 														}
 													/>
-													<FieldLabel htmlFor="ssh-use-key">
-														Use SSH Key
-													</FieldLabel>
 												</Field>
+											</div>
 
-												{formData.ssh_use_key ? (
-													<>
-														<Field>
-															<FieldLabel htmlFor="ssh-key-path">
-																SSH Key Path
-															</FieldLabel>
-															<div className="flex gap-2">
-																<Input
-																	id="ssh-key-path"
-																	type="text"
-																	value={formData.ssh_key_path}
-																	onChange={(e) =>
+											<Field>
+												<FieldLabel htmlFor="ssh-user">SSH User</FieldLabel>
+												<Input
+													id="ssh-user"
+													type="text"
+													value={formData.ssh_user}
+													onChange={(e) =>
+														setFormData({
+															...formData,
+															ssh_user: e.target.value,
+														})
+													}
+													placeholder="ubuntu"
+												/>
+											</Field>
+
+											<Field orientation="horizontal">
+												<Switch
+													id="ssh-use-key"
+													size="sm"
+													checked={formData.ssh_use_key}
+													onCheckedChange={(checked) =>
+														setFormData({
+															...formData,
+															ssh_use_key: checked,
+															ssh_password: "",
+														})
+													}
+												/>
+												<FieldLabel htmlFor="ssh-use-key">
+													Use SSH Key
+												</FieldLabel>
+											</Field>
+
+											{formData.ssh_use_key ? (
+												<>
+													<Field>
+														<FieldLabel htmlFor="ssh-key-path">
+															SSH Key Path
+														</FieldLabel>
+														<div className="flex gap-2">
+															<Input
+																id="ssh-key-path"
+																type="text"
+																value={formData.ssh_key_path}
+																onChange={(e) =>
+																	setFormData({
+																		...formData,
+																		ssh_key_path: e.target.value,
+																	})
+																}
+																placeholder="~/.ssh/id_rsa"
+																className="flex-1"
+															/>
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																onClick={async () => {
+																	const selected = await open({
+																		multiple: false,
+																		directory: false,
+																		title: "Select SSH Key",
+																	});
+																	if (selected) {
 																		setFormData({
 																			...formData,
-																			ssh_key_path: e.target.value,
-																		})
-																	}
-																	placeholder="~/.ssh/id_rsa"
-																	className="flex-1"
-																/>
-																<Button
-																	type="button"
-																	variant="outline"
-																	size="sm"
-																	onClick={async () => {
-																		const selected = await open({
-																			multiple: false,
-																			directory: false,
-																			title: "Select SSH Key",
+																			ssh_key_path: selected as string,
 																		});
-																		if (selected) {
-																			setFormData({
-																				...formData,
-																				ssh_key_path: selected as string,
-																			});
-																		}
-																	}}
-																>
-																	Browse
-																</Button>
-															</div>
-														</Field>
-														<Field>
-															<FieldLabel htmlFor="ssh-key-passphrase">
-																SSH Key Passphrase
-															</FieldLabel>
-															<Input
-																id="ssh-key-passphrase"
-																type="password"
-																value={formData.ssh_password}
-																onChange={(e) =>
-																	setFormData({
-																		...formData,
-																		ssh_password: e.target.value,
-																	})
-																}
-																placeholder="Optional for encrypted keys"
-															/>
-														</Field>
-													</>
-												) : (
-													<Field>
-														<FieldLabel htmlFor="ssh-password">
-															SSH Password
-														</FieldLabel>
-														<div className="relative">
-															<Input
-																id="ssh-password"
-																type={showSshPassword ? "text" : "password"}
-																value={formData.ssh_password}
-																onChange={(e) =>
-																	setFormData({
-																		...formData,
-																		ssh_password: e.target.value,
-																	})
-																}
-																className="pr-10"
-															/>
-															<button
-																type="button"
-																onClick={() =>
-																	setShowSshPassword(!showSshPassword)
-																}
-																className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+																	}
+																}}
 															>
-																{showSshPassword ? (
-																	<EyeSlash className="w-3 h-3" />
-																) : (
-																	<Eye className="w-3 h-3" />
-																)}
-															</button>
+																Browse
+															</Button>
 														</div>
 													</Field>
-												)}
-											</div>
-										)}
-									</div>
-								</>
-							)}
+													<Field>
+														<FieldLabel htmlFor="ssh-key-passphrase">
+															SSH Key Passphrase
+														</FieldLabel>
+														<Input
+															id="ssh-key-passphrase"
+															type="password"
+															value={formData.ssh_password}
+															onChange={(e) =>
+																setFormData({
+																	...formData,
+																	ssh_password: e.target.value,
+																})
+															}
+															placeholder="Optional for encrypted keys"
+														/>
+													</Field>
+												</>
+											) : (
+												<Field>
+													<FieldLabel htmlFor="ssh-password">
+														SSH Password
+													</FieldLabel>
+													<div className="relative">
+														<Input
+															id="ssh-password"
+															type={showSshPassword ? "text" : "password"}
+															value={formData.ssh_password}
+															onChange={(e) =>
+																setFormData({
+																	...formData,
+																	ssh_password: e.target.value,
+																})
+															}
+															className="pr-10"
+														/>
+														<button
+															type="button"
+															onClick={() =>
+																setShowSshPassword(!showSshPassword)
+															}
+															className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+														>
+															{showSshPassword ? (
+																<EyeSlash className="w-3 h-3" />
+															) : (
+																<Eye className="w-3 h-3" />
+															)}
+														</button>
+													</div>
+												</Field>
+											)}
+										</div>
+									)}
+								</div>
+							</>
+						)}
 					</FieldGroup>
 					{formData.type === "duckdb" && duckDbHelperProgress && (
 						<div className="mt-4">
