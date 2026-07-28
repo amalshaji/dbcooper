@@ -258,6 +258,7 @@ test("keeps supporting query actions beside Run query inside the editor frame", 
 	);
 
 	const editorFrame = screen.getByTestId("code-mirror").parentElement;
+	expect(editorFrame?.firstElementChild?.className).toContain("font-sans");
 	expect(
 		editorFrame?.contains(screen.getByRole("button", { name: "Beautify" })),
 	).toBe(true);

@@ -284,7 +284,7 @@ export function SqlEditor({
 					style={onRunQuery ? { height } : undefined}
 				>
 					<div
-						className={`z-10 flex gap-1 ${
+						className={`z-10 flex gap-1 font-sans ${
 							onRunQuery
 								? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
 								: "absolute top-2 right-2"
