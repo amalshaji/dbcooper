@@ -112,28 +112,18 @@ pub(crate) async fn update_runtime_identity(
     .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn update_connection_port(
+pub(crate) async fn update_connection_endpoint(
     pool: &SqlitePool,
     uuid: &str,
     port: i64,
-) -> Result<(), String> {
-    sqlx::query("UPDATE connections SET port = ?, updated_at = datetime('now') WHERE uuid = ?")
-        .bind(port)
-        .bind(uuid)
-        .execute(pool)
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-pub(crate) async fn update_connection_uri(
-    pool: &SqlitePool,
-    uuid: &str,
-    connection_uri: &str,
+    connection_uri: Option<&str>,
 ) -> Result<(), String> {
     sqlx::query(
-        "UPDATE connections SET connection_uri = ?, updated_at = datetime('now') WHERE uuid = ?",
+        "UPDATE connections
+         SET port = ?, connection_uri = COALESCE(?, connection_uri), updated_at = datetime('now')
+         WHERE uuid = ?",
     )
+    .bind(port)
     .bind(connection_uri)
     .bind(uuid)
     .execute(pool)
@@ -251,5 +241,29 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(stored, "unsupported");
+    }
+
+    #[tokio::test]
+    async fn updates_runtime_port_and_uri_together() {
+        let pool = test_pool().await;
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Mongodb);
+        let data = plan.connection_data("Local MongoDB", 27017);
+        let link = plan.link("desktop-linux".to_string(), "container".to_string());
+        insert_connection_with_link(&pool, &plan.uuid, &data, &link)
+            .await
+            .unwrap();
+
+        let uri = "mongodb://127.0.0.1:27018/dbcooper";
+        update_connection_endpoint(&pool, &plan.uuid, 27018, Some(uri))
+            .await
+            .unwrap();
+
+        let endpoint: (i64, Option<String>) =
+            sqlx::query_as("SELECT port, connection_uri FROM connections WHERE uuid = ?")
+                .bind(&plan.uuid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(endpoint, (27018, Some(uri.to_string())));
     }
 }

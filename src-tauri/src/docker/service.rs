@@ -420,9 +420,6 @@ pub async fn ensure_created_connection_running(
         cli::short(&["start", &container.id]).await?;
         container.inspect = cli::inspect(&container.id).await?;
     }
-    if let Some(port) = container.inspect.host_port(link.internal_port) {
-        store::update_connection_port(pool, uuid, port).await?;
-    }
     let connection: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
         .bind(uuid)
         .fetch_one(pool)
@@ -430,17 +427,21 @@ pub async fn ensure_created_connection_running(
         .map_err(|error| error.to_string())?;
     let engine = DockerDatabaseEngine::from_db_type(&connection.db_type)
         .ok_or_else(|| "Unsupported managed database type".to_string())?;
-    if engine == DockerDatabaseEngine::Mongodb {
-        let uri = connection_string(
+    let port = container
+        .inspect
+        .host_port(link.internal_port)
+        .unwrap_or(connection.port);
+    let connection_uri = (engine == DockerDatabaseEngine::Mongodb).then(|| {
+        connection_string(
             engine,
             &connection.host,
             &connection.username,
             &connection.password,
-            connection.port,
+            port,
             &connection.database,
-        );
-        store::update_connection_uri(pool, uuid, &uri).await?;
-    }
+        )
+    });
+    store::update_connection_endpoint(pool, uuid, port, connection_uri.as_deref()).await?;
     cli::wait_until_ready(
         &container.id,
         engine,
