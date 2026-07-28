@@ -1,4 +1,11 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { ClockCounterClockwise, Code, Table } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -36,6 +43,7 @@ import {
 	type DispatchTabPatch,
 	type UpdateTab,
 } from "@/lib/connection-details/tabState";
+import { TabRequestController } from "@/lib/connection-details/tabRequestController";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
 import { api, type TableInfo } from "@/lib/tauri";
 import type { SqlConnection } from "@/types/connection";
@@ -84,9 +92,17 @@ export function SqlConnectionWorkspace({
 	const [tabs, setTabs] = useState<Tab[]>([]);
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+	const requestController = useMemo(() => new TabRequestController(), []);
+
+	useEffect(() => {
+		requestController.reset();
+		return () => requestController.reset();
+	}, [connection.uuid, requestController]);
+
 	const queryRecords = useConnectionQueryRecords({
 		uuid: connection.uuid,
 		activePanel: sidebarTab,
+		requestController,
 	});
 	const tables = lifecycle.schema.tables;
 	const tableColumns = lifecycle.schema.tableColumns;
@@ -145,6 +161,7 @@ export function SqlConnectionWorkspace({
 		connection,
 		activeTab: activeTableDataTab,
 		updateTableDataTab,
+		requestController,
 	});
 	const tabActions = useConnectionTabActions({
 		uuid: connection.uuid,
@@ -156,6 +173,7 @@ export function SqlConnectionWorkspace({
 		patchTab,
 		fetchTableData: tableDataController.fetchTableData,
 		cancelTabGeneration,
+		requestController,
 	});
 	const queryController = useQueryWorkspaceController({
 		connection,
@@ -166,6 +184,7 @@ export function SqlConnectionWorkspace({
 		onSavedQueryDeleted: queryRecords.savedQueries.remove,
 		recordHistory: queryRecords.history.record,
 		handleOpenQuery: tabActions.handleOpenQuery,
+		requestController,
 	});
 	const handleClearFilter = useCallback(() => {
 		if (activeTableDataTab) {

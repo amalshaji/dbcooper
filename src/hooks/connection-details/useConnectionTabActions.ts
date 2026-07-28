@@ -3,6 +3,7 @@ import { createCellFilter } from "@/lib/resultFilters";
 import { normalizeColumnLayout } from "@/lib/savedViews";
 import { api } from "@/lib/tauri";
 import type { DispatchTabPatch } from "@/lib/connection-details/tabState";
+import type { TabRequestController } from "@/lib/connection-details/tabRequestController";
 import { useNativeCloseListener } from "./useNativeCloseListener";
 import {
 	createFunctionDefinitionTab,
@@ -30,6 +31,7 @@ export interface UseConnectionTabActionsOptions {
 	patchTab: DispatchTabPatch;
 	fetchTableData: (tab: TableDataTab) => Promise<void>;
 	cancelTabGeneration: (tabId: string) => void;
+	requestController: TabRequestController;
 }
 
 export function useConnectionTabActions({
@@ -42,6 +44,7 @@ export function useConnectionTabActions({
 	patchTab,
 	fetchTableData,
 	cancelTabGeneration,
+	requestController,
 }: UseConnectionTabActionsOptions) {
 	const fetchTableStructure = useCallback(
 		async (tab: TableStructureTab) => {
@@ -318,6 +321,7 @@ export function useConnectionTabActions({
 	const handleCloseTab = useCallback(
 		(tabId: string) => {
 			cancelTabGeneration(tabId);
+			requestController.invalidateTab(tabId);
 			setTabs((previous) => {
 				const newTabs = previous.filter((tab) => tab.id !== tabId);
 
@@ -332,7 +336,13 @@ export function useConnectionTabActions({
 				return newTabs;
 			});
 		},
-		[activeTabId, cancelTabGeneration, setTabs, setActiveTabId],
+		[
+			activeTabId,
+			cancelTabGeneration,
+			requestController,
+			setTabs,
+			setActiveTabId,
+		],
 	);
 
 	const handleTabSelect = useCallback(

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { useCallback, useState } from "react";
 import type { SavedQuery } from "../../lib/tauri";
+import { TabRequestController } from "../../lib/connection-details/tabRequestController";
 import type { SqlConnection } from "../../types/connection";
 import type { QueryTab, Tab } from "../../types/tabTypes";
 
@@ -26,6 +27,7 @@ function deferred<T>() {
 
 let executeQueryResult = deferred<QueryResult>();
 let createQueryResult = deferred<SavedQuery>();
+let executeQueryCalls = 0;
 
 mock.module("sonner", () => ({
 	toast: {
@@ -38,7 +40,10 @@ mock.module("sonner", () => ({
 mock.module("../../lib/tauri", () => ({
 	api: {
 		pool: {
-			executeQuery: () => executeQueryResult.promise,
+			executeQuery: () => {
+				executeQueryCalls += 1;
+				return executeQueryResult.promise;
+			},
 		},
 		queries: {
 			create: () => createQueryResult.promise,
@@ -59,6 +64,7 @@ const { useQueryWorkspaceController } = await import(
 beforeEach(() => {
 	executeQueryResult = deferred<QueryResult>();
 	createQueryResult = deferred<SavedQuery>();
+	executeQueryCalls = 0;
 });
 
 afterEach(cleanup);
@@ -109,9 +115,10 @@ const connection: SqlConnection = {
 	updated_at: "2026-07-27 00:00:00",
 };
 
-function renderController() {
-	const first = queryTab("query-1", "SELECT 1");
+function renderController(firstQuery = "SELECT 1") {
+	const first = queryTab("query-1", firstQuery);
 	const second = queryTab("query-2", "SELECT 2");
+	const requestController = new TabRequestController();
 	return renderHook(() => {
 		const [tabs, setTabs] = useState<Tab[]>([first, second]);
 		const [activeTabId, setActiveTabId] = useState(first.id);
@@ -146,6 +153,7 @@ function renderController() {
 				),
 			recordHistory: () => {},
 			handleOpenQuery: () => {},
+			requestController,
 		});
 		return {
 			tabs,
@@ -187,6 +195,101 @@ test("finishes a query on its originating tab after the user switches tabs", asy
 	expect(result.current.tabs[1]).toMatchObject({
 		id: "query-2",
 		results: null,
+	});
+});
+
+test("keeps the newest query result when requests finish out of order", async () => {
+	const { result } = renderController();
+	const olderResult = deferred<QueryResult>();
+	const newerResult = deferred<QueryResult>();
+
+	executeQueryResult = olderResult;
+	let olderExecution: Promise<void> | undefined;
+	act(() => {
+		olderExecution = result.current.controller.commands.runQuery();
+	});
+
+	executeQueryResult = newerResult;
+	let newerExecution: Promise<void> | undefined;
+	act(() => {
+		newerExecution = result.current.controller.commands.runQuery();
+	});
+
+	await act(async () => {
+		newerResult.resolve({
+			data: [{ value: "newer" }],
+			error: null,
+			time_taken_ms: 2,
+			rows_affected: null,
+			row_count: 1,
+			truncated: false,
+		});
+		await newerExecution;
+	});
+	await act(async () => {
+		olderResult.resolve({
+			data: [{ value: "older" }],
+			error: null,
+			time_taken_ms: 8,
+			rows_affected: null,
+			row_count: 1,
+			truncated: false,
+		});
+		await olderExecution;
+	});
+
+	expect(result.current.tabs[0]).toMatchObject({
+		id: "query-1",
+		results: [{ value: "newer" }],
+		executionTime: 2,
+		executing: false,
+	});
+});
+
+test("stops run-all before another statement after a newer query starts", async () => {
+	const { result } = renderController("SELECT 1; SELECT 2;");
+	const batchResult = deferred<QueryResult>();
+	const newerResult = deferred<QueryResult>();
+
+	executeQueryResult = batchResult;
+	let batchExecution: Promise<void> | undefined;
+	act(() => {
+		batchExecution = result.current.controller.workspace.runAllQueries();
+	});
+
+	executeQueryResult = newerResult;
+	let newerExecution: Promise<void> | undefined;
+	act(() => {
+		newerExecution = result.current.controller.commands.runQuery();
+	});
+
+	await act(async () => {
+		batchResult.resolve({
+			data: [{ value: "batch" }],
+			error: null,
+			time_taken_ms: 3,
+			rows_affected: null,
+			row_count: 1,
+			truncated: false,
+		});
+		await batchExecution;
+	});
+	await act(async () => {
+		newerResult.resolve({
+			data: [{ value: "newer" }],
+			error: null,
+			time_taken_ms: 1,
+			rows_affected: null,
+			row_count: 1,
+			truncated: false,
+		});
+		await newerExecution;
+	});
+
+	expect(executeQueryCalls).toBe(2);
+	expect(result.current.tabs[0]).toMatchObject({
+		results: [{ value: "newer" }],
+		executing: false,
 	});
 });
 

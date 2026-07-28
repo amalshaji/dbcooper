@@ -8,6 +8,7 @@ import {
 	stripTrailingSemicolon,
 } from "../../lib/connection-details/queryTableState";
 import type { UpdateTab } from "../../lib/connection-details/tabState";
+import type { TabRequestController } from "../../lib/connection-details/tabRequestController";
 import {
 	getStatementAtCursor,
 	parseStatements as parseSqlStatements,
@@ -24,6 +25,7 @@ interface UseQueryWorkspaceControllerOptions {
 	onSavedQueryUpdated: (query: SavedQuery) => void;
 	onSavedQueryDeleted: (id: number) => void;
 	recordHistory: (query: string, options: HistoryRecordOptions) => void;
+	requestController: TabRequestController;
 	handleOpenQuery: (
 		query: string,
 		savedQueryId?: number | null,
@@ -39,6 +41,7 @@ export function useQueryWorkspaceController({
 	onSavedQueryUpdated,
 	onSavedQueryDeleted,
 	recordHistory,
+	requestController,
 	handleOpenQuery,
 }: UseQueryWorkspaceControllerOptions) {
 	const [saveQueryName, setSaveQueryName] = useState("");
@@ -58,11 +61,14 @@ export function useQueryWorkspaceController({
 
 	const runQueryResultViewQuery = useCallback(
 		async (tab: QueryTab, nextFilter: string, nextSort: SortConfig | null) => {
+			const request = requestController.beginQuery(tab.id);
 			if (!tab.resultBaseQuery) {
-				updateQueryTab(tab.id, { executing: false });
-				toast.error(
-					"Query-level filter/sort is available only for SELECT-style query results",
-				);
+				request.commit(() => {
+					updateQueryTab(tab.id, { executing: false });
+					toast.error(
+						"Query-level filter/sort is available only for SELECT-style query results",
+					);
+				});
 				return;
 			}
 
@@ -81,38 +87,49 @@ export function useQueryWorkspaceController({
 				const executionTime = result.time_taken_ms ?? 0;
 
 				if (result.error) {
-					updateQueryTab(tab.id, {
-						error: result.error,
-						executionTime,
-						affectedRows: null,
-						executing: false,
-					});
+					request.commit(() =>
+						updateQueryTab(tab.id, {
+							error: result.error,
+							executionTime,
+							affectedRows: null,
+							executing: false,
+						}),
+					);
 					return;
 				}
 
-				updateQueryTab(tab.id, {
-					results: result.data as Record<string, unknown>[],
-					success: true,
-					error: null,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-					filter: nextFilter,
-					sort: nextSort,
-				});
+				request.commit(() =>
+					updateQueryTab(tab.id, {
+						results: result.data as Record<string, unknown>[],
+						success: true,
+						error: null,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+						filter: nextFilter,
+						sort: nextSort,
+					}),
+				);
 			} catch (error) {
-				updateQueryTab(tab.id, {
-					error:
-						error instanceof Error
-							? error.message
-							: "Failed to apply query filter/sort",
-					executionTime: null,
-					affectedRows: null,
-					executing: false,
-				});
+				request.commit(() =>
+					updateQueryTab(tab.id, {
+						error:
+							error instanceof Error
+								? error.message
+								: "Failed to apply query filter/sort",
+						executionTime: null,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 			}
 		},
-		[updateQueryTab, connection.uuid, connection.db_type],
+		[
+			updateQueryTab,
+			connection.uuid,
+			connection.db_type,
+			requestController,
+		],
 	);
 
 	const handleQueryFilterInputChange = useCallback(
@@ -178,6 +195,7 @@ export function useQueryWorkspaceController({
 			toast.error("No statement at cursor position");
 			return;
 		}
+		const request = requestController.beginQuery(activeTab.id);
 
 		updateQueryTab(activeTab.id, {
 			executing: true,
@@ -194,7 +212,7 @@ export function useQueryWorkspaceController({
 
 		try {
 			const result = await api.pool.executeQuery(connection.uuid, queryToRun);
-			if (result.truncated) {
+			if (result.truncated && request.isCurrent()) {
 				toast.warning("Result limited to 10,000 rows", {
 					description: "Refine the query to load a smaller result window.",
 				});
@@ -202,12 +220,14 @@ export function useQueryWorkspaceController({
 			const executionTime = result.time_taken_ms ?? 0;
 
 			if (result.error) {
-				updateQueryTab(activeTab.id, {
-					error: result.error,
-					executionTime,
-					affectedRows: null,
-					executing: false,
-				});
+				request.commit(() =>
+					updateQueryTab(activeTab.id, {
+						error: result.error,
+						executionTime,
+						affectedRows: null,
+						executing: false,
+					}),
+				);
 				recordHistory(queryToRun, {
 					status: "error",
 					timeTakenMs: result.time_taken_ms ?? null,
@@ -216,19 +236,21 @@ export function useQueryWorkspaceController({
 				return;
 			}
 
-			updateQueryTab(activeTab.id, {
-				results: result.data as Record<string, unknown>[],
-				success: true,
-				executionTime,
-				affectedRows: result.rows_affected ?? null,
-				executing: false,
-				filterInput: "",
-				filter: "",
-				sort: null,
-				resultBaseQuery: isWrappableQuery(queryToRun)
-					? stripTrailingSemicolon(queryToRun)
-					: null,
-			});
+			request.commit(() =>
+				updateQueryTab(activeTab.id, {
+					results: result.data as Record<string, unknown>[],
+					success: true,
+					executionTime,
+					affectedRows: result.rows_affected ?? null,
+					executing: false,
+					filterInput: "",
+					filter: "",
+					sort: null,
+					resultBaseQuery: isWrappableQuery(queryToRun)
+						? stripTrailingSemicolon(queryToRun)
+						: null,
+				}),
+			);
 			recordHistory(queryToRun, {
 				status: "success",
 				timeTakenMs: result.time_taken_ms ?? null,
@@ -238,12 +260,14 @@ export function useQueryWorkspaceController({
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Failed to execute query";
-			updateQueryTab(activeTab.id, {
-				error: message,
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
+			request.commit(() =>
+				updateQueryTab(activeTab.id, {
+					error: message,
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
 			recordHistory(queryToRun, { status: "error", error: message });
 		}
 	}, [
@@ -253,12 +277,14 @@ export function useQueryWorkspaceController({
 		cursorLine,
 		cursorChar,
 		recordHistory,
+		requestController,
 	]);
 
 	const handleRunAllQueries = useCallback(async () => {
 		if (!activeTab || !activeTab.query.trim()) return;
 		const statements = parseSqlStatements(activeTab.query);
 		if (statements.length === 0) return;
+		const request = requestController.beginQuery(activeTab.id);
 
 		updateQueryTab(activeTab.id, {
 			executing: true,
@@ -278,13 +304,16 @@ export function useQueryWorkspaceController({
 		let lastError: string | null = null;
 		let lastBaseQuery: string | null = null;
 		let lastAffectedRows: number | null = null;
+		let currentQuery: string | null = null;
 
 		try {
 			for (const statement of statements) {
+				if (!request.isCurrent()) return;
 				const queryToRun = statement.text.trim();
 				if (!queryToRun) continue;
+				currentQuery = queryToRun;
 				const result = await api.pool.executeQuery(connection.uuid, queryToRun);
-				if (result.truncated) {
+				if (result.truncated && request.isCurrent()) {
 					toast.warning("Result limited to 10,000 rows", {
 						description: "Refine the query to load a smaller result window.",
 					});
@@ -298,6 +327,7 @@ export function useQueryWorkspaceController({
 						timeTakenMs: result.time_taken_ms ?? null,
 						error: result.error,
 					});
+					if (!request.isCurrent()) return;
 					break;
 				}
 
@@ -312,39 +342,55 @@ export function useQueryWorkspaceController({
 					rowCount: result.row_count ?? null,
 					rowsAffected: result.rows_affected ?? null,
 				});
+				if (!request.isCurrent()) return;
+				currentQuery = null;
 			}
 
-			updateQueryTab(
-				activeTab.id,
-				lastError
-					? {
-							error: lastError,
-							executionTime: totalTime,
-							affectedRows: null,
-							executing: false,
-						}
-					: {
-							results: lastResult,
-							success: true,
-							executionTime: totalTime,
-							affectedRows: lastAffectedRows,
-							executing: false,
-							filterInput: "",
-							filter: "",
-							sort: null,
-							resultBaseQuery: lastBaseQuery,
-						},
+			request.commit(() =>
+				updateQueryTab(
+					activeTab.id,
+					lastError
+						? {
+								error: lastError,
+								executionTime: totalTime,
+								affectedRows: null,
+								executing: false,
+							}
+						: {
+								results: lastResult,
+								success: true,
+								executionTime: totalTime,
+								affectedRows: lastAffectedRows,
+								executing: false,
+								filterInput: "",
+								filter: "",
+								sort: null,
+								resultBaseQuery: lastBaseQuery,
+							},
+				),
 			);
 		} catch (error) {
-			updateQueryTab(activeTab.id, {
-				error:
-					error instanceof Error ? error.message : "Failed to execute queries",
-				executionTime: null,
-				affectedRows: null,
-				executing: false,
-			});
+			const message =
+				error instanceof Error ? error.message : "Failed to execute queries";
+			if (currentQuery) {
+				recordHistory(currentQuery, { status: "error", error: message });
+			}
+			request.commit(() =>
+				updateQueryTab(activeTab.id, {
+					error: message,
+					executionTime: null,
+					affectedRows: null,
+					executing: false,
+				}),
+			);
 		}
-	}, [activeTab, connection.uuid, updateQueryTab, recordHistory]);
+	}, [
+		activeTab,
+		connection.uuid,
+		updateQueryTab,
+		recordHistory,
+		requestController,
+	]);
 
 	const handleQueryChange = useCallback(
 		(query: string) => {
