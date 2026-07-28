@@ -366,7 +366,7 @@ export function MongoCollectionAdmin({
 					</Button>
 				</div>
 				<MongoJsonEditor
-					className="min-h-0 flex-1 rounded-none border-0"
+					className="h-0 min-h-0 flex-1 rounded-none border-0"
 					value={validatorText}
 					height="100%"
 					onChange={setValidatorText}
