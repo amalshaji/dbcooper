@@ -75,4 +75,52 @@ describe("MongoDB query specifications", () => {
 			sort: "{}",
 		});
 	});
+
+	test("accepts common Mongo shell object syntax in find editors", () => {
+		const spec = buildMongoQuerySpec(
+			{
+				type: "find",
+				filter: `{ name: 'Amal', score: { $gt: 5, }, }`,
+				projection: "{ name: 1 }",
+				sort: "{ name: 1 }",
+			},
+			{ database: "app", collection: "users" },
+		);
+
+		expect(spec).toMatchObject({
+			type: "find",
+			filter: { name: "Amal", score: { $gt: 5 } },
+			projection: { name: 1 },
+			sort: { name: 1 },
+		});
+	});
+
+	test("accepts common Mongo shell object syntax in aggregation stages", () => {
+		const spec = buildMongoQuerySpec(
+			{
+				type: "aggregate",
+				pipeline: `[{ $match: { name: 'Amal' } }]`,
+			},
+			{ database: "app", collection: "users" },
+		);
+
+		expect(spec).toMatchObject({
+			type: "aggregate",
+			pipeline: [{ $match: { name: "Amal" } }],
+		});
+	});
+
+	test("rejects JSON5 numeric values that cannot cross the Tauri boundary", () => {
+		expect(() =>
+			buildMongoQuerySpec(
+				{
+					type: "find",
+					filter: "{ score: Infinity }",
+					projection: "{}",
+					sort: "{}",
+				},
+				{ database: "app", collection: "users" },
+			),
+		).toThrow("filter must contain only finite JSON numbers");
+	});
 });

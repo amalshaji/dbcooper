@@ -85,7 +85,7 @@ test("generates from a clean baseline when the current MongoDB editor is invalid
 	const workbench = {
 		editor: {
 			type: "find",
-			filter: '{ name: "Amal" }',
+			filter: '{ name: "Amal"',
 			projection: "{}",
 			sort: "{}",
 		},

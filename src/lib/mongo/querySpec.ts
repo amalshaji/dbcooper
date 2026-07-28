@@ -1,3 +1,5 @@
+import JSON5 from "json5";
+
 export type MongoQueryKind = "mongo_find" | "mongo_aggregate";
 export type QueryKind = "sql" | MongoQueryKind;
 export type JsonObject = Record<string, unknown>;
@@ -45,7 +47,23 @@ function readObject(
 }
 
 function parseEditorObject(value: string, label: string): JsonObject {
-	return readObject(JSON.parse(value), label);
+	return readObject(parseEditorJson(value, label), label);
+}
+
+function parseEditorJson(value: string, label: string): unknown {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		parsed = JSON5.parse(value);
+	}
+	const normalized = JSON.stringify(parsed, (_key, nested) => {
+		if (typeof nested === "number" && !Number.isFinite(nested)) {
+			throw new Error(`${label} must contain only finite JSON numbers`);
+		}
+		return nested;
+	});
+	return normalized === undefined ? undefined : JSON.parse(normalized);
 }
 
 function readString(value: unknown, label: string): string {
@@ -118,7 +136,7 @@ export function buildMongoQuerySpec(
 		};
 	}
 
-	const pipeline: unknown = JSON.parse(editor.pipeline);
+	const pipeline = parseEditorJson(editor.pipeline, "pipeline");
 	if (!Array.isArray(pipeline) || pipeline.some((stage) => !isObject(stage))) {
 		throw new Error("pipeline must be an array of JSON objects");
 	}
