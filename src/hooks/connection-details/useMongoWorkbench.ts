@@ -76,6 +76,7 @@ export function useMongoWorkbench(uuid: string) {
 	const [history, setHistory] = useState<QueryHistory[]>([]);
 	const [queryName, setQueryName] = useState("");
 	const initializedCatalog = useRef(false);
+	const suppressNextNamespaceRun = useRef(false);
 
 	const selectedDocument =
 		inspector.selectedIndex === null
@@ -96,7 +97,9 @@ export function useMongoWorkbench(uuid: string) {
 			api.queries.list(uuid),
 			api.queries.history(uuid),
 		]);
-		setSavedQueries(saved.filter((item) => item.query_kind.startsWith("mongo_")));
+		setSavedQueries(
+			saved.filter((item) => item.query_kind.startsWith("mongo_")),
+		);
 		setHistory(recent.filter((item) => item.query_kind.startsWith("mongo_")));
 	}, [uuid]);
 
@@ -158,7 +161,12 @@ export function useMongoWorkbench(uuid: string) {
 	}, [editor, namespace, refreshRecords, uuid]);
 
 	useEffect(() => {
-		if (namespace.database && namespace.collection) void run();
+		if (!namespace.database || !namespace.collection) return;
+		if (suppressNextNamespaceRun.current) {
+			suppressNextNamespaceRun.current = false;
+			return;
+		}
+		void run();
 		// Namespace changes intentionally run the default query once.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [namespace]);
@@ -186,6 +194,7 @@ export function useMongoWorkbench(uuid: string) {
 	const loadQuery = useCallback((query: string) => {
 		try {
 			const spec = parseMongoQuerySpec(query);
+			suppressNextNamespaceRun.current = true;
 			setNamespace({ database: spec.database, collection: spec.collection });
 			const nextEditor = queryEditorFromSpec(spec);
 			setEditorSession((current) => ({
@@ -193,6 +202,12 @@ export function useMongoWorkbench(uuid: string) {
 				mode: nextEditor.type,
 				[nextEditor.type]: nextEditor,
 			}));
+			setResult(null);
+			setInspector({
+				selectedIndex: null,
+				documentText: "{}",
+				isNew: false,
+			});
 		} catch (error) {
 			toast.error("Could not load saved query", { description: String(error) });
 		}
@@ -204,12 +219,13 @@ export function useMongoWorkbench(uuid: string) {
 			if (separator < 1 || separator === value.length - 1) {
 				throw new Error("Use database.collection");
 			}
-			await api.mongo.createCollection(
-				uuid,
-				value.slice(0, separator),
-				value.slice(separator + 1),
-			);
+			const database = value.slice(0, separator);
+			const collection = value.slice(separator + 1);
+			await api.mongo.createCollection(uuid, database, collection);
 			await refreshCatalog();
+			setExpanded((current) => new Set(current).add(database));
+			setEditorSession((current) => ({ ...current, mode: "find" }));
+			setNamespace({ database, collection });
 		},
 		[refreshCatalog, uuid],
 	);
