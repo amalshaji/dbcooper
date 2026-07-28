@@ -12,7 +12,7 @@ export const DOCKER_DATABASE_ENGINES = [
 		label: "ClickHouse 25.8",
 		defaultName: "Local ClickHouse",
 	},
-	{ value: "mongodb", label: "MongoDB 8.0", defaultName: "Local MongoDB" },
+	{ value: "mongodb", label: "MongoDB 7.0", defaultName: "Local MongoDB" },
 ] as const;
 
 export type DockerDatabaseEngine =

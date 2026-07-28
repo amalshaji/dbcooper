@@ -86,6 +86,8 @@ test("offers every Docker database engine supported by the backend", () => {
 	expect(markup).toContain('data-value="mariadb"');
 	expect(markup).toContain('data-value="redis"');
 	expect(markup).toContain('data-value="clickhouse"');
+	expect(markup).toContain('data-value="mongodb"');
+	expect(markup).toContain("MongoDB 7.0");
 });
 
 test("uses the shared select component for the database engine", () => {

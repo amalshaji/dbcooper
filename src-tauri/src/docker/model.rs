@@ -48,7 +48,7 @@ impl DockerDatabaseEngine {
             Self::Mariadb => "mariadb:11.4",
             Self::Redis => "redis:7-alpine",
             Self::Clickhouse => "clickhouse/clickhouse-server:25.8-alpine",
-            Self::Mongodb => "mongo:8.0",
+            Self::Mongodb => "mongo:7.0",
         }
     }
 
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn creates_mongodb_with_auth_and_persistent_storage() {
         let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Mongodb);
-        assert!(plan.run_args.contains(&"mongo:8.0".to_string()));
+        assert!(plan.run_args.contains(&"mongo:7.0".to_string()));
         assert!(plan
             .run_args
             .windows(2)
