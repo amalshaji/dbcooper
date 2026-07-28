@@ -43,7 +43,7 @@ const CAPABILITIES: Record<ConnectionType, ConnectionCapabilities> = {
 		loadsSchema: true,
 		fileDatabase: true,
 		structuredRowMutations: true,
-		defaultPort: 5432,
+		defaultPort: 0,
 	},
 	duckdb: {
 		workspace: "sql",
@@ -51,7 +51,7 @@ const CAPABILITIES: Record<ConnectionType, ConnectionCapabilities> = {
 		loadsSchema: true,
 		fileDatabase: true,
 		structuredRowMutations: false,
-		defaultPort: 5432,
+		defaultPort: 0,
 	},
 	redis: {
 		workspace: "key-value",

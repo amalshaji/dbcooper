@@ -17,6 +17,11 @@ describe("connection capabilities", () => {
 		});
 	});
 
+	test("owns the native defaults for file databases", () => {
+		expect(getConnectionCapabilities("sqlite").defaultPort).toBe(0);
+		expect(getConnectionCapabilities("duckdb").defaultPort).toBe(0);
+	});
+
 	test("derives the MongoDB display endpoint from its URI", () => {
 		const connection: MongoConnection = {
 			id: 1,

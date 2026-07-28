@@ -36,7 +36,7 @@ import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
-import { isFileDatabase } from "@/lib/databaseCapabilities";
+import { getConnectionCapabilities } from "@/lib/connectionCapabilities";
 import {
 	prepareDuckDbRuntime,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
@@ -112,18 +112,6 @@ const databaseTypes: {
 	},
 ];
 
-const defaultPorts: Record<ConnectionType, number> = {
-	postgres: 5432,
-	mysql: 3306,
-	mariadb: 3306,
-	sqlite: 0,
-	duckdb: 0,
-	redis: 6379,
-	clickhouse: 9000,
-	d1: 443,
-	mongodb: 27017,
-};
-
 const defaultFormData: ConnectionFormData = {
 	type: "postgres",
 	name: "",
@@ -191,9 +179,9 @@ export function ConnectionForm({
 		useState<DuckDbHelperProgressValue | null>(null);
 
 	const isEditMode = !!initialData;
-	const usesFile = isFileDatabase(formData.type);
-	const usesServerFields =
-		!usesFile && formData.type !== "d1" && formData.type !== "mongodb";
+	const capabilities = getConnectionCapabilities(formData.type);
+	const usesFile = capabilities.fileDatabase;
+	const usesServerFields = capabilities.form === "server";
 	const isBusy = isSubmitting || isTesting;
 
 	useEffect(() => {
@@ -234,12 +222,13 @@ export function ConnectionForm({
 	}, [initialData, isOpen]);
 
 	const handleTypeChange = (type: ConnectionType) => {
+		const nextCapabilities = getConnectionCapabilities(type);
 		setDuckDbHelperProgress(null);
 		setFormData({
 			...formData,
 			type,
 			db_type: type,
-			port: defaultPorts[type],
+			port: nextCapabilities.defaultPort,
 			host:
 				type === "d1"
 					? "api.cloudflare.com"
@@ -248,7 +237,7 @@ export function ConnectionForm({
 						: formData.host,
 			ssl: type === "d1" ? true : formData.type === "d1" ? false : formData.ssl,
 			ssh_enabled:
-				type === "d1" || type === "mongodb" ? false : formData.ssh_enabled,
+				nextCapabilities.form === "server" ? formData.ssh_enabled : false,
 		});
 	};
 
