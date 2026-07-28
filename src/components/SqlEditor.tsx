@@ -9,7 +9,7 @@ import {
 	WarningCircle,
 } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { barf, rosePineDawn } from "thememirror";
 import { SqlAIPreview } from "@/components/SqlAIPreview";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,7 @@ interface SqlEditorProps {
 	onChange: (value: string) => void;
 	onRunQuery?: () => void;
 	onRunAllQueries?: () => void;
+	toolbarActions?: ReactNode;
 	executing?: boolean;
 	disabled?: boolean;
 	height?: string;
@@ -71,6 +72,7 @@ export function SqlEditor({
 	onChange,
 	onRunQuery,
 	onRunAllQueries,
+	toolbarActions,
 	executing = false,
 	height = "300px",
 	tables = [],
@@ -324,40 +326,45 @@ export function SqlEditor({
 								</Tooltip>
 							)}
 						</div>
-						{onRunQuery && (
-							<div className="flex">
-								<Button
-									size="sm"
-									onClick={onRunQuery}
-									disabled={disabled || executing || !value.trim()}
-									className="rounded-r-none border-r-0 -mr-1"
-								>
-									{executing ? <Spinner /> : null}
-									Run query{" "}
-									<span className="text-xs opacity-60">
-										({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
-									</span>
-								</Button>
-								{onRunAllQueries && (
-									<DropdownMenu>
-										<DropdownMenuTrigger
-											render={
-												<Button
-													size="sm"
-													className="rounded-l-none border border-border px-1"
-													disabled={disabled || executing || !value.trim()}
-												>
-													<CaretDown className="w-4 h-4" />
-												</Button>
-											}
-										/>
-										<DropdownMenuContent align="end">
-											<DropdownMenuItem onClick={onRunAllQueries}>
-												<PlayCircle className="w-4 h-4" />
-												Run all queries
-											</DropdownMenuItem>
-										</DropdownMenuContent>
-									</DropdownMenu>
+						{(toolbarActions || onRunQuery) && (
+							<div className="flex items-center gap-2">
+								{toolbarActions}
+								{onRunQuery && (
+									<div className="flex">
+										<Button
+											size="sm"
+											onClick={onRunQuery}
+											disabled={disabled || executing || !value.trim()}
+											className="rounded-r-none border-r-0 -mr-1"
+										>
+											{executing ? <Spinner /> : null}
+											Run query{" "}
+											<span className="text-xs opacity-60">
+												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
+											</span>
+										</Button>
+										{onRunAllQueries && (
+											<DropdownMenu>
+												<DropdownMenuTrigger
+													render={
+														<Button
+															size="sm"
+															className="rounded-l-none border border-border px-1"
+															disabled={disabled || executing || !value.trim()}
+														>
+															<CaretDown className="w-4 h-4" />
+														</Button>
+													}
+												/>
+												<DropdownMenuContent align="end">
+													<DropdownMenuItem onClick={onRunAllQueries}>
+														<PlayCircle className="w-4 h-4" />
+														Run all queries
+													</DropdownMenuItem>
+												</DropdownMenuContent>
+											</DropdownMenu>
+										)}
+									</div>
 								)}
 							</div>
 						)}

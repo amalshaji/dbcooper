@@ -6,7 +6,9 @@ import type { SqlConnection } from "../types/connection";
 import type { QueryTab } from "../types/tabTypes";
 
 mock.module("@/components/SqlEditor", () => ({
-	SqlEditor: () => <div data-testid="sql-editor" />,
+	SqlEditor: ({ toolbarActions }: { toolbarActions?: ReactNode }) => (
+		<div data-testid="sql-editor">{toolbarActions}</div>
+	),
 }));
 mock.module("@/components/DataTable", () => ({
 	DataTable: () => <div data-testid="data-table" />,
@@ -164,5 +166,15 @@ describe("ConnectionDetails query layout", () => {
 			expect(openingTag).not.toContain("pt-4");
 			expect(openingTag).not.toContain("py-4");
 		}
+	});
+
+	test("places query actions inside the SQL editor toolbar", () => {
+		const markup = renderQueryWorkspace();
+		const editorStart = markup.indexOf('data-testid="sql-editor"');
+		const editorEnd = markup.indexOf("</div>", editorStart);
+		const editorMarkup = markup.slice(editorStart, editorEnd);
+
+		expect(editorMarkup).toContain("Beautify");
+		expect(editorMarkup).toContain("Save query");
 	});
 });

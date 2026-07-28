@@ -102,93 +102,79 @@ export function QueryWorkspace({
 			</div>
 		);
 	};
+	const queryToolbarActions = controller.saveDialog.open ? (
+		<div className="flex items-center gap-2">
+			<Input
+				placeholder="Query name"
+				value={controller.saveDialog.name}
+				onChange={(e) => controller.changeSaveQueryName(e.target.value)}
+				className="h-8 w-40"
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						controller.saveQuery();
+					} else if (e.key === "Escape") {
+						controller.closeSaveDialog();
+					}
+				}}
+				autoFocus
+			/>
+			<Button
+				size="sm"
+				onClick={controller.saveQuery}
+				disabled={!controller.saveDialog.name.trim()}
+			>
+				Save
+			</Button>
+			<Button size="sm" variant="ghost" onClick={controller.closeSaveDialog}>
+				Cancel
+			</Button>
+		</div>
+	) : (
+		<>
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={() => {
+					try {
+						const formatted = formatSQL(tab.query, {
+							language: getSqlFormatterLanguage(
+								connection?.db_type || "postgres",
+							),
+							tabWidth: 2,
+							keywordCase: "upper",
+						});
+						controller.changeQuery(formatted);
+						toast.success("SQL formatted");
+					} catch (error) {
+						toast.error("Failed to format SQL", {
+							description:
+								error instanceof Error ? error.message : "Unknown error",
+						});
+					}
+				}}
+				disabled={!tab.query.trim()}
+			>
+				<PaintBrush className="w-4 h-4" />
+				Beautify
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={controller.openSaveDialog}
+				disabled={!tab.query.trim()}
+			>
+				<FloppyDisk className="w-4 h-4" />
+				Save query
+			</Button>
+		</>
+	);
 
 	return (
 		<div className="space-y-3">
 			<Card className="workspace-panel gap-2">
 				<CardHeader>
-					<div className="flex items-center justify-between">
-						<div>
-							<CardTitle>SQL editor</CardTitle>
-							<CardDescription>Write and execute SQL queries</CardDescription>
-						</div>
-						<div className="flex items-center gap-2">
-							{controller.saveDialog.open ? (
-								<div className="flex items-center gap-2">
-									<Input
-										placeholder="Query name"
-										value={controller.saveDialog.name}
-										onChange={(e) =>
-											controller.changeSaveQueryName(e.target.value)
-										}
-										className="w-40"
-										onKeyDown={(e) => {
-											if (e.key === "Enter") {
-												controller.saveQuery();
-											} else if (e.key === "Escape") {
-												controller.closeSaveDialog();
-											}
-										}}
-										autoFocus
-									/>
-									<Button
-										size="sm"
-										onClick={controller.saveQuery}
-										disabled={!controller.saveDialog.name.trim()}
-									>
-										Save
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={controller.closeSaveDialog}
-									>
-										Cancel
-									</Button>
-								</div>
-							) : (
-								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-											try {
-												const formatted = formatSQL(tab.query, {
-													language: getSqlFormatterLanguage(
-														connection?.db_type || "postgres",
-													),
-													tabWidth: 2,
-													keywordCase: "upper",
-												});
-												controller.changeQuery(formatted);
-												toast.success("SQL formatted");
-											} catch (error) {
-												toast.error("Failed to format SQL", {
-													description:
-														error instanceof Error
-															? error.message
-															: "Unknown error",
-												});
-											}
-										}}
-										disabled={!tab.query.trim()}
-									>
-										<PaintBrush className="w-4 h-4" />
-										Beautify
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={controller.openSaveDialog}
-										disabled={!tab.query.trim()}
-									>
-										<FloppyDisk className="w-4 h-4" />
-										Save query
-									</Button>
-								</>
-							)}
-						</div>
-					</div>
+					<CardTitle>SQL editor</CardTitle>
+					<CardDescription>Write and execute SQL queries</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<SqlEditor
@@ -196,6 +182,7 @@ export function QueryWorkspace({
 						onChange={controller.changeQuery}
 						onRunQuery={controller.runQuery}
 						onRunAllQueries={controller.runAllQueries}
+						toolbarActions={queryToolbarActions}
 						executing={tab.executing}
 						height="300px"
 						// disabled={!tab.query.trim()}

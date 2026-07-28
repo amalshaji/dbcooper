@@ -246,3 +246,19 @@ test("keeps the Run query control inside the editor frame", () => {
 	);
 	expect((screen.getByRole("button", { name: /Run query/ }) as HTMLButtonElement).disabled).toBe(false);
 });
+
+test("keeps supporting query actions beside Run query inside the editor frame", () => {
+	render(
+		<SqlEditor
+			value="SELECT * FROM users"
+			onChange={() => {}}
+			onRunQuery={() => {}}
+			toolbarActions={<button type="button">Beautify</button>}
+		/>,
+	);
+
+	const editorFrame = screen.getByTestId("code-mirror").parentElement;
+	expect(
+		editorFrame?.contains(screen.getByRole("button", { name: "Beautify" })),
+	).toBe(true);
+});
