@@ -3,6 +3,18 @@ import type { ComponentProps, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DOCKER_DATABASE_ENGINES } from "../../types/docker";
 
+const DatabaseIcon = (props: ComponentProps<"svg">) => <svg {...props} />;
+
+mock.module("@/components/icons/clickhouse", () => ({
+	ClickhouseIcon: DatabaseIcon,
+}));
+mock.module("@/components/icons/mariadb", () => ({ MariadbIcon: DatabaseIcon }));
+mock.module("@/components/icons/mongodb", () => ({ MongodbIcon: DatabaseIcon }));
+mock.module("@/components/icons/mysql", () => ({ MysqlIcon: DatabaseIcon }));
+mock.module("@/components/icons/postgres", () => ({
+	PostgresqlIcon: DatabaseIcon,
+}));
+mock.module("@/components/icons/redis", () => ({ RedisIcon: DatabaseIcon }));
 mock.module("@/components/ui/dialog", () => ({
 	Dialog: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 	DialogContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -90,6 +102,23 @@ test("offers every Docker database engine supported by the backend", () => {
 	expect(markup).toContain("MongoDB 7.0");
 });
 
+test("shows a decorative database logo for the selected value and every option", () => {
+	const markup = renderToStaticMarkup(
+		<CreateDatabaseDialog
+			open
+			onOpenChange={() => undefined}
+			onCreated={async () => undefined}
+		/>,
+	);
+
+	expect(markup.match(/<svg/g) ?? []).toHaveLength(
+		DOCKER_DATABASE_ENGINES.length + 1,
+	);
+	expect(markup.match(/aria-hidden="true"/g) ?? []).toHaveLength(
+		DOCKER_DATABASE_ENGINES.length + 1,
+	);
+});
+
 test("uses the shared select component for the database engine", () => {
 	const markup = renderToStaticMarkup(
 		<CreateDatabaseDialog
@@ -112,7 +141,6 @@ test("shows the selected engine display name instead of its stored value", () =>
 		/>,
 	);
 
-	expect(markup).toContain(
-		'<span data-slot="select-value">PostgreSQL 17</span>',
-	);
+	expect(markup).toContain('<span data-slot="select-value"><svg');
+	expect(markup).toContain("PostgreSQL 17</span>");
 });
