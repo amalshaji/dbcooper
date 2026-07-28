@@ -32,6 +32,16 @@ export interface Connection {
 	updated_at: string;
 }
 
+export type SqlConnection = Omit<Connection, "type"> & {
+	type: Exclude<ConnectionType, "redis">;
+};
+
+export function isSqlConnection(
+	connection: Connection,
+): connection is SqlConnection {
+	return connection.type !== "redis";
+}
+
 export type ConnectionFormData = {
 	type: ConnectionType;
 	uuid?: string;

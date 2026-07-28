@@ -2,7 +2,7 @@ use super::model::{
     detect_engine, DockerContainerSummary, DockerDatabaseEngine, CONNECTION_LABEL_KEY,
     MANAGED_LABEL_KEY,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -29,12 +29,24 @@ struct ContainerListRow {
 pub(crate) struct ContainerConfig {
     #[serde(rename = "Image", default)]
     pub(crate) image: String,
-    #[serde(rename = "Env", default)]
+    #[serde(rename = "Env", default, deserialize_with = "deserialize_null_default")]
     pub(crate) env: Vec<String>,
-    #[serde(rename = "Cmd", default)]
+    #[serde(rename = "Cmd", default, deserialize_with = "deserialize_null_default")]
     pub(crate) command: Vec<String>,
-    #[serde(rename = "Labels", default)]
+    #[serde(
+        rename = "Labels",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     pub(crate) labels: HashMap<String, String>,
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -51,13 +63,21 @@ pub(crate) struct PortBinding {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub(crate) struct NetworkSettings {
-    #[serde(rename = "Ports", default)]
+    #[serde(
+        rename = "Ports",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     ports: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ContainerHostConfig {
-    #[serde(rename = "PortBindings", default)]
+    #[serde(
+        rename = "PortBindings",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     port_bindings: HashMap<String, Option<Vec<PortBinding>>>,
 }
 
@@ -427,6 +447,22 @@ mod tests {
 
         assert_eq!(inspect.host_port(5432), None);
         assert_eq!(inspect.exposed_ports(), vec![5432]);
+    }
+
+    #[test]
+    fn treats_null_docker_collections_as_empty() {
+        let inspect: ContainerInspect = serde_json::from_str(
+            r#"{
+                "Config": { "Env": null, "Cmd": null, "Labels": null },
+                "HostConfig": { "PortBindings": null },
+                "NetworkSettings": { "Ports": null }
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(inspect.command_option("--requirepass"), "");
+        assert!(inspect.env().is_empty());
+        assert!(inspect.exposed_ports().is_empty());
     }
 
     #[test]
