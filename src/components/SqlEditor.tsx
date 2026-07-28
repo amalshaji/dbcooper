@@ -266,6 +266,7 @@ export function SqlEditor({
 					draft={aiDraft}
 					onDraftChange={ai.onDraftChange}
 					dark={isDark}
+					editorHeight={height}
 					editorExtensions={draftExtensions}
 					editorTheme={isDark ? barf : rosePineDawn}
 					onDiscard={ai.onDiscard}

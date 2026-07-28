@@ -17,6 +17,7 @@ interface SqlAIPreviewProps {
 	onDiscard: () => void;
 	onDraftChange: (sql: string) => void;
 	dark?: boolean;
+	editorHeight?: string;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
 }
@@ -27,6 +28,7 @@ export function SqlAIPreview({
 	onDiscard,
 	onDraftChange,
 	dark = false,
+	editorHeight = "300px",
 	editorExtensions = [],
 	editorTheme,
 }: SqlAIPreviewProps) {
@@ -34,8 +36,10 @@ export function SqlAIPreview({
 	const sql = draft.status === "error" ? "" : draft.sql;
 	const originalSql = draft.status === "error" ? "" : draft.originalSql;
 	const hasDraft = Boolean(sql.trim());
-	const showEditor = !generating || hasDraft;
 	const showDiff = Boolean(originalSql.trim());
+	const awaitingFirstDiff = generating && showDiff && !hasDraft;
+	const showEditor = !generating || hasDraft || awaitingFirstDiff;
+	const editorSql = awaitingFirstDiff ? originalSql : sql;
 	const fileDiff = useMemo(
 		() =>
 			showDiff && hasDraft
@@ -133,7 +137,10 @@ export function SqlAIPreview({
 					Couldn’t generate a draft. {draft.message}
 				</p>
 			) : fileDiff ? (
-				<div className="max-h-[300px] overflow-auto bg-background/40 font-mono text-xs">
+				<div
+					className="overflow-auto bg-background/40 font-mono text-xs"
+					style={{ height: editorHeight }}
+				>
 					<FileDiff
 						fileDiff={fileDiff}
 						disableWorkerPool
@@ -151,11 +158,15 @@ export function SqlAIPreview({
 			) : showEditor ? (
 				<div className="relative min-w-0 bg-background/40 font-mono">
 					<CodeMirror
-						aria-label="AI SQL draft"
+						aria-label={
+							awaitingFirstDiff ? "Original SQL query" : "AI SQL draft"
+						}
 						aria-busy={generating}
-						value={sql}
-						minHeight={generating ? "72px" : "96px"}
-						maxHeight="192px"
+						value={editorSql}
+						minHeight={
+							awaitingFirstDiff ? editorHeight : generating ? "72px" : "96px"
+						}
+						maxHeight={awaitingFirstDiff ? editorHeight : "192px"}
 						width="100%"
 						extensions={editorExtensions}
 						theme={editorTheme}

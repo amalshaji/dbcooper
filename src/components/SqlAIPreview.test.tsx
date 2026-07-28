@@ -41,14 +41,20 @@ mock.module("@uiw/react-codemirror", () => ({
 		onChange,
 		editable,
 		placeholder,
+		minHeight,
+		maxHeight,
 	}: {
 		value: string;
 		onChange: (value: string) => void;
 		editable: boolean;
 		placeholder?: string;
+		minHeight?: string;
+		maxHeight?: string;
 	}) => (
 		<textarea
 			data-testid="ai-draft-editor"
+			data-min-height={minHeight}
+			data-max-height={maxHeight}
 			value={value}
 			readOnly={!editable}
 			placeholder={placeholder}
@@ -99,6 +105,29 @@ test("streams an existing query into one unified diff", () => {
 	expect(diff.dataset.new).toBe("SELECT id, name FROM users");
 	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
 	expect(screen.getByText("Composing query…")).toBeTruthy();
+});
+
+test("keeps the original editor visible until the first diff chunk arrives", () => {
+	render(
+		<SqlAIPreview
+			draft={{
+				status: "generating",
+				requestId: "request-1",
+				originalSql: "SELECT id FROM users",
+				sql: "",
+			}}
+			onDraftChange={() => undefined}
+			onReplace={() => undefined}
+			onDiscard={() => undefined}
+			editorHeight="300px"
+		/>,
+	);
+
+	const editor = screen.getByTestId("ai-draft-editor") as HTMLTextAreaElement;
+	expect(editor.value).toBe("SELECT id FROM users");
+	expect(editor.readOnly).toBe(true);
+	expect(editor.dataset.minHeight).toBe("300px");
+	expect(editor.dataset.maxHeight).toBe("300px");
 });
 
 test("uses the standard app border radius", () => {
