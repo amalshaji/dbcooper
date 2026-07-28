@@ -1,6 +1,9 @@
 import type { Extension } from "@codemirror/state";
-import { Check, Plus, Sparkle, WarningCircle, X } from "@phosphor-icons/react";
+import { parseDiffFromFile } from "@pierre/diffs";
+import { FileDiff } from "@pierre/diffs/react";
+import { Check, Sparkle, WarningCircle, X } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
+import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -10,29 +13,43 @@ import { cn } from "@/lib/utils";
 
 interface SqlAIPreviewProps {
 	draft: Exclude<AiDraftState, { status: "idle" }>;
-	hasExistingSql: boolean;
 	onReplace: () => void;
-	onAppend: () => void;
 	onDiscard: () => void;
 	onDraftChange: (sql: string) => void;
+	dark?: boolean;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
 }
 
 export function SqlAIPreview({
 	draft,
-	hasExistingSql,
 	onReplace,
-	onAppend,
 	onDiscard,
 	onDraftChange,
+	dark = false,
 	editorExtensions = [],
 	editorTheme,
 }: SqlAIPreviewProps) {
 	const generating = draft.status === "generating";
 	const sql = draft.status === "error" ? "" : draft.sql;
+	const originalSql = draft.status === "error" ? "" : draft.originalSql;
 	const hasDraft = Boolean(sql.trim());
 	const showEditor = !generating || hasDraft;
+	const showDiff = Boolean(originalSql.trim());
+	const fileDiff = useMemo(
+		() =>
+			showDiff && hasDraft
+				? parseDiffFromFile(
+						{ name: "query.sql", contents: originalSql },
+						{ name: "query.sql", contents: sql },
+					)
+				: null,
+		[hasDraft, originalSql, showDiff, sql],
+	);
+	const additions =
+		fileDiff?.hunks.reduce((total, hunk) => total + hunk.additionLines, 0) ?? 0;
+	const deletions =
+		fileDiff?.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0) ?? 0;
 	const intent = classifySqlIntent(sql);
 	const intentLabel =
 		intent === "read"
@@ -57,17 +74,40 @@ export function SqlAIPreview({
 					) : (
 						<Sparkle className="size-3.5 text-primary" />
 					)}
-					AI Draft
+					{showDiff ? "AI changes" : "AI Draft"}
+					{fileDiff && (
+						<>
+							<Badge
+								variant="outline"
+								className="border-emerald-500/20 bg-emerald-500/10 text-[10px] font-normal text-emerald-600 dark:text-emerald-400"
+							>
+								{additions} {additions === 1 ? "addition" : "additions"}
+							</Badge>
+							<Badge
+								variant="outline"
+								className="border-destructive/20 bg-destructive/10 text-[10px] font-normal text-destructive"
+							>
+								{deletions} {deletions === 1 ? "removal" : "removals"}
+							</Badge>
+						</>
+					)}
 				</div>
 				{generating && (
-					<span
-						role="status"
-						className="text-[11px] text-muted-foreground"
-					>
+					<span role="status" className="text-[11px] text-muted-foreground">
 						Composing query…
 					</span>
 				)}
-				{draft.status === "ready" && hasDraft && (
+				{draft.status === "ready" && hasDraft && showDiff && (
+					<div className="flex items-center gap-1">
+						<Button variant="ghost" size="sm" onClick={onDiscard}>
+							<X /> Discard
+						</Button>
+						<Button size="sm" onClick={onReplace}>
+							<Check /> Accept changes
+						</Button>
+					</div>
+				)}
+				{draft.status === "ready" && hasDraft && !showDiff && (
 					<div className="flex items-center">
 						<Badge
 							variant="outline"
@@ -92,6 +132,22 @@ export function SqlAIPreview({
 				<p className="px-3 py-3 text-xs leading-5 text-destructive">
 					Couldn’t generate a draft. {draft.message}
 				</p>
+			) : fileDiff ? (
+				<div className="max-h-[300px] overflow-auto bg-background/40 font-mono text-xs">
+					<FileDiff
+						fileDiff={fileDiff}
+						disableWorkerPool
+						options={{
+							diffStyle: "unified",
+							diffIndicators: "classic",
+							disableFileHeader: true,
+							hunkSeparators: "metadata",
+							lineDiffType: "word-alt",
+							overflow: "wrap",
+							themeType: dark ? "dark" : "light",
+						}}
+					/>
+				</div>
 			) : showEditor ? (
 				<div className="relative min-w-0 bg-background/40 font-mono">
 					<CodeMirror
@@ -123,7 +179,7 @@ export function SqlAIPreview({
 					/>
 				</div>
 			) : null}
-			{!generating && (
+			{!generating && !showDiff && (
 				<footer className="flex items-center justify-end border-t border-primary/10 bg-background/50 px-2 py-2">
 					<Button
 						variant="ghost"
@@ -133,16 +189,6 @@ export function SqlAIPreview({
 					>
 						<X /> Discard
 					</Button>
-					{draft.status === "ready" && hasExistingSql && (
-						<Button
-							variant="ghost"
-							size="sm"
-							onClick={onAppend}
-							disabled={generating || !sql}
-						>
-							<Plus /> Append
-						</Button>
-					)}
 					{draft.status === "ready" && (
 						<Button size="sm" onClick={onReplace} disabled={!sql}>
 							<Check /> Use in editor

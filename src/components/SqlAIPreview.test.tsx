@@ -1,9 +1,40 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { clsx, type ClassValue } from "clsx";
 import type { ComponentProps, ReactNode } from "react";
+import { twMerge } from "tailwind-merge";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
+mock.module("@/lib/utils", () => ({
+	cn: (...inputs: ClassValue[]) => twMerge(clsx(inputs)),
+}));
+
+interface DiffFile {
+	name: string;
+	contents: string;
+}
+
+mock.module("@pierre/diffs", () => ({
+	parseDiffFromFile: (oldFile: DiffFile, newFile: DiffFile) => ({
+		oldFile,
+		newFile,
+		hunks: [{ additionLines: 2, deletionLines: 1 }],
+	}),
+}));
+mock.module("@pierre/diffs/react", () => ({
+	FileDiff: ({
+		fileDiff,
+	}: {
+		fileDiff: { oldFile: DiffFile; newFile: DiffFile };
+	}) => (
+		<div
+			data-testid="ai-sql-diff"
+			data-old={fileDiff.oldFile.contents}
+			data-new={fileDiff.newFile.contents}
+		/>
+	),
+}));
 mock.module("@uiw/react-codemirror", () => ({
 	default: ({
 		value,
@@ -48,14 +79,34 @@ const { SqlAIPreview } = await import("./SqlAIPreview");
 
 afterEach(cleanup);
 
+test("streams an existing query into one unified diff", () => {
+	render(
+		<SqlAIPreview
+			draft={{
+				status: "generating",
+				requestId: "request-1",
+				originalSql: "SELECT id FROM users",
+				sql: "SELECT id, name FROM users",
+			}}
+			onDraftChange={() => undefined}
+			onReplace={() => undefined}
+			onDiscard={() => undefined}
+		/>,
+	);
+
+	const diff = screen.getByTestId("ai-sql-diff");
+	expect(diff.dataset.old).toBe("SELECT id FROM users");
+	expect(diff.dataset.new).toBe("SELECT id, name FROM users");
+	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
+	expect(screen.getByText("Composing query…")).toBeTruthy();
+});
+
 test("uses the standard app border radius", () => {
 	const { container } = render(
 		<SqlAIPreview
 			draft={{ status: "ready", originalSql: "", sql: "SELECT 1;" }}
-			hasExistingSql={false}
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
-			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -72,10 +123,8 @@ test("renders streamed SQL in a read-only draft editor", () => {
 				originalSql: "",
 				sql: "SELECT *",
 			}}
-			hasExistingSql={false}
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
-			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -95,10 +144,8 @@ test("keeps the empty loading state compact until SQL starts streaming", () => {
 				originalSql: "",
 				sql: "",
 			}}
-			hasExistingSql={false}
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
-			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -108,21 +155,42 @@ test("keeps the empty loading state compact until SQL starts streaming", () => {
 	expect(screen.queryByText("Not executed")).toBeNull();
 });
 
-test("allows a completed draft to be edited before it is applied", () => {
-	let editedSql = "";
+test("accepts a completed diff without exposing a duplicate editor", () => {
+	let accepted = false;
 	render(
 		<SqlAIPreview
 			draft={{
 				status: "ready",
 				originalSql: "SELECT id FROM users",
+				sql: "SELECT id, name FROM users",
+			}}
+			onDraftChange={() => undefined}
+			onReplace={() => {
+				accepted = true;
+			}}
+			onDiscard={() => undefined}
+		/>,
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Accept changes" }));
+	expect(accepted).toBe(true);
+	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
+	expect(screen.queryByText("Append")).toBeNull();
+});
+
+test("allows a completed new-query draft to be edited before it is applied", () => {
+	let editedSql = "";
+	render(
+		<SqlAIPreview
+			draft={{
+				status: "ready",
+				originalSql: "",
 				sql: "SELECT * FROM users",
 			}}
-			hasExistingSql={true}
 			onDraftChange={(sql) => {
 				editedSql = sql;
 			}}
 			onReplace={() => undefined}
-			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -131,6 +199,5 @@ test("allows a completed draft to be edited before it is applied", () => {
 	expect(editor.readOnly).toBe(false);
 	fireEvent.change(editor, { target: { value: "SELECT id FROM users" } });
 	expect(editedSql).toBe("SELECT id FROM users");
-	expect(screen.getByText("Append")).toBeTruthy();
 	expect(screen.getByText("Use in editor")).toBeTruthy();
 });

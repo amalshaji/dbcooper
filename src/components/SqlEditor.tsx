@@ -262,16 +262,11 @@ export function SqlEditor({
 			{ai && aiDraft.status !== "idle" && (
 				<SqlAIPreview
 					draft={aiDraft}
-					hasExistingSql={Boolean(value.trim())}
 					onDraftChange={ai.onDraftChange}
+					dark={isDark}
 					editorExtensions={draftExtensions}
 					editorTheme={isDark ? barf : rosePineDawn}
 					onDiscard={ai.onDiscard}
-					onAppend={() => {
-						if (aiDraft.status !== "ready") return;
-						onChange(`${value.trimEnd()}\n\n${aiDraft.sql}`);
-						ai.onDiscard();
-					}}
 					onReplace={() => {
 						if (aiDraft.status !== "ready") return;
 						onChange(aiDraft.sql);
@@ -279,115 +274,117 @@ export function SqlEditor({
 					}}
 				/>
 			)}
-			<div
-				className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
-					onRunQuery ? " flex flex-col" : ""
-				}`}
-				style={onRunQuery ? { height } : undefined}
-			>
+			{(!ai || aiDraft.status === "idle") && (
 				<div
-					className={`z-10 flex gap-1 ${
-						onRunQuery
-							? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
-							: "absolute top-2 right-2"
+					className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
+						onRunQuery ? " flex flex-col" : ""
 					}`}
+					style={onRunQuery ? { height } : undefined}
 				>
-					<div className="flex items-center gap-1">
-						{cursorWarning && (
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<div className="cursor-pointer">
-											<Warning
-												className="w-5 h-5 text-amber-500"
-												weight="fill"
-											/>
-										</div>
-									}
-								/>
-								<TooltipContent>
-									<p>{cursorWarning}</p>
-								</TooltipContent>
-							</Tooltip>
-						)}
-						{value.trim() === "" && (
-							<Tooltip>
-								<TooltipTrigger
-									render={
-										<div className="cursor-pointer">
-											<WarningCircle
-												className="w-5 h-5 text-red-500"
-												weight="fill"
-											/>
-										</div>
-									}
-								/>
-								<TooltipContent>
-									<p>Query is empty - cannot execute</p>
-								</TooltipContent>
-							</Tooltip>
-						)}
-					</div>
-					{onRunQuery && (
-						<div className="flex">
-							<Button
-								size="sm"
-								onClick={onRunQuery}
-								disabled={disabled || executing || !value.trim()}
-								className="rounded-r-none border-r-0 -mr-1"
-							>
-								{executing ? <Spinner /> : null}
-								Run query{" "}
-								<span className="text-xs opacity-60">
-									({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
-								</span>
-							</Button>
-							{onRunAllQueries && (
-								<DropdownMenu>
-									<DropdownMenuTrigger
+					<div
+						className={`z-10 flex gap-1 ${
+							onRunQuery
+								? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
+								: "absolute top-2 right-2"
+						}`}
+					>
+						<div className="flex items-center gap-1">
+							{cursorWarning && (
+								<Tooltip>
+									<TooltipTrigger
 										render={
-											<Button
-												size="sm"
-												className="rounded-l-none border border-border px-1"
-												disabled={disabled || executing || !value.trim()}
-											>
-												<CaretDown className="w-4 h-4" />
-											</Button>
+											<div className="cursor-pointer">
+												<Warning
+													className="w-5 h-5 text-amber-500"
+													weight="fill"
+												/>
+											</div>
 										}
 									/>
-									<DropdownMenuContent align="end">
-										<DropdownMenuItem onClick={onRunAllQueries}>
-											<PlayCircle className="w-4 h-4" />
-											Run all queries
-										</DropdownMenuItem>
-									</DropdownMenuContent>
-								</DropdownMenu>
+									<TooltipContent>
+										<p>{cursorWarning}</p>
+									</TooltipContent>
+								</Tooltip>
+							)}
+							{value.trim() === "" && (
+								<Tooltip>
+									<TooltipTrigger
+										render={
+											<div className="cursor-pointer">
+												<WarningCircle
+													className="w-5 h-5 text-red-500"
+													weight="fill"
+												/>
+											</div>
+										}
+									/>
+									<TooltipContent>
+										<p>Query is empty - cannot execute</p>
+									</TooltipContent>
+								</Tooltip>
 							)}
 						</div>
-					)}
+						{onRunQuery && (
+							<div className="flex">
+								<Button
+									size="sm"
+									onClick={onRunQuery}
+									disabled={disabled || executing || !value.trim()}
+									className="rounded-r-none border-r-0 -mr-1"
+								>
+									{executing ? <Spinner /> : null}
+									Run query{" "}
+									<span className="text-xs opacity-60">
+										({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
+									</span>
+								</Button>
+								{onRunAllQueries && (
+									<DropdownMenu>
+										<DropdownMenuTrigger
+											render={
+												<Button
+													size="sm"
+													className="rounded-l-none border border-border px-1"
+													disabled={disabled || executing || !value.trim()}
+												>
+													<CaretDown className="w-4 h-4" />
+												</Button>
+											}
+										/>
+										<DropdownMenuContent align="end">
+											<DropdownMenuItem onClick={onRunAllQueries}>
+												<PlayCircle className="w-4 h-4" />
+												Run all queries
+											</DropdownMenuItem>
+										</DropdownMenuContent>
+									</DropdownMenu>
+								)}
+							</div>
+						)}
+					</div>
+					<CodeMirror
+						value={value}
+						height={onRunQuery ? "100%" : height}
+						className={onRunQuery ? "min-h-0 flex-1" : undefined}
+						width="100%"
+						extensions={extensions}
+						theme={isDark ? barf : rosePineDawn}
+						onChange={onChange}
+						editable={!disabled}
+						basicSetup={{
+							lineNumbers: true,
+							foldGutter: true,
+							dropCursor: false,
+							allowMultipleSelections: false,
+							indentOnInput: true,
+							bracketMatching: true,
+							closeBrackets: true,
+							autocompletion: true,
+							highlightSelectionMatches: false,
+						}}
+					/>
 				</div>
-				<CodeMirror
-					value={value}
-					height={onRunQuery ? "100%" : height}
-					className={onRunQuery ? "min-h-0 flex-1" : undefined}
-					width="100%"
-					extensions={extensions}
-					theme={isDark ? barf : rosePineDawn}
-					onChange={onChange}
-					editable={!disabled}
-					basicSetup={{
-						lineNumbers: true,
-						foldGutter: true,
-						dropCursor: false,
-						allowMultipleSelections: false,
-						indentOnInput: true,
-						bracketMatching: true,
-						closeBrackets: true,
-						autocompletion: true,
-						highlightSelectionMatches: false,
-					}}
-				/>
-			</div>
+			)}
 		</div>
 	);
 }

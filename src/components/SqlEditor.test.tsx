@@ -174,6 +174,33 @@ test("offers AI generation for an empty database", () => {
 	expect(prompt.parentElement?.className).toContain("rounded-lg");
 });
 
+test("replaces the editable query surface while an AI draft is under review", () => {
+	render(
+		<SqlEditor
+			value="SELECT id FROM users"
+			onChange={() => {}}
+			ai={{
+				configured: true,
+				state: {
+					instruction: "Add names",
+					draft: {
+						status: "ready",
+						originalSql: "SELECT id FROM users",
+						sql: "SELECT id, name FROM users",
+					},
+				},
+				onInstructionChange: () => {},
+				onDraftChange: () => {},
+				onGenerate: async () => {},
+				onDiscard: () => {},
+			}}
+		/>,
+	);
+
+	expect(screen.getByTestId("ai-draft")).toBeTruthy();
+	expect(screen.queryByTestId("code-mirror")).toBeNull();
+});
+
 test("keeps CodeMirror within the editor content box without an outer scroll layer", async () => {
 	const offsetWidth = Object.getOwnPropertyDescriptor(
 		HTMLElement.prototype,
