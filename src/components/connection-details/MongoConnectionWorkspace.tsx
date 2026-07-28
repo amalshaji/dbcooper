@@ -225,7 +225,9 @@ export function MongoConnectionWorkspace({
 						<DialogHeader>
 							<DialogTitle>Create collection</DialogTitle>
 							<DialogDescription>
-								Enter the database and collection as one namespace.
+								{workbench.namespace.database
+									? `Create a collection in ${workbench.namespace.database}.`
+									: "Enter the database and collection as one namespace."}
 							</DialogDescription>
 						</DialogHeader>
 						<div className="my-4 space-y-2">
@@ -233,14 +235,16 @@ export function MongoConnectionWorkspace({
 								htmlFor="mongo-new-namespace"
 								className="text-xs font-medium"
 							>
-								Namespace
+								{workbench.namespace.database ? "Collection name" : "Namespace"}
 							</label>
 							<Input
 								id="mongo-new-namespace"
 								autoFocus
 								value={newNamespace}
 								onChange={(event) => setNewNamespace(event.target.value)}
-								placeholder="database.collection"
+								placeholder={
+									workbench.namespace.database ? "users" : "database.collection"
+								}
 							/>
 						</div>
 						<DialogFooter>

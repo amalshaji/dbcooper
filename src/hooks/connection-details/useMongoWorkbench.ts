@@ -216,18 +216,20 @@ export function useMongoWorkbench(uuid: string) {
 	const createCollection = useCallback(
 		async (value: string) => {
 			const separator = value.indexOf(".");
-			if (separator < 1 || separator === value.length - 1) {
-				throw new Error("Use database.collection");
+			const database =
+				separator === -1 ? namespace.database : value.slice(0, separator);
+			const collection =
+				separator === -1 ? value : value.slice(separator + 1);
+			if (!database || !collection) {
+				throw new Error("Enter a collection name or database.collection");
 			}
-			const database = value.slice(0, separator);
-			const collection = value.slice(separator + 1);
 			await api.mongo.createCollection(uuid, database, collection);
 			await refreshCatalog();
 			setExpanded((current) => new Set(current).add(database));
 			setEditorSession((current) => ({ ...current, mode: "find" }));
 			setNamespace({ database, collection });
 		},
-		[refreshCatalog, uuid],
+		[namespace.database, refreshCatalog, uuid],
 	);
 
 	const dropCollection = useCallback(async () => {

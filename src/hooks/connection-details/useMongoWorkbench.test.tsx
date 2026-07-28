@@ -129,3 +129,19 @@ test("selects a newly created collection so the create action has a visible resu
 	expect(createdCollections).toEqual([{ database: "app", collection: "logs" }]);
 	expect(result.current.expanded.has("app")).toBe(true);
 });
+
+test("creates a bare collection name in the selected database", async () => {
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(result.current.namespace.database).toBe("app"));
+
+	await act(async () => {
+		await result.current.actions.createCollection("logs");
+	});
+
+	expect(createdCollections).toEqual([{ database: "app", collection: "logs" }]);
+	expect(result.current.namespace).toEqual({
+		database: "app",
+		collection: "logs",
+	});
+});
