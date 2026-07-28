@@ -148,11 +148,92 @@ export interface D1DatabaseList {
 	total_pages: number;
 }
 
+export interface MongoCollectionInfo {
+	database: string;
+	name: string;
+}
+
+export interface MongoDatabaseInfo {
+	name: string;
+	collections: MongoCollectionInfo[];
+}
+
+export interface MongoFindRequest {
+	database: string;
+	collection: string;
+	filter: Record<string, unknown>;
+	projection?: Record<string, unknown>;
+	sort?: Record<string, unknown>;
+	skip?: number;
+	limit?: number;
+}
+
+export interface MongoAggregateRequest {
+	database: string;
+	collection: string;
+	pipeline: Record<string, unknown>[];
+	limit?: number;
+}
+
+export interface MongoDocumentPage {
+	documents: Record<string, unknown>[];
+	returned_count: number;
+	has_more: boolean;
+	execution_time_ms: number;
+	estimated_total: number | null;
+}
+
+export interface MongoDocumentMutation {
+	database: string;
+	collection: string;
+	document: Record<string, unknown>;
+}
+
+export interface MongoReplaceRequest extends MongoDocumentMutation {
+	id: unknown;
+}
+
+export interface MongoDeleteRequest {
+	database: string;
+	collection: string;
+	id: unknown;
+}
+
+export interface MongoMutationResult {
+	acknowledged: boolean;
+	id: unknown | null;
+}
+
+export interface MongoIndexInfo {
+	name: string;
+	keys: Record<string, unknown>;
+	unique: boolean;
+	sparse: boolean;
+	expire_after_seconds: number | null;
+}
+
+export interface CreateMongoIndexRequest {
+	database: string;
+	collection: string;
+	keys: Array<{ field: string; direction: 1 | -1 }>;
+	name?: string;
+	unique: boolean;
+	sparse: boolean;
+	expire_after_seconds?: number;
+}
+
+export interface MongoValidatorSettings {
+	validator: Record<string, unknown>;
+	validation_level: "off" | "strict" | "moderate";
+	validation_action: "error" | "warn";
+}
+
 export interface SavedQuery {
 	id: number;
 	connection_uuid: string;
 	name: string;
 	query: string;
+	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
 	created_at: string;
 	updated_at: string;
 }
@@ -160,6 +241,7 @@ export interface SavedQuery {
 export interface SavedQueryFormData {
 	name: string;
 	query: string;
+	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
 }
 
 export interface SavedViewStateV1 {
@@ -200,6 +282,7 @@ export interface QueryHistory {
 	id: number;
 	connection_uuid: string;
 	query: string;
+	query_kind?: "sql" | "mongo_find" | "mongo_aggregate";
 	status: "success" | "error";
 	time_taken_ms: number | null;
 	row_count: number | null;
@@ -337,12 +420,64 @@ export const api = {
 			database: string;
 			username: string;
 			password: string;
+			connection_uri?: string | null;
 		}) => invoke<Connection>("docker_link_connection", { request }),
 		states: () => invoke<DockerConnectionState[]>("docker_connection_states"),
 		control: (uuid: string, action: "start" | "stop" | "restart") =>
 			invoke<void>("docker_control_connection", { uuid, action }),
 		connectionString: (uuid: string) =>
 			invoke<string>("docker_get_connection_string", { uuid }),
+	},
+
+	mongo: {
+		testConnection: (connectionUri: string) =>
+			invoke<TestConnectionResult>("mongo_test_connection", { connectionUri }),
+		listCatalog: (uuid: string) =>
+			invoke<MongoDatabaseInfo[]>("mongo_list_catalog", { uuid }),
+		find: (uuid: string, request: MongoFindRequest) =>
+			invoke<MongoDocumentPage>("mongo_find", { uuid, request }),
+		aggregate: (uuid: string, request: MongoAggregateRequest) =>
+			invoke<MongoDocumentPage>("mongo_aggregate", { uuid, request }),
+		insertOne: (uuid: string, request: MongoDocumentMutation) =>
+			invoke<MongoMutationResult>("mongo_insert_one", { uuid, request }),
+		replaceOne: (uuid: string, request: MongoReplaceRequest) =>
+			invoke<MongoMutationResult>("mongo_replace_one", { uuid, request }),
+		deleteOne: (uuid: string, request: MongoDeleteRequest) =>
+			invoke<MongoMutationResult>("mongo_delete_one", { uuid, request }),
+		createCollection: (uuid: string, database: string, collection: string) =>
+			invoke<void>("mongo_create_collection", { uuid, database, collection }),
+		dropCollection: (uuid: string, database: string, collection: string) =>
+			invoke<void>("mongo_drop_collection", { uuid, database, collection }),
+		listIndexes: (uuid: string, database: string, collection: string) =>
+			invoke<MongoIndexInfo[]>("mongo_list_indexes", {
+				uuid,
+				database,
+				collection,
+			}),
+		createIndex: (uuid: string, request: CreateMongoIndexRequest) =>
+			invoke<string>("mongo_create_index", { uuid, request }),
+		dropIndex: (
+			uuid: string,
+			database: string,
+			collection: string,
+			name: string,
+		) => invoke<void>("mongo_drop_index", { uuid, database, collection, name }),
+		getValidator: (uuid: string, database: string, collection: string) =>
+			invoke<MongoValidatorSettings>("mongo_get_validator", {
+				uuid,
+				database,
+				collection,
+			}),
+		setValidator: (
+			uuid: string,
+			request: {
+				database: string;
+				collection: string;
+				validator: Record<string, unknown>;
+				validation_level: "off" | "strict" | "moderate";
+				validation_action: "error" | "warn";
+			},
+		) => invoke<void>("mongo_set_validator", { uuid, request }),
 	},
 
 	d1: {
@@ -769,6 +904,7 @@ export const api = {
 		recordHistory: (args: {
 			connectionUuid: string;
 			query: string;
+			queryKind?: "sql" | "mongo_find" | "mongo_aggregate";
 			status: "success" | "error";
 			timeTakenMs?: number | null;
 			rowCount?: number | null;

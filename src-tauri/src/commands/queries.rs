@@ -22,16 +22,18 @@ pub async fn create_saved_query(
     connection_uuid: String,
     data: SavedQueryFormData,
 ) -> Result<SavedQuery, String> {
+    validate_query_kind(&data.query_kind)?;
     sqlx::query_as::<_, SavedQuery>(
         r#"
-        INSERT INTO saved_queries (connection_uuid, name, query)
-        VALUES (?, ?, ?)
+        INSERT INTO saved_queries (connection_uuid, name, query, query_kind)
+        VALUES (?, ?, ?, ?)
         RETURNING *
         "#,
     )
     .bind(&connection_uuid)
     .bind(&data.name)
     .bind(&data.query)
+    .bind(&data.query_kind)
     .fetch_one(pool.inner())
     .await
     .map_err(|e| e.to_string())
@@ -43,16 +45,18 @@ pub async fn update_saved_query(
     id: i64,
     data: SavedQueryFormData,
 ) -> Result<SavedQuery, String> {
+    validate_query_kind(&data.query_kind)?;
     sqlx::query_as::<_, SavedQuery>(
         r#"
         UPDATE saved_queries
-        SET name = ?, query = ?, updated_at = datetime('now')
+        SET name = ?, query = ?, query_kind = ?, updated_at = datetime('now')
         WHERE id = ?
         RETURNING *
         "#,
     )
     .bind(&data.name)
     .bind(&data.query)
+    .bind(&data.query_kind)
     .bind(id)
     .fetch_one(pool.inner())
     .await
@@ -76,21 +80,25 @@ pub async fn record_query_history(
     pool: State<'_, SqlitePool>,
     connection_uuid: String,
     query: String,
+    query_kind: Option<String>,
     status: String,
     time_taken_ms: Option<i64>,
     row_count: Option<i64>,
     rows_affected: Option<i64>,
     error: Option<String>,
 ) -> Result<(), String> {
+    let query_kind = query_kind.unwrap_or_else(|| "sql".to_string());
+    validate_query_kind(&query_kind)?;
     sqlx::query(
         r#"
         INSERT INTO query_history
-            (connection_uuid, query, status, time_taken_ms, row_count, rows_affected, error)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+            (connection_uuid, query, query_kind, status, time_taken_ms, row_count, rows_affected, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&connection_uuid)
     .bind(&query)
+    .bind(query_kind)
     .bind(&status)
     .bind(time_taken_ms)
     .bind(row_count)
@@ -122,6 +130,14 @@ pub async fn record_query_history(
     Ok(())
 }
 
+fn validate_query_kind(query_kind: &str) -> Result<(), String> {
+    if matches!(query_kind, "sql" | "mongo_find" | "mongo_aggregate") {
+        Ok(())
+    } else {
+        Err(format!("Unsupported query kind: {query_kind}"))
+    }
+}
+
 #[tauri::command]
 pub async fn get_query_history(
     pool: State<'_, SqlitePool>,
@@ -147,4 +163,17 @@ pub async fn clear_query_history(
         .await
         .map(|_| true)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_query_kind;
+
+    #[test]
+    fn accepts_only_versioned_query_families() {
+        for kind in ["sql", "mongo_find", "mongo_aggregate"] {
+            assert!(validate_query_kind(kind).is_ok());
+        }
+        assert!(validate_query_kind("mongo_command").is_err());
+    }
 }

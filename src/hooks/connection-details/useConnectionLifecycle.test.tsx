@@ -146,6 +146,24 @@ test("connects Redis without loading a relational schema", async () => {
 	expect(schemaCalls).toEqual([]);
 });
 
+test("connects MongoDB without loading a relational schema", async () => {
+	currentConnection = {
+		...connection,
+		type: "mongodb",
+		db_type: "mongodb",
+		connection_uri: "mongodb://localhost:27017/app",
+	};
+	const navigate = () => {};
+	const { result } = renderHook(() =>
+		useConnectionLifecycle({ uuid: connection.uuid, navigate }),
+	);
+
+	await waitFor(() => expect(result.current.opening.phase).toBe("complete"));
+
+	expect(result.current.connection.status).toBe("connected");
+	expect(schemaCalls).toEqual([]);
+});
+
 test("surfaces an initial failure and reconnects through one lifecycle command", async () => {
 	connectResults = [
 		{ status: "error", error: "database unavailable" },

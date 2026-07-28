@@ -28,6 +28,7 @@ pub struct LinkDockerDatabaseRequest {
     pub database: String,
     pub username: String,
     pub password: String,
+    pub connection_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,6 +64,10 @@ pub async fn docker_prepare_connection(
     let env = inspect.env();
     let (database, username, password) = credentials(&container_id, engine, &inspect, &env).await?;
     let defaults = engine.defaults();
+    let database = value_or_default(database, defaults.0);
+    let username = value_or_default(username, defaults.1);
+    let connection_uri = (engine == DockerDatabaseEngine::Mongodb)
+        .then(|| connection_string(engine, DEFAULT_HOST, &username, &password, port, &database));
     Ok(DockerConnectionDraft {
         container_id,
         container_name: inspect.name().to_string(),
@@ -70,9 +75,10 @@ pub async fn docker_prepare_connection(
         engine,
         host: DEFAULT_HOST.to_string(),
         port,
-        database: value_or_default(database, defaults.0),
-        username: value_or_default(username, defaults.1),
+        database,
+        username,
         password,
+        connection_uri,
         compose_project: inspect
             .config
             .labels
@@ -147,6 +153,14 @@ async fn credentials(
                 cli::env_value(container_id, env, "CLICKHOUSE_DB"),
                 cli::env_value(container_id, env, "CLICKHOUSE_USER"),
                 cli::env_value(container_id, env, "CLICKHOUSE_PASSWORD"),
+            )?;
+            Ok((database, username, password))
+        }
+        DockerDatabaseEngine::Mongodb => {
+            let (database, username, password) = tokio::try_join!(
+                cli::env_value(container_id, env, "MONGO_INITDB_DATABASE"),
+                cli::env_value(container_id, env, "MONGO_INITDB_ROOT_USERNAME"),
+                cli::env_value(container_id, env, "MONGO_INITDB_ROOT_PASSWORD"),
             )?;
             Ok((database, username, password))
         }
@@ -277,6 +291,20 @@ pub async fn docker_link_connection(
     .await?;
 
     let uuid = Uuid::new_v4().to_string();
+    let connection_uri = if request.engine == DockerDatabaseEngine::Mongodb {
+        Some(request.connection_uri.unwrap_or_else(|| {
+            connection_string(
+                request.engine,
+                &request.host,
+                &request.username,
+                &request.password,
+                request.port,
+                &request.database,
+            )
+        }))
+    } else {
+        None
+    };
     let data = ConnectionFormData {
         connection_type: request.engine.db_type().to_string(),
         name: name.to_string(),
@@ -288,6 +316,7 @@ pub async fn docker_link_connection(
         ssl: false,
         db_type: request.engine.db_type().to_string(),
         file_path: None,
+        connection_uri,
         ssh_enabled: false,
         ssh_host: String::new(),
         ssh_port: 22,
@@ -401,6 +430,17 @@ pub async fn ensure_created_connection_running(
         .map_err(|error| error.to_string())?;
     let engine = DockerDatabaseEngine::from_db_type(&connection.db_type)
         .ok_or_else(|| "Unsupported managed database type".to_string())?;
+    if engine == DockerDatabaseEngine::Mongodb {
+        let uri = connection_string(
+            engine,
+            &connection.host,
+            &connection.username,
+            &connection.password,
+            connection.port,
+            &connection.database,
+        );
+        store::update_connection_uri(pool, uuid, &uri).await?;
+    }
     cli::wait_until_ready(
         &container.id,
         engine,

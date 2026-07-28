@@ -23,6 +23,7 @@ pub async fn get_connection_config(
         password: Some(conn.password),
         ssl: Some(conn.ssl == 1),
         file_path: conn.file_path,
+        connection_uri: conn.connection_uri,
         ssh_enabled: conn.ssh_enabled == 1,
         ssh_host: if conn.ssh_host.is_empty() {
             None

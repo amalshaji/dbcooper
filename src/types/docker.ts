@@ -12,6 +12,7 @@ export const DOCKER_DATABASE_ENGINES = [
 		label: "ClickHouse 25.8",
 		defaultName: "Local ClickHouse",
 	},
+	{ value: "mongodb", label: "MongoDB 8.0", defaultName: "Local MongoDB" },
 ] as const;
 
 export type DockerDatabaseEngine =
@@ -49,6 +50,7 @@ export interface DockerConnectionDraft {
 	database: string;
 	username: string;
 	password: string;
+	connection_uri: string | null;
 	compose_project: string | null;
 	compose_service: string | null;
 }

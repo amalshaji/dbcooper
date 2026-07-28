@@ -117,6 +117,7 @@ export function ConnectDockerDialog({
 				database: mode.draft.database,
 				username: mode.draft.username,
 				password: mode.draft.password,
+				connection_uri: mode.draft.connection_uri,
 			});
 			await onLinked(connection);
 			onOpenChange(false);
@@ -157,8 +158,8 @@ export function ConnectDockerDialog({
 						<div className="space-y-1">
 							<p className="text-sm font-medium">Choose database type</p>
 							<p className="text-xs text-muted-foreground">
-								Port 3306 can host MySQL or MariaDB, and the image name does
-								not identify which one this is.
+								Port 3306 can host MySQL or MariaDB, and the image name does not
+								identify which one this is.
 							</p>
 						</div>
 						<div className="space-y-2">
@@ -175,9 +176,7 @@ export function ConnectDockerDialog({
 								}}
 							>
 								<SelectTrigger id="docker-engine-choice" className="w-full">
-									<SelectValue>
-										{engineLabel(mode.selectedEngine)}
-									</SelectValue>
+									<SelectValue>{engineLabel(mode.selectedEngine)}</SelectValue>
 								</SelectTrigger>
 								<SelectContent>
 									{mode.engines.map((engine) => (
@@ -221,8 +220,7 @@ export function ConnectDockerDialog({
 							mode.status === "editing" ? link : () => onOpenChange(false)
 						}
 						disabled={
-							loading ||
-							(mode.status === "editing" ? !mode.name.trim() : false)
+							loading || (mode.status === "editing" ? !mode.name.trim() : false)
 						}
 					>
 						{loading && mode.status === "editing" && <Spinner />}

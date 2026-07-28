@@ -44,6 +44,19 @@ export function DockerConnectionFields({
 					onChange={(event) => onNameChange(event.target.value)}
 				/>
 			</div>
+			{draft.engine === "mongodb" && (
+				<div className="col-span-2 space-y-2">
+					<Label htmlFor="link-connection-uri">Connection URI</Label>
+					<Input
+						id="link-connection-uri"
+						type="password"
+						value={draft.connection_uri || ""}
+						onChange={(event) =>
+							onDraftChange({ ...draft, connection_uri: event.target.value })
+						}
+					/>
+				</div>
+			)}
 			{textField("host")}
 			<div className="space-y-2">
 				<Label htmlFor="link-port">Port</Label>

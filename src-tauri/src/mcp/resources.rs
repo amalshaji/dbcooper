@@ -21,10 +21,23 @@ pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, M
 
     for conn in &connections {
         if server.pool_manager.get_cached(&conn.uuid).await.is_some() {
+            let suffix = if conn.db_type == "mongodb" {
+                "catalog"
+            } else {
+                "schema"
+            };
             resources.push(
                 RawResource::new(
-                    format!("dbcooper://connection/{}/schema", conn.uuid),
-                    format!("{} Schema", conn.name),
+                    format!("dbcooper://connection/{}/{}", conn.uuid, suffix),
+                    format!(
+                        "{} {}",
+                        conn.name,
+                        if suffix == "catalog" {
+                            "Catalog"
+                        } else {
+                            "Schema"
+                        }
+                    ),
                 )
                 .with_description(format!(
                     "Schema overview for {} ({})",
@@ -57,10 +70,34 @@ pub async fn read_resource(
         return read_schema(server, uuid).await;
     }
 
+    if let Some(uuid) = uri
+        .strip_prefix("dbcooper://connection/")
+        .and_then(|rest| rest.strip_suffix("/catalog"))
+    {
+        return read_catalog(server, uuid).await;
+    }
+
     Err(McpError::resource_not_found(
         format!("Unknown resource: {}", uri),
         None,
     ))
+}
+
+async fn read_catalog(server: &McpServer, uuid: &str) -> Result<ReadResourceResult, McpError> {
+    server.ensure_connected(uuid).await?;
+    let catalog = server
+        .pool_manager
+        .get_mongo_driver(uuid)
+        .await
+        .map_err(|error| McpError::invalid_params(error, None))?
+        .catalog()
+        .await
+        .map_err(|error| McpError::internal_error(error, None))?;
+    let text = serde_json::to_string_pretty(&catalog).unwrap_or_else(|_| "[]".to_string());
+    Ok(ReadResourceResult::new(vec![ResourceContents::text(
+        text,
+        format!("dbcooper://connection/{}/catalog", uuid),
+    )]))
 }
 
 async fn read_connections(server: &McpServer) -> Result<ReadResourceResult, McpError> {

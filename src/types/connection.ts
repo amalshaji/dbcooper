@@ -6,7 +6,8 @@ export type ConnectionType =
 	| "duckdb"
 	| "redis"
 	| "clickhouse"
-	| "d1";
+	| "d1"
+	| "mongodb";
 
 export interface Connection {
 	id: number;
@@ -21,6 +22,7 @@ export interface Connection {
 	ssl: number;
 	db_type: ConnectionType;
 	file_path: string | null;
+	connection_uri?: string | null;
 	ssh_enabled: number;
 	ssh_host: string;
 	ssh_port: number;
@@ -33,13 +35,23 @@ export interface Connection {
 }
 
 export type SqlConnection = Omit<Connection, "type"> & {
-	type: Exclude<ConnectionType, "redis">;
+	type: Exclude<ConnectionType, "redis" | "mongodb">;
 };
 
 export function isSqlConnection(
 	connection: Connection,
 ): connection is SqlConnection {
-	return connection.type !== "redis";
+	return connection.type !== "redis" && connection.type !== "mongodb";
+}
+
+export type MongoConnection = Omit<Connection, "type"> & {
+	type: "mongodb";
+};
+
+export function isMongoConnection(
+	connection: Connection,
+): connection is MongoConnection {
+	return connection.type === "mongodb";
 }
 
 export type ConnectionFormData = {
@@ -54,6 +66,7 @@ export type ConnectionFormData = {
 	ssl: boolean;
 	db_type: ConnectionType;
 	file_path?: string;
+	connection_uri?: string;
 	ssh_enabled?: boolean;
 	ssh_host?: string;
 	ssh_port?: number;

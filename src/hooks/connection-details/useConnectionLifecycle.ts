@@ -145,7 +145,7 @@ export function useConnectionLifecycle({
 				const connectResult = await api.pool.connect(uuid);
 				if (connectResult.status === "connected") {
 					markConnected();
-					if (connection.type !== "redis") {
+					if (connection.type !== "redis" && connection.type !== "mongodb") {
 						setLoadingPhase("loading-schema");
 						await loadSchema();
 					}
@@ -198,7 +198,9 @@ export function useConnectionLifecycle({
 			}
 			markConnected();
 			toast.success("Reconnected successfully");
-			if (connection?.type !== "redis") await loadSchema();
+			if (connection?.type !== "redis" && connection?.type !== "mongodb") {
+				await loadSchema();
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			markDisconnected(message);

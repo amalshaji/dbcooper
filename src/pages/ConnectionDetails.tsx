@@ -7,10 +7,11 @@ import {
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import { SqlConnectionWorkspace } from "@/components/connection-details/SqlConnectionWorkspace";
+import { MongoConnectionWorkspace } from "@/components/connection-details/MongoConnectionWorkspace";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
 import { useNativeCloseListener } from "@/hooks/connection-details/useNativeCloseListener";
-import { isSqlConnection } from "@/types/connection";
+import { isMongoConnection, isSqlConnection } from "@/types/connection";
 
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
@@ -57,6 +58,17 @@ export function ConnectionDetails() {
 				connection={connection}
 				lifecycle={lifecycle}
 				onClose={closeConnection}
+			/>
+		);
+	}
+
+	if (isMongoConnection(connection)) {
+		return (
+			<MongoConnectionWorkspace
+				connection={connection}
+				lifecycle={lifecycle}
+				onClose={closeConnection}
+				onOpenSettings={openSettings}
 			/>
 		);
 	}

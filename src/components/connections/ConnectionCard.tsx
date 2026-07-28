@@ -11,6 +11,7 @@ import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
 import { DuckdbIcon } from "@/components/icons/duckdb";
 import { CloudflareIcon } from "@/components/icons/cloudflare";
+import { MongodbIcon } from "@/components/icons/mongodb";
 import { Badge } from "@/components/ui/badge";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -106,6 +107,12 @@ function dbTypeConfig(type: string) {
 				iconClass: "bg-orange-500/10 text-orange-700 dark:text-orange-400",
 				accentClass: "bg-orange-500",
 			};
+		case "mongodb":
+			return {
+				icon: MongodbIcon,
+				iconClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+				accentClass: "bg-emerald-500",
+			};
 		default:
 			return {
 				icon: Database,
@@ -199,7 +206,9 @@ export function ConnectionCard({
 									? connection.file_path?.split("/").pop() || "Local file"
 									: connection.type === "d1"
 										? getConnectionDatabaseDisplay(connection)
-										: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
+										: connection.type === "mongodb"
+											? "MongoDB connection URI"
+											: `${connection.host}:${connection.port}${connection.database ? ` • ${connection.database}` : ""}`}
 							</p>
 						</div>
 						<ConnectionActionsDropdown {...actionProps} />

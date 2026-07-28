@@ -80,6 +80,34 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      mongodb7:
+        image: mongo:7.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: dbcooper
+          MONGO_INITDB_ROOT_PASSWORD: dbcooper
+          MONGO_INITDB_DATABASE: testdb
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --username dbcooper --password dbcooper --authenticationDatabase admin --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      mongodb8:
+        image: mongo:8.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: dbcooper
+          MONGO_INITDB_ROOT_PASSWORD: dbcooper
+          MONGO_INITDB_DATABASE: testdb
+        ports:
+          - 27018:27017
+        options: >-
+          --health-cmd "mongosh --quiet --username dbcooper --password dbcooper --authenticationDatabase admin --eval 'db.adminCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v6
 
@@ -118,6 +146,7 @@ jobs:
         working-directory: src-tauri
         env:
           DBCOOPER_DUCKDB_CLI: ${{ runner.temp }}/duckdb/duckdb
+          DBCOOPER_MONGODB_TEST_URIS: mongodb://dbcooper:dbcooper@127.0.0.1:27017/testdb?authSource=admin&directConnection=true,mongodb://dbcooper:dbcooper@127.0.0.1:27018/testdb?authSource=admin&directConnection=true
         run: cargo test -- --test-threads=1
 
   canary:

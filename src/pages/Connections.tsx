@@ -209,6 +209,7 @@ export function Connections() {
 				ssl: Boolean(connection.ssl),
 				db_type: connection.db_type,
 				file_path: connection.file_path ?? undefined,
+				connection_uri: connection.connection_uri ?? undefined,
 				ssh_enabled: connection.ssh_enabled
 					? Boolean(connection.ssh_enabled)
 					: undefined,

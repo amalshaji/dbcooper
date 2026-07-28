@@ -28,6 +28,7 @@ pub async fn create_connection(
     pool: State<'_, SqlitePool>,
     data: ConnectionFormData,
 ) -> Result<Connection, String> {
+    validate_connection_data(&data)?;
     let uuid = Uuid::new_v4().to_string();
     let ssl = if data.ssl { 1 } else { 0 };
     let ssh_enabled = if data.ssh_enabled { 1 } else { 0 };
@@ -35,8 +36,8 @@ pub async fn create_connection(
 
     sqlx::query_as::<_, Connection>(
         r#"
-        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, connection_uri, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -51,6 +52,7 @@ pub async fn create_connection(
     .bind(ssl)
     .bind(&data.db_type)
     .bind(&data.file_path)
+    .bind(connection_uri_for(&data))
     .bind(ssh_enabled)
     .bind(&data.ssh_host)
     .bind(data.ssh_port)
@@ -69,6 +71,7 @@ pub async fn update_connection(
     id: i64,
     data: ConnectionFormData,
 ) -> Result<Connection, String> {
+    validate_connection_data(&data)?;
     let ssl = if data.ssl { 1 } else { 0 };
     let ssh_enabled = if data.ssh_enabled { 1 } else { 0 };
     let ssh_use_key = if data.ssh_use_key { 1 } else { 0 };
@@ -77,7 +80,7 @@ pub async fn update_connection(
         r#"
         UPDATE connections
         SET type = ?, name = ?, host = ?, port = ?, database = ?, username = ?, password = ?, ssl = ?,
-            db_type = ?, file_path = ?,
+            db_type = ?, file_path = ?, connection_uri = ?,
             ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_user = ?, ssh_password = ?, ssh_key_path = ?, ssh_use_key = ?,
             updated_at = datetime('now')
         WHERE id = ?
@@ -94,6 +97,7 @@ pub async fn update_connection(
     .bind(ssl)
     .bind(&data.db_type)
     .bind(&data.file_path)
+    .bind(connection_uri_for(&data))
     .bind(ssh_enabled)
     .bind(&data.ssh_host)
     .bind(data.ssh_port)
@@ -131,6 +135,8 @@ pub struct ExportedConnection {
     pub ssl: bool,
     pub db_type: String,
     pub file_path: Option<String>,
+    #[serde(default)]
+    pub connection_uri: Option<String>,
     pub ssh_enabled: bool,
     pub ssh_host: String,
     pub ssh_port: i64,
@@ -170,6 +176,7 @@ pub async fn export_connection(
         ssl: connection.ssl == 1,
         db_type: connection.db_type,
         file_path: connection.file_path,
+        connection_uri: connection.connection_uri,
         ssh_enabled: connection.ssh_enabled == 1,
         ssh_host: connection.ssh_host,
         ssh_port: connection.ssh_port,
@@ -180,7 +187,7 @@ pub async fn export_connection(
     };
 
     Ok(ConnectionsExport {
-        version: 1,
+        version: 2,
         exported_at: chrono::Utc::now().to_rfc3339(),
         connections: vec![exported],
     })
@@ -191,11 +198,37 @@ pub async fn import_connections(
     pool: State<'_, SqlitePool>,
     data: ConnectionsExport,
 ) -> Result<u32, String> {
-    if data.version != 1 {
+    if data.version != 1 && data.version != 2 {
         return Err(format!(
-            "Unsupported export version: {}. Expected version 1.",
+            "Unsupported export version: {}. Expected version 1 or 2.",
             data.version
         ));
+    }
+    if data.version == 1
+        && data
+            .connections
+            .iter()
+            .any(|connection| connection.db_type == "mongodb")
+    {
+        return Err("MongoDB connections require export version 2".to_string());
+    }
+    for connection in &data.connections {
+        if (connection.db_type == "mongodb" || connection.connection_type == "mongodb")
+            && (connection.db_type != "mongodb" || connection.connection_type != "mongodb")
+        {
+            return Err("MongoDB connection type and driver type must match".to_string());
+        }
+        if connection.db_type == "mongodb" {
+            if connection.ssh_enabled {
+                return Err("SSH tunnels are not supported for MongoDB".to_string());
+            }
+            crate::database::mongodb::validate_connection_uri(
+                connection
+                    .connection_uri
+                    .as_deref()
+                    .ok_or_else(|| "MongoDB connection URI is required".to_string())?,
+            )?;
+        }
     }
 
     let mut imported_count = 0u32;
@@ -228,8 +261,8 @@ pub async fn import_connections(
 
         let result = sqlx::query(
             r#"
-            INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, connection_uri, ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&uuid)
@@ -243,6 +276,11 @@ pub async fn import_connections(
         .bind(ssl)
         .bind(&conn.db_type)
         .bind(&conn.file_path)
+        .bind(
+            (conn.db_type == "mongodb")
+                .then(|| conn.connection_uri.as_deref())
+                .flatten(),
+        )
         .bind(ssh_enabled)
         .bind(&conn.ssh_host)
         .bind(conn.ssh_port)
@@ -259,4 +297,28 @@ pub async fn import_connections(
     }
 
     Ok(imported_count)
+}
+
+fn validate_connection_data(data: &ConnectionFormData) -> Result<(), String> {
+    let uses_mongodb = data.db_type == "mongodb" || data.connection_type == "mongodb";
+    if !uses_mongodb {
+        return Ok(());
+    }
+    if data.db_type != "mongodb" || data.connection_type != "mongodb" {
+        return Err("MongoDB connection type and driver type must match".to_string());
+    }
+    if data.ssh_enabled {
+        return Err("SSH tunnels are not supported for MongoDB".to_string());
+    }
+    let uri = data
+        .connection_uri
+        .as_deref()
+        .ok_or_else(|| "MongoDB connection URI is required".to_string())?;
+    crate::database::mongodb::validate_connection_uri(uri)
+}
+
+fn connection_uri_for(data: &ConnectionFormData) -> Option<&str> {
+    (data.db_type == "mongodb")
+        .then(|| data.connection_uri.as_deref())
+        .flatten()
 }

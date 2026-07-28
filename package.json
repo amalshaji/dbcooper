@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",
+    "@codemirror/lang-json": "6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/state": "^6.5.2",
     "@codemirror/theme-one-dark": "^6.1.3",

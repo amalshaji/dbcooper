@@ -16,6 +16,7 @@ pub enum DockerDatabaseEngine {
     Mariadb,
     Redis,
     Clickhouse,
+    Mongodb,
 }
 
 impl DockerDatabaseEngine {
@@ -26,6 +27,7 @@ impl DockerDatabaseEngine {
             Self::Mariadb => "mariadb",
             Self::Redis => "redis",
             Self::Clickhouse => "clickhouse",
+            Self::Mongodb => "mongodb",
         }
     }
 
@@ -35,6 +37,7 @@ impl DockerDatabaseEngine {
             Self::Mysql | Self::Mariadb => 3306,
             Self::Redis => 6379,
             Self::Clickhouse => 8123,
+            Self::Mongodb => 27017,
         }
     }
 
@@ -45,6 +48,7 @@ impl DockerDatabaseEngine {
             Self::Mariadb => "mariadb:11.4",
             Self::Redis => "redis:7-alpine",
             Self::Clickhouse => "clickhouse/clickhouse-server:25.8-alpine",
+            Self::Mongodb => "mongo:8.0",
         }
     }
 
@@ -54,6 +58,7 @@ impl DockerDatabaseEngine {
             Self::Mysql | Self::Mariadb => "/var/lib/mysql",
             Self::Redis => "/data",
             Self::Clickhouse => "/var/lib/clickhouse",
+            Self::Mongodb => "/data/db",
         }
     }
 
@@ -63,6 +68,7 @@ impl DockerDatabaseEngine {
             Self::Mysql | Self::Mariadb => ("dbcooper", "root"),
             Self::Redis => ("0", "default"),
             Self::Clickhouse => ("default", "default"),
+            Self::Mongodb => ("dbcooper", ""),
         }
     }
 
@@ -73,6 +79,7 @@ impl DockerDatabaseEngine {
             "mariadb" => Some(Self::Mariadb),
             "redis" => Some(Self::Redis),
             "clickhouse" => Some(Self::Clickhouse),
+            "mongodb" | "mongo" => Some(Self::Mongodb),
             _ => None,
         }
     }
@@ -181,6 +188,7 @@ pub struct DockerConnectionDraft {
     pub database: String,
     pub username: String,
     pub password: String,
+    pub connection_uri: Option<String>,
     pub compose_project: Option<String>,
     pub compose_service: Option<String>,
 }
@@ -298,6 +306,14 @@ impl ManagedDatabasePlan {
                 "-e".into(),
                 "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1".into(),
             ]),
+            DockerDatabaseEngine::Mongodb => run_args.extend([
+                "-e".into(),
+                format!("MONGO_INITDB_ROOT_USERNAME={username}"),
+                "-e".into(),
+                format!("MONGO_INITDB_ROOT_PASSWORD={password}"),
+                "-e".into(),
+                format!("MONGO_INITDB_DATABASE={database}"),
+            ]),
         }
         run_args.push(engine.image().to_string());
         if engine == DockerDatabaseEngine::Redis {
@@ -333,6 +349,18 @@ impl ManagedDatabasePlan {
             ssl: false,
             db_type: self.engine.db_type().to_string(),
             file_path: None,
+            connection_uri: if self.engine == DockerDatabaseEngine::Mongodb {
+                Some(connection_string(
+                    self.engine,
+                    DEFAULT_HOST,
+                    &self.username,
+                    &self.password,
+                    port,
+                    &self.database,
+                ))
+            } else {
+                None
+            },
             ssh_enabled: false,
             ssh_host: String::new(),
             ssh_port: 22,
@@ -369,6 +397,10 @@ pub(crate) fn detect_engine(image: &str, ports: &[i64]) -> DockerEngineDetection
     } else if image.contains("mysql") {
         DockerEngineDetection::Detected {
             engine: DockerDatabaseEngine::Mysql,
+        }
+    } else if image.contains("mongo") || ports.contains(&27017) {
+        DockerEngineDetection::Detected {
+            engine: DockerDatabaseEngine::Mongodb,
         }
     } else if image.contains("postgres") || ports.contains(&5432) {
         DockerEngineDetection::Detected {
@@ -437,6 +469,14 @@ pub(crate) fn connection_string(
         }
         DockerDatabaseEngine::Clickhouse => {
             format!("http://{user}:{password}@{host}:{port}/?database={database}")
+        }
+        DockerDatabaseEngine::Mongodb => {
+            let credentials = if user.is_empty() && password.is_empty() {
+                String::new()
+            } else {
+                format!("{user}:{password}@")
+            };
+            format!("mongodb://{credentials}{host}:{port}/{database}?authSource=admin&directConnection=true")
         }
     }
 }
@@ -535,6 +575,18 @@ mod tests {
             }
         );
         assert_eq!(
+            detect_engine("mongo:8.0", &[]),
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Mongodb
+            }
+        );
+        assert_eq!(
+            detect_engine("company/documents", &[27017]),
+            DockerEngineDetection::Detected {
+                engine: DockerDatabaseEngine::Mongodb
+            }
+        );
+        assert_eq!(
             detect_engine("nginx:alpine", &[80]),
             DockerEngineDetection::Unsupported
         );
@@ -608,6 +660,44 @@ mod tests {
         assert!(plan
             .run_args
             .contains(&"clickhouse/clickhouse-server:25.8-alpine".to_string()));
+    }
+
+    #[test]
+    fn creates_mongodb_with_auth_and_persistent_storage() {
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Mongodb);
+        assert!(plan.run_args.contains(&"mongo:8.0".to_string()));
+        assert!(plan
+            .run_args
+            .windows(2)
+            .any(|args| args == ["-v", &format!("{}:/data/db", plan.volume_name)]));
+        assert!(plan.run_args.windows(2).any(|args| args
+            == [
+                "-e",
+                &format!("MONGO_INITDB_ROOT_USERNAME={}", plan.username)
+            ]));
+        let data = plan.connection_data("Local MongoDB", 27018);
+        assert_eq!(
+            data.connection_uri,
+            Some(format!(
+                "mongodb://dbcooper:{}@127.0.0.1:27018/dbcooper?authSource=admin&directConnection=true",
+                plan.password
+            ))
+        );
+    }
+
+    #[test]
+    fn formats_anonymous_mongodb_connection_strings_without_empty_credentials() {
+        assert_eq!(
+            connection_string(
+                DockerDatabaseEngine::Mongodb,
+                "127.0.0.1",
+                "",
+                "",
+                27017,
+                "dbcooper",
+            ),
+            "mongodb://127.0.0.1:27017/dbcooper?authSource=admin&directConnection=true"
+        );
     }
 
     #[test]

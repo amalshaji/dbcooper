@@ -7,6 +7,7 @@ import { MysqlIcon } from "@/components/icons/mysql";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { MongodbIcon } from "@/components/icons/mongodb";
 import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import { Spinner } from "@/components/ui/spinner";
 import type { DuckDbHelperProgress as DuckDbHelperProgressValue } from "@/lib/duckdbHelper";
@@ -37,6 +38,8 @@ export function DatabaseIcon({
 			return <ClickhouseIcon className="size-8" />;
 		case "d1":
 			return <CloudflareIcon className="h-4 w-8" />;
+		case "mongodb":
+			return <MongodbIcon className="size-8" />;
 		default:
 			return <Database className="size-8" />;
 	}
@@ -78,7 +81,7 @@ export function ConnectionOpeningScreen({
 						label: "Establishing connection",
 					},
 				]),
-		...(connection?.type !== "redis"
+		...(connection?.type !== "redis" && connection?.type !== "mongodb"
 			? [
 					{
 						phase: "loading-schema" as LoadingPhase,

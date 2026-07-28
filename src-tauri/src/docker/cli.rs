@@ -376,6 +376,20 @@ fn readiness_args(
             "--query".into(),
             "SELECT 1".into(),
         ],
+        DockerDatabaseEngine::Mongodb => vec![
+            "exec".into(),
+            container_id.into(),
+            "mongosh".into(),
+            "--quiet".into(),
+            "--username".into(),
+            username.into(),
+            "--password".into(),
+            password.into(),
+            "--authenticationDatabase".into(),
+            "admin".into(),
+            "--eval".into(),
+            "db.adminCommand({ping:1})".into(),
+        ],
     }
 }
 
@@ -496,6 +510,33 @@ mod tests {
                 "analytics",
                 "--query",
                 "SELECT 1",
+            ]
+        );
+    }
+
+    #[test]
+    fn builds_mongodb_readiness_command() {
+        assert_eq!(
+            readiness_args(
+                "container-id",
+                DockerDatabaseEngine::Mongodb,
+                "dbcooper",
+                "secret",
+                "dbcooper",
+            ),
+            vec![
+                "exec",
+                "container-id",
+                "mongosh",
+                "--quiet",
+                "--username",
+                "dbcooper",
+                "--password",
+                "secret",
+                "--authenticationDatabase",
+                "admin",
+                "--eval",
+                "db.adminCommand({ping:1})",
             ]
         );
     }

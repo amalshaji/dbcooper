@@ -6,6 +6,7 @@ pub mod d1;
 pub mod driver_factory;
 pub mod duckdb;
 pub mod filter;
+pub mod mongodb;
 pub mod mutation;
 pub mod mysql;
 mod mysql_read_only;
@@ -336,6 +337,7 @@ pub enum DatabaseType {
     Redis,
     Clickhouse,
     D1,
+    Mongo,
 }
 
 impl DatabaseType {
@@ -349,6 +351,7 @@ impl DatabaseType {
             Self::Redis => "redis",
             Self::Clickhouse => "clickhouse",
             Self::D1 => "d1",
+            Self::Mongo => "mongodb",
         }
     }
 
@@ -359,11 +362,12 @@ impl DatabaseType {
             Self::Redis => 6379,
             Self::Clickhouse => 8123,
             Self::D1 => 443,
+            Self::Mongo => 27017,
         }
     }
 
     pub fn qualifies_tables_with_schema(self) -> bool {
-        !matches!(self, Self::Sqlite | Self::D1)
+        !matches!(self, Self::Sqlite | Self::D1 | Self::Mongo)
     }
 
     pub fn replays_failed_reads_after_reconnect(self) -> bool {
@@ -384,6 +388,7 @@ impl TryFrom<&str> for DatabaseType {
             "redis" => Ok(Self::Redis),
             "clickhouse" => Ok(Self::Clickhouse),
             "d1" | "cloudflare-d1" => Ok(Self::D1),
+            "mongo" | "mongodb" => Ok(Self::Mongo),
             _ => Err(format!("Unsupported database type: {value}")),
         }
     }
@@ -422,6 +427,9 @@ mod database_type_tests {
         assert_eq!(DatabaseType::Mariadb.default_port(), 3306);
         assert_eq!(DatabaseType::Redis.default_port(), 6379);
         assert_eq!(DatabaseType::Clickhouse.default_port(), 8123);
+        assert_eq!(DatabaseType::try_from("mongodb"), Ok(DatabaseType::Mongo));
+        assert_eq!(DatabaseType::try_from("mongo"), Ok(DatabaseType::Mongo));
+        assert_eq!(DatabaseType::Mongo.default_port(), 27017);
         assert_eq!(DatabaseType::D1.default_port(), 443);
     }
 

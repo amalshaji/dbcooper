@@ -9,9 +9,9 @@ async fn insert_connection(
 ) -> Result<Connection, String> {
     sqlx::query_as::<_, Connection>(
         r#"INSERT INTO connections
-        (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path,
+        (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, connection_uri,
          ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 0, '', 22, '', '', '', 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, 0, '', 22, '', '', '', 0)
         RETURNING *"#,
     )
     .bind(uuid)
@@ -23,6 +23,7 @@ async fn insert_connection(
     .bind(&data.username)
     .bind(&data.password)
     .bind(&data.db_type)
+    .bind(&data.connection_uri)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|error| error.to_string())
@@ -125,6 +126,22 @@ pub(crate) async fn update_connection_port(
         .map_err(|error| error.to_string())
 }
 
+pub(crate) async fn update_connection_uri(
+    pool: &SqlitePool,
+    uuid: &str,
+    connection_uri: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE connections SET connection_uri = ?, updated_at = datetime('now') WHERE uuid = ?",
+    )
+    .bind(connection_uri)
+    .bind(uuid)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
 pub(crate) async fn delete_connection_with_link(
     pool: &SqlitePool,
     id: i64,
@@ -209,7 +226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_unsupported_engine_values() {
+    async fn stores_engine_identifiers_without_a_database_allowlist() {
         let pool = test_pool().await;
         let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Postgres);
         let data = plan.connection_data("Local Postgres", 55432);
@@ -219,13 +236,20 @@ mod tests {
             .await
             .unwrap();
 
-        let result = sqlx::query(
+        sqlx::query(
             "UPDATE docker_connections SET engine = 'unsupported' WHERE connection_uuid = ?",
         )
         .bind(&plan.uuid)
         .execute(&pool)
-        .await;
+        .await
+        .unwrap();
 
-        assert!(result.is_err());
+        let stored: String =
+            sqlx::query_scalar("SELECT engine FROM docker_connections WHERE connection_uuid = ?")
+                .bind(&plan.uuid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, "unsupported");
     }
 }
