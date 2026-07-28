@@ -1,12 +1,24 @@
 import { type SQLConfig, sql } from "@codemirror/lang-sql";
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
+import {
+	CaretDown,
+	PlayCircle,
+	Sparkle,
+	Warning,
+	WarningCircle,
+} from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
 import { useEffect, useMemo, useState } from "react";
 import { barf, rosePineDawn } from "thememirror";
 import { SqlAIPreview } from "@/components/SqlAIPreview";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -44,6 +56,8 @@ interface SqlEditorProps {
 	value: string;
 	onChange: (value: string) => void;
 	onRunQuery?: () => void;
+	onRunAllQueries?: () => void;
+	executing?: boolean;
 	disabled?: boolean;
 	height?: string;
 	tables?: TableSchema[];
@@ -56,6 +70,8 @@ export function SqlEditor({
 	value,
 	onChange,
 	onRunQuery,
+	onRunAllQueries,
+	executing = false,
 	height = "300px",
 	tables = [],
 	ai,
@@ -90,7 +106,12 @@ export function SqlEditor({
 					{
 						key: "Mod-Enter",
 						run: (view) => {
-							if (onRunQuery && !disabled && view.state.doc.toString().trim()) {
+							if (
+								onRunQuery &&
+								!disabled &&
+								!executing &&
+								view.state.doc.toString().trim()
+							) {
 								onRunQuery();
 								return true;
 							}
@@ -99,7 +120,7 @@ export function SqlEditor({
 					},
 				]),
 			),
-		[onRunQuery, disabled],
+		[onRunQuery, disabled, executing],
 	);
 
 	const fontTheme = useMemo(
@@ -259,44 +280,96 @@ export function SqlEditor({
 				/>
 			)}
 			<div
-				className="relative min-w-0 overflow-hidden rounded-md border font-mono"
+				className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
+					onRunQuery ? " flex flex-col" : ""
+				}`}
+				style={onRunQuery ? { height } : undefined}
 			>
-				<div className="absolute top-2 right-2 z-10 flex gap-1">
-					{cursorWarning && (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<div className="cursor-pointer">
-										<Warning className="w-5 h-5 text-amber-500" weight="fill" />
-									</div>
-								}
-							/>
-							<TooltipContent>
-								<p>{cursorWarning}</p>
-							</TooltipContent>
-						</Tooltip>
-					)}
-					{value.trim() === "" && (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<div className="cursor-pointer">
-										<WarningCircle
-											className="w-5 h-5 text-red-500"
-											weight="fill"
-										/>
-									</div>
-								}
-							/>
-							<TooltipContent>
-								<p>Query is empty - cannot execute</p>
-							</TooltipContent>
-						</Tooltip>
+				<div
+					className={`z-10 flex gap-1 ${
+						onRunQuery
+							? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
+							: "absolute top-2 right-2"
+					}`}
+				>
+					<div className="flex items-center gap-1">
+						{cursorWarning && (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<div className="cursor-pointer">
+											<Warning
+												className="w-5 h-5 text-amber-500"
+												weight="fill"
+											/>
+										</div>
+									}
+								/>
+								<TooltipContent>
+									<p>{cursorWarning}</p>
+								</TooltipContent>
+							</Tooltip>
+						)}
+						{value.trim() === "" && (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<div className="cursor-pointer">
+											<WarningCircle
+												className="w-5 h-5 text-red-500"
+												weight="fill"
+											/>
+										</div>
+									}
+								/>
+								<TooltipContent>
+									<p>Query is empty - cannot execute</p>
+								</TooltipContent>
+							</Tooltip>
+						)}
+					</div>
+					{onRunQuery && (
+						<div className="flex">
+							<Button
+								size="sm"
+								onClick={onRunQuery}
+								disabled={disabled || executing || !value.trim()}
+								className="rounded-r-none border-r-0 -mr-1"
+							>
+								{executing ? <Spinner /> : null}
+								Run query{" "}
+								<span className="text-xs opacity-60">
+									({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
+								</span>
+							</Button>
+							{onRunAllQueries && (
+								<DropdownMenu>
+									<DropdownMenuTrigger
+										render={
+											<Button
+												size="sm"
+												className="rounded-l-none border border-border px-1"
+												disabled={disabled || executing || !value.trim()}
+											>
+												<CaretDown className="w-4 h-4" />
+											</Button>
+										}
+									/>
+									<DropdownMenuContent align="end">
+										<DropdownMenuItem onClick={onRunAllQueries}>
+											<PlayCircle className="w-4 h-4" />
+											Run all queries
+										</DropdownMenuItem>
+									</DropdownMenuContent>
+								</DropdownMenu>
+							)}
+						</div>
 					)}
 				</div>
 				<CodeMirror
 					value={value}
-					height={height}
+					height={onRunQuery ? "100%" : height}
+					className={onRunQuery ? "min-h-0 flex-1" : undefined}
 					width="100%"
 					extensions={extensions}
 					theme={isDark ? barf : rosePineDawn}

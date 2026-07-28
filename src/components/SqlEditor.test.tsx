@@ -41,6 +41,32 @@ mock.module("@/components/ui/button", () => ({
 		<button {...props}>{children}</button>
 	),
 }));
+
+const DropdownPassThrough = ({
+	children,
+	render,
+}: {
+	children?: ReactNode;
+	render?: ReactNode;
+}) => <>{render ?? children}</>;
+
+mock.module("@/components/ui/dropdown-menu", () => ({
+	DropdownMenu: DropdownPassThrough,
+	DropdownMenuPortal: DropdownPassThrough,
+	DropdownMenuTrigger: DropdownPassThrough,
+	DropdownMenuContent: DropdownPassThrough,
+	DropdownMenuGroup: DropdownPassThrough,
+	DropdownMenuLabel: DropdownPassThrough,
+	DropdownMenuItem: DropdownPassThrough,
+	DropdownMenuCheckboxItem: DropdownPassThrough,
+	DropdownMenuRadioGroup: DropdownPassThrough,
+	DropdownMenuRadioItem: DropdownPassThrough,
+	DropdownMenuSeparator: () => null,
+	DropdownMenuShortcut: DropdownPassThrough,
+	DropdownMenuSub: DropdownPassThrough,
+	DropdownMenuSubTrigger: DropdownPassThrough,
+	DropdownMenuSubContent: DropdownPassThrough,
+}));
 mock.module("@/components/ui/input", () => ({
 	Input: (props: ComponentProps<"input">) => <input {...props} />,
 }));
@@ -169,4 +195,25 @@ test("keeps CodeMirror within the editor content box without an outer scroll lay
 			Reflect.deleteProperty(HTMLElement.prototype, "offsetWidth");
 		}
 	}
+});
+
+test("keeps the Run query control inside the editor frame", () => {
+	const onRunQuery = () => {};
+	const { rerender } = render(
+		<SqlEditor value="" onChange={() => {}} onRunQuery={onRunQuery} />,
+	);
+
+	const editorFrame = screen.getByTestId("code-mirror").parentElement;
+	const runQuery = screen.getByRole("button", { name: /Run query/ });
+	expect(editorFrame?.contains(runQuery)).toBe(true);
+	expect((runQuery as HTMLButtonElement).disabled).toBe(true);
+
+	rerender(
+		<SqlEditor
+			value="SELECT * FROM users"
+			onChange={() => {}}
+			onRunQuery={onRunQuery}
+		/>,
+	);
+	expect((screen.getByRole("button", { name: /Run query/ }) as HTMLButtonElement).disabled).toBe(false);
 });

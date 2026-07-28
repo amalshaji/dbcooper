@@ -2,13 +2,11 @@ import { useMemo, useState } from "react";
 import type React from "react";
 import { format as formatSQL } from "sql-formatter";
 import {
-	CaretDown,
 	Check,
 	Copy,
 	DownloadSimple,
 	FloppyDisk,
 	PaintBrush,
-	PlayCircle,
 } from "@phosphor-icons/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -23,15 +21,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { getSqlFormatterLanguage } from "@/lib/databaseCapabilities";
 import type { SqlConnection } from "@/types/connection";
 import type { DatabaseTable } from "@/types/table";
@@ -194,40 +185,6 @@ export function QueryWorkspace({
 										<FloppyDisk className="w-4 h-4" />
 										Save query
 									</Button>
-									<div className="flex">
-										<Button
-											size="sm"
-											onClick={controller.runQuery}
-											disabled={tab.executing}
-											className="rounded-r-none border-r-0 -mr-1"
-										>
-											{tab.executing ? <Spinner /> : null}
-											Run query{" "}
-											<span className="text-xs opacity-60">
-												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
-												+↵)
-											</span>
-										</Button>
-										<DropdownMenu>
-											<DropdownMenuTrigger
-												render={
-													<Button
-														size="sm"
-														className="px-1 rounded-l-none border border-border"
-														disabled={tab.executing}
-													>
-														<CaretDown className="w-4 h-4" />
-													</Button>
-												}
-											/>
-											<DropdownMenuContent align="end">
-												<DropdownMenuItem onClick={controller.runAllQueries}>
-													<PlayCircle className="w-4 h-4" />
-													Run all queries
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</div>
 								</>
 							)}
 						</div>
@@ -238,6 +195,8 @@ export function QueryWorkspace({
 						value={tab.query}
 						onChange={controller.changeQuery}
 						onRunQuery={controller.runQuery}
+						onRunAllQueries={controller.runAllQueries}
+						executing={tab.executing}
 						height="300px"
 						// disabled={!tab.query.trim()}
 						tables={tables.map((t) => ({
