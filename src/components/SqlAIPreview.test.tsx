@@ -143,6 +143,26 @@ test("uses the standard app border radius", () => {
 	expect(container.querySelector("section")?.className).toContain("rounded-lg");
 });
 
+test("uses the existing editor frame instead of nested panel chrome", () => {
+	const { container } = render(
+		<SqlAIPreview
+			embedded
+			draft={{
+				status: "ready",
+				originalSql: "SELECT id FROM users",
+				sql: "SELECT id, name FROM users",
+			}}
+			onDraftChange={() => undefined}
+			onReplace={() => undefined}
+			onDiscard={() => undefined}
+		/>,
+	);
+
+	const review = container.querySelector("section");
+	expect(review?.className).toContain("flex-1");
+	expect(review?.className).not.toContain("rounded-lg");
+});
+
 test("renders streamed SQL in a read-only draft editor", () => {
 	render(
 		<SqlAIPreview

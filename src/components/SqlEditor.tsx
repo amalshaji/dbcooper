@@ -84,6 +84,8 @@ export function SqlEditor({
 	const [isDark, setIsDark] = useState(false);
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
+	const reviewing = aiDraft.status !== "idle";
+	const framedEditor = Boolean(onRunQuery) || reviewing;
 
 	useEffect(() => {
 		const checkTheme = () => {
@@ -261,119 +263,127 @@ export function SqlEditor({
 					</div>
 				</div>
 			)}
-			{ai && aiDraft.status !== "idle" && (
-				<SqlAIPreview
-					draft={aiDraft}
-					onDraftChange={ai.onDraftChange}
-					dark={isDark}
-					editorHeight={height}
-					editorExtensions={draftExtensions}
-					editorTheme={isDark ? barf : rosePineDawn}
-					onDiscard={ai.onDiscard}
-					onReplace={() => {
-						if (aiDraft.status !== "ready") return;
-						onChange(aiDraft.sql);
-						ai.onDiscard();
-					}}
-				/>
-			)}
-			{(!ai || aiDraft.status === "idle") && (
+			<div
+				data-testid="sql-editor-frame"
+				className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
+					framedEditor ? " flex flex-col" : ""
+				}`}
+				style={framedEditor ? { height } : undefined}
+			>
 				<div
-					className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
-						onRunQuery ? " flex flex-col" : ""
+					className={`z-10 flex gap-1 font-sans ${
+						onRunQuery
+							? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
+							: "absolute top-2 right-2"
 					}`}
-					style={onRunQuery ? { height } : undefined}
 				>
-					<div
-						className={`z-10 flex gap-1 font-sans ${
-							onRunQuery
-								? "shrink-0 items-center justify-between border-b bg-muted/20 px-2 py-1"
-								: "absolute top-2 right-2"
-						}`}
-					>
-						<div className="flex items-center gap-1">
-							{cursorWarning && (
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<div className="cursor-pointer">
-												<Warning
-													className="w-5 h-5 text-amber-500"
-													weight="fill"
-												/>
-											</div>
-										}
-									/>
-									<TooltipContent>
-										<p>{cursorWarning}</p>
-									</TooltipContent>
-								</Tooltip>
-							)}
-							{value.trim() === "" && (
-								<Tooltip>
-									<TooltipTrigger
-										render={
-											<div className="cursor-pointer">
-												<WarningCircle
-													className="w-5 h-5 text-red-500"
-													weight="fill"
-												/>
-											</div>
-										}
-									/>
-									<TooltipContent>
-										<p>Query is empty - cannot execute</p>
-									</TooltipContent>
-								</Tooltip>
-							)}
-						</div>
-						{(toolbarActions || onRunQuery) && (
-							<div className="flex items-center gap-2">
-								{toolbarActions}
-								{onRunQuery && (
-									<div className="flex">
-										<Button
-											size="sm"
-											onClick={onRunQuery}
-											disabled={disabled || executing || !value.trim()}
-											className="rounded-r-none border-r-0 -mr-1"
-										>
-											{executing ? <Spinner /> : null}
-											Run query{" "}
-											<span className="text-xs opacity-60">
-												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
-											</span>
-										</Button>
-										{onRunAllQueries && (
-											<DropdownMenu>
-												<DropdownMenuTrigger
-													render={
-														<Button
-															size="sm"
-															className="rounded-l-none border border-border px-1"
-															disabled={disabled || executing || !value.trim()}
-														>
-															<CaretDown className="w-4 h-4" />
-														</Button>
-													}
-												/>
-												<DropdownMenuContent align="end">
-													<DropdownMenuItem onClick={onRunAllQueries}>
-														<PlayCircle className="w-4 h-4" />
-														Run all queries
-													</DropdownMenuItem>
-												</DropdownMenuContent>
-											</DropdownMenu>
-										)}
-									</div>
-								)}
-							</div>
+					<div className="flex items-center gap-1">
+						{cursorWarning && (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<div className="cursor-pointer">
+											<Warning
+												className="w-5 h-5 text-amber-500"
+												weight="fill"
+											/>
+										</div>
+									}
+								/>
+								<TooltipContent>
+									<p>{cursorWarning}</p>
+								</TooltipContent>
+							</Tooltip>
+						)}
+						{value.trim() === "" && (
+							<Tooltip>
+								<TooltipTrigger
+									render={
+										<div className="cursor-pointer">
+											<WarningCircle
+												className="w-5 h-5 text-red-500"
+												weight="fill"
+											/>
+										</div>
+									}
+								/>
+								<TooltipContent>
+									<p>Query is empty - cannot execute</p>
+								</TooltipContent>
+							</Tooltip>
 						)}
 					</div>
+					{(toolbarActions || onRunQuery) && (
+						<div className="flex items-center gap-2">
+							{toolbarActions}
+							{onRunQuery && (
+								<div className="flex">
+									<Button
+										size="sm"
+										onClick={onRunQuery}
+										disabled={
+											disabled || reviewing || executing || !value.trim()
+										}
+										className="rounded-r-none border-r-0 -mr-1"
+									>
+										{executing ? <Spinner /> : null}
+										Run query{" "}
+										<span className="text-xs opacity-60">
+											({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}+↵)
+										</span>
+									</Button>
+									{onRunAllQueries && (
+										<DropdownMenu>
+											<DropdownMenuTrigger
+												render={
+													<Button
+														size="sm"
+														className="rounded-l-none border border-border px-1"
+														disabled={
+															disabled ||
+															reviewing ||
+															executing ||
+															!value.trim()
+														}
+													>
+														<CaretDown className="w-4 h-4" />
+													</Button>
+												}
+											/>
+											<DropdownMenuContent align="end">
+												<DropdownMenuItem onClick={onRunAllQueries}>
+													<PlayCircle className="w-4 h-4" />
+													Run all queries
+												</DropdownMenuItem>
+											</DropdownMenuContent>
+										</DropdownMenu>
+									)}
+								</div>
+							)}
+						</div>
+					)}
+				</div>
+				{ai && reviewing ? (
+					<SqlAIPreview
+						draft={aiDraft}
+						onDraftChange={ai.onDraftChange}
+						dark={isDark}
+						embedded
+						editorHeight="100%"
+						editorExtensions={draftExtensions}
+						editorTheme={isDark ? barf : rosePineDawn}
+						onDiscard={ai.onDiscard}
+						onReplace={() => {
+							if (aiDraft.status !== "ready") return;
+							onChange(aiDraft.sql);
+							ai.onDiscard();
+						}}
+					/>
+				) : (
 					<CodeMirror
 						value={value}
-						height={onRunQuery ? "100%" : height}
-						className={onRunQuery ? "min-h-0 flex-1" : undefined}
+						height={framedEditor ? "100%" : height}
+						className={framedEditor ? "min-h-0 flex-1" : undefined}
 						width="100%"
 						extensions={extensions}
 						theme={isDark ? barf : rosePineDawn}
@@ -391,8 +401,8 @@ export function SqlEditor({
 							highlightSelectionMatches: false,
 						}}
 					/>
-				</div>
-			)}
+				)}
+			</div>
 		</div>
 	);
 }

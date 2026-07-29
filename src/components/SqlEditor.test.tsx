@@ -174,11 +174,13 @@ test("offers AI generation for an empty database", () => {
 	expect(prompt.parentElement?.className).toContain("rounded-lg");
 });
 
-test("replaces the editable query surface while an AI draft is under review", () => {
+test("keeps one editor frame while an AI draft is under review", () => {
 	render(
 		<SqlEditor
 			value="SELECT id FROM users"
 			onChange={() => {}}
+			onRunQuery={() => {}}
+			toolbarActions={<button type="button">Beautify</button>}
 			ai={{
 				configured: true,
 				state: {
@@ -197,7 +199,14 @@ test("replaces the editable query surface while an AI draft is under review", ()
 		/>,
 	);
 
-	expect(screen.getByTestId("ai-draft")).toBeTruthy();
+	const editorFrame = screen.getByTestId("sql-editor-frame");
+	expect(editorFrame.contains(screen.getByTestId("ai-draft"))).toBe(true);
+	expect(
+		editorFrame.contains(screen.getByRole("button", { name: "Beautify" })),
+	).toBe(true);
+	expect(
+		editorFrame.contains(screen.getByRole("button", { name: /Run query/ })),
+	).toBe(true);
 	expect(screen.queryByTestId("code-mirror")).toBeNull();
 });
 

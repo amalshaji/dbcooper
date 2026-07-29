@@ -17,6 +17,7 @@ interface SqlAIPreviewProps {
 	onDiscard: () => void;
 	onDraftChange: (sql: string) => void;
 	dark?: boolean;
+	embedded?: boolean;
 	editorHeight?: string;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
@@ -28,6 +29,7 @@ export function SqlAIPreview({
 	onDiscard,
 	onDraftChange,
 	dark = false,
+	embedded = false,
 	editorHeight = "300px",
 	editorExtensions = [],
 	editorTheme,
@@ -63,11 +65,18 @@ export function SqlAIPreview({
 				: "Checking intent";
 
 	return (
-		<section className="overflow-hidden rounded-lg border border-primary/20 bg-primary/[0.035] shadow-sm">
+		<section
+			className={cn(
+				"overflow-hidden font-sans",
+				embedded
+					? "flex min-h-0 flex-1 flex-col border-0 bg-transparent shadow-none"
+					: "rounded-lg border border-primary/20 bg-primary/[0.035] shadow-sm",
+			)}
+		>
 			<header
 				className={cn(
-					"flex items-center justify-between px-3 py-2",
-					showEditor && "border-b border-primary/10",
+					"flex shrink-0 items-center justify-between px-3 py-2",
+					(showEditor || embedded) && "border-b border-primary/10",
 				)}
 			>
 				<div className="flex items-center gap-1.5 text-xs font-medium">
@@ -138,8 +147,11 @@ export function SqlAIPreview({
 				</p>
 			) : fileDiff ? (
 				<div
-					className="overflow-auto bg-background/40 font-mono text-xs"
-					style={{ height: editorHeight }}
+					className={cn(
+						"overflow-auto bg-background/40 font-mono text-xs",
+						embedded && "min-h-0 flex-1",
+					)}
+					style={embedded ? undefined : { height: editorHeight }}
 				>
 					<FileDiff
 						fileDiff={fileDiff}
@@ -156,17 +168,31 @@ export function SqlAIPreview({
 					/>
 				</div>
 			) : showEditor ? (
-				<div className="relative min-w-0 bg-background/40 font-mono">
+				<div
+					className={cn(
+						"relative min-w-0 bg-background/40 font-mono",
+						embedded && "min-h-0 flex-1",
+					)}
+				>
 					<CodeMirror
 						aria-label={
 							awaitingFirstDiff ? "Original SQL query" : "AI SQL draft"
 						}
 						aria-busy={generating}
 						value={editorSql}
+						height={embedded ? "100%" : undefined}
 						minHeight={
-							awaitingFirstDiff ? editorHeight : generating ? "72px" : "96px"
+							embedded
+								? undefined
+								: awaitingFirstDiff
+									? editorHeight
+									: generating
+										? "72px"
+										: "96px"
 						}
-						maxHeight={awaitingFirstDiff ? editorHeight : "192px"}
+						maxHeight={
+							embedded ? undefined : awaitingFirstDiff ? editorHeight : "192px"
+						}
 						width="100%"
 						extensions={editorExtensions}
 						theme={editorTheme}
