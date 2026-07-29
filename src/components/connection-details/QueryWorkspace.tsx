@@ -58,7 +58,8 @@ export function QueryWorkspace({
 		row: Record<string, unknown>;
 		index: number;
 	} | null>(null);
-	const reviewing = tab.ai.draft.status === "ready";
+	const draftVisible =
+		tab.ai.draft.status === "generating" || tab.ai.draft.status === "ready";
 	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!tab.results?.length) return [];
 
@@ -110,7 +111,7 @@ export function QueryWorkspace({
 				value={controller.saveDialog.name}
 				onChange={(e) => controller.changeSaveQueryName(e.target.value)}
 				className="h-8 w-40"
-				disabled={reviewing}
+				disabled={draftVisible}
 				onKeyDown={(e) => {
 					if (e.key === "Enter") {
 						controller.saveQuery();
@@ -123,7 +124,7 @@ export function QueryWorkspace({
 			<Button
 				size="sm"
 				onClick={controller.saveQuery}
-				disabled={reviewing || !controller.saveDialog.name.trim()}
+				disabled={draftVisible || !controller.saveDialog.name.trim()}
 			>
 				Save
 			</Button>
@@ -154,7 +155,7 @@ export function QueryWorkspace({
 						});
 					}
 				}}
-				disabled={reviewing || !tab.query.trim()}
+				disabled={draftVisible || !tab.query.trim()}
 			>
 				<PaintBrush className="w-4 h-4" />
 				Beautify
@@ -163,7 +164,7 @@ export function QueryWorkspace({
 				size="sm"
 				variant="outline"
 				onClick={controller.openSaveDialog}
-				disabled={reviewing || !tab.query.trim()}
+				disabled={draftVisible || !tab.query.trim()}
 			>
 				<FloppyDisk className="w-4 h-4" />
 				Save query

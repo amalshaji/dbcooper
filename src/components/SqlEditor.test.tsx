@@ -83,23 +83,27 @@ mock.module("@/components/SqlAIPreview", () => ({
 			preservationLabel: string;
 			replace: { enabled: boolean; reason?: string };
 		};
-		onApply: (mode: "append" | "replace") => void;
+		onApply?: (mode: "append" | "replace") => void;
 	}) => (
 		<div data-testid="ai-draft" data-current={review.currentSql}>
 			<span>{review.currentVersionLabel}</span>
 			<span>{review.preservationLabel}</span>
 			{draft.sql ?? draft.message}
-			<button type="button" onClick={() => onApply("append")}>
-				Append
-			</button>
-			<button
-				type="button"
-				onClick={() => onApply("replace")}
-				disabled={!review.replace.enabled}
-				title={review.replace.reason}
-			>
-				Use in editor
-			</button>
+			{draft.status === "ready" && onApply ? (
+				<>
+					<button type="button" onClick={() => onApply("append")}>
+						Append
+					</button>
+					<button
+						type="button"
+						onClick={() => onApply("replace")}
+						disabled={!review.replace.enabled}
+						title={review.replace.reason}
+					>
+						Use in editor
+					</button>
+				</>
+			) : null}
 		</div>
 	),
 }));
@@ -162,7 +166,7 @@ const { SqlEditor } = await import("./SqlEditor");
 
 afterEach(cleanup);
 
-test("renders the AI prompt and draft owned by the selected query tab", () => {
+test("renders streamed SQL in the draft surface owned by the selected query tab", () => {
 	const commonProps = {
 		value: "SELECT * FROM users",
 		onChange: () => {},
@@ -201,11 +205,10 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 			) as HTMLInputElement
 		).value,
 	).toBe("List active users");
-	expect(screen.queryByTestId("ai-draft")).toBeNull();
-	expect(screen.getByTestId("code-mirror").textContent).toBe(
-		"SELECT * FROM users",
-	);
-	expect(screen.getByTestId("code-mirror").dataset.editable).toBe("true");
+	expect(screen.getByTestId("ai-draft").textContent).toContain("SELECT *");
+	expect(screen.queryByTestId("code-mirror")).toBeNull();
+	expect(screen.queryByRole("button", { name: "Append" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Use in editor" })).toBeNull();
 
 	rerender(
 		<SqlEditor

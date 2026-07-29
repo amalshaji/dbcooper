@@ -3,35 +3,49 @@ import { Check, Plus, Sparkle, X } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { AiDraftState } from "@/lib/aiDraftState";
+import { Spinner } from "@/components/ui/spinner";
+import type { GeneratingAiDraft, ReadyAiDraft } from "@/lib/aiDraftState";
 import type { AiDraftApplyMode, AiDraftReview } from "@/lib/sqlAiDraft";
 import { cn } from "@/lib/utils";
 
-interface SqlAIPreviewProps {
-	draft: Extract<AiDraftState, { status: "ready" }>;
+interface SqlAIPreviewCommonProps {
 	review: AiDraftReview;
-	onApply: (mode: AiDraftApplyMode) => void;
-	onDiscard: () => void;
-	onDraftChange: (sql: string) => void;
 	embedded?: boolean;
 	editorHeight?: string;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
 }
 
-export function SqlAIPreview({
-	draft,
-	review,
-	onApply,
-	onDiscard,
-	onDraftChange,
-	embedded = false,
-	editorHeight = "300px",
-	editorExtensions = [],
-	editorTheme,
-}: SqlAIPreviewProps) {
+type ReadySqlAIPreviewProps = SqlAIPreviewCommonProps & {
+	draft: ReadyAiDraft;
+	onApply: (mode: AiDraftApplyMode) => void;
+	onDiscard: () => void;
+	onDraftChange: (sql: string) => void;
+};
+
+type SqlAIPreviewProps =
+	| (SqlAIPreviewCommonProps & { draft: GeneratingAiDraft })
+	| ReadySqlAIPreviewProps;
+
+function isReadyPreview(
+	props: SqlAIPreviewProps,
+): props is ReadySqlAIPreviewProps {
+	return props.draft.status === "ready";
+}
+
+export function SqlAIPreview(props: SqlAIPreviewProps) {
+	const {
+		draft,
+		review,
+		embedded = false,
+		editorHeight = "300px",
+		editorExtensions = [],
+		editorTheme,
+	} = props;
 	const [version, setVersion] = useState<"current" | "draft">("draft");
 	const showingCurrent = version === "current";
+	const readyProps = isReadyPreview(props) ? props : null;
+	const generating = !readyProps;
 
 	return (
 		<section
@@ -47,7 +61,7 @@ export function SqlAIPreview({
 				<div className="flex min-w-0 items-center gap-2 text-xs">
 					<span className="flex shrink-0 items-center gap-1.5 font-medium">
 						<Sparkle className="size-3.5 text-primary" />
-						Review AI draft
+						{generating ? "AI draft" : "Review AI draft"}
 					</span>
 					<span className="truncate border-l pl-2 text-muted-foreground">
 						{review.preservationLabel}
@@ -85,24 +99,35 @@ export function SqlAIPreview({
 						AI draft
 					</Button>
 				</div>
-				<div className="flex items-center justify-end gap-1">
-					<Button variant="ghost" size="sm" onClick={onDiscard}>
-						<X /> Discard
-					</Button>
-					<Button variant="ghost" size="sm" onClick={() => onApply("append")}>
-						<Plus /> Append
-					</Button>
-					<Button
-						size="sm"
-						onClick={() => onApply("replace")}
-						disabled={!review.replace.enabled}
-						title={
-							review.replace.enabled ? undefined : review.replace.reason
-						}
-					>
-						<Check /> Use in editor
-					</Button>
-				</div>
+				{!readyProps ? (
+					<div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+						<Spinner />
+						Composing query…
+					</div>
+				) : (
+					<div className="flex items-center justify-end gap-1">
+						<Button variant="ghost" size="sm" onClick={readyProps.onDiscard}>
+							<X /> Discard
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={() => readyProps.onApply("append")}
+						>
+							<Plus /> Append
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => readyProps.onApply("replace")}
+							disabled={!review.replace.enabled}
+							title={
+								review.replace.enabled ? undefined : review.replace.reason
+							}
+						>
+							<Check /> Use in editor
+						</Button>
+					</div>
+				)}
 			</header>
 			<div
 				className={cn(
@@ -118,14 +143,18 @@ export function SqlAIPreview({
 					extensions={editorExtensions}
 					theme={editorTheme}
 					onChange={(sql) => {
-						if (!showingCurrent) onDraftChange(sql);
+						if (!showingCurrent && readyProps) {
+							readyProps.onDraftChange(sql);
+						}
 					}}
-					editable={!showingCurrent}
-					readOnly={showingCurrent}
+					editable={!showingCurrent && !generating}
+					readOnly={showingCurrent || generating}
 					placeholder={
 						showingCurrent
 							? "No SQL in the current editor"
-							: "AI draft is empty"
+							: generating
+								? "Preparing SQL…"
+								: "AI draft is empty"
 					}
 					basicSetup={{
 						lineNumbers: true,

@@ -83,10 +83,10 @@ export function SqlEditor({
 	const [selection, setSelection] = useState<SqlSelection>();
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
-	const reviewing = aiDraft.status === "ready";
+	const draftVisible = generating || aiDraft.status === "ready";
 	const review =
-		aiDraft.status === "ready" ? createAiDraftReview(value, aiDraft) : null;
-	const framedEditor = Boolean(onRunQuery) || reviewing;
+		draftVisible ? createAiDraftReview(value, aiDraft) : null;
+	const framedEditor = Boolean(onRunQuery) || draftVisible;
 
 	useEffect(() => {
 		const checkTheme = () => {
@@ -272,10 +272,19 @@ export function SqlEditor({
 					onRunAllQueries={onRunAllQueries}
 					cursorWarning={cursorWarning}
 					disabled={disabled}
-					reviewing={reviewing}
+					draftVisible={draftVisible}
 					executing={executing}
 				/>
-				{ai && aiDraft.status === "ready" && review ? (
+				{ai && aiDraft.status === "generating" && review ? (
+					<SqlAIPreview
+						draft={aiDraft}
+						review={review}
+						embedded
+						editorHeight="100%"
+						editorExtensions={draftExtensions}
+						editorTheme={isDark ? barf : ayuLight}
+					/>
+				) : ai && aiDraft.status === "ready" && review ? (
 					<SqlAIPreview
 						draft={aiDraft}
 						review={review}

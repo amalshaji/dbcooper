@@ -65,6 +65,28 @@ const review = {
 	replace: { enabled: true as const },
 };
 
+test("shows streamed SQL read-only until generation completes", () => {
+	render(
+		<SqlAIPreview
+			draft={{
+				status: "generating",
+				requestId: "request-1",
+				scope: readyDraft.scope,
+				sql: "SELECT id,",
+			}}
+			review={review}
+		/>,
+	);
+
+	expect(screen.getByText("Composing query…")).toBeTruthy();
+	expect(screen.getByTestId("spinner")).toBeTruthy();
+	const editor = screen.getByLabelText("AI draft SQL") as HTMLTextAreaElement;
+	expect(editor.value).toBe("SELECT id,");
+	expect(editor.readOnly).toBe(true);
+	expect(screen.queryByRole("button", { name: "Append" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Use in editor" })).toBeNull();
+});
+
 test("reviews a completed AI draft in a single editor by default", () => {
 	render(
 		<SqlAIPreview
@@ -78,7 +100,9 @@ test("reviews a completed AI draft in a single editor by default", () => {
 
 	expect(screen.getByText("Review AI draft")).toBeTruthy();
 	expect(screen.getByText("Current query is preserved")).toBeTruthy();
-	expect(screen.getByRole("button", { name: "AI draft" }).getAttribute("aria-pressed")).toBe("true");
+	expect(
+		screen.getByRole("button", { name: "AI draft" }).getAttribute("aria-pressed"),
+	).toBe("true");
 	const editor = screen.getByLabelText("AI draft SQL") as HTMLTextAreaElement;
 	expect(editor.value).toBe("SELECT id, name FROM users");
 	expect(editor.readOnly).toBe(false);

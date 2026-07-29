@@ -1,4 +1,8 @@
-import type { ReadyAiDraft, SqlSelection } from "./aiDraftState";
+import type {
+	GeneratingAiDraft,
+	ReadyAiDraft,
+	SqlSelection,
+} from "./aiDraftState";
 
 export type AiDraftApplyMode = "replace" | "append";
 
@@ -42,7 +46,7 @@ function resolveSelectionRange(
 
 export function createAiDraftReview(
 	currentSql: string,
-	draft: ReadyAiDraft,
+	draft: GeneratingAiDraft | ReadyAiDraft,
 ): AiDraftReview {
 	if (draft.scope.kind === "query") {
 		return {

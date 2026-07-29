@@ -26,7 +26,7 @@ interface SqlEditorToolbarProps {
 	onRunAllQueries?: () => void;
 	cursorWarning?: string | null;
 	disabled: boolean;
-	reviewing: boolean;
+	draftVisible: boolean;
 	executing: boolean;
 }
 
@@ -37,10 +37,10 @@ export function SqlEditorToolbar({
 	onRunAllQueries,
 	cursorWarning,
 	disabled,
-	reviewing,
+	draftVisible,
 	executing,
 }: SqlEditorToolbarProps) {
-	const runDisabled = disabled || reviewing || executing || !value.trim();
+	const runDisabled = disabled || draftVisible || executing || !value.trim();
 
 	return (
 		<div
