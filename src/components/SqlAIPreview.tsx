@@ -11,6 +11,20 @@ import type { AiDraftState } from "@/lib/aiDraftState";
 import { classifySqlIntent } from "@/lib/sqlSafety";
 import { cn } from "@/lib/utils";
 
+const appDiffTheme = `
+:host {
+	--diffs-light-bg: var(--background);
+	--diffs-dark-bg: var(--background);
+	--diffs-light: var(--foreground);
+	--diffs-dark: var(--foreground);
+	--diffs-fg-number-override: var(--muted-foreground);
+	--diffs-bg-context-override: color-mix(in oklch, var(--foreground) 4%, var(--background));
+	--diffs-bg-context-gutter-override: color-mix(in oklch, var(--foreground) 6%, var(--background));
+	--diffs-bg-separator-override: color-mix(in oklch, var(--foreground) 8%, var(--background));
+	--diffs-modified-color: var(--primary);
+	--diffs-font-family: "Google Sans Code Variable", monospace;
+}`;
+
 interface SqlAIPreviewProps {
 	draft: Exclude<AiDraftState, { status: "idle" }>;
 	onReplace: () => void;
@@ -164,6 +178,7 @@ export function SqlAIPreview({
 							lineDiffType: "word-alt",
 							overflow: "wrap",
 							themeType: dark ? "dark" : "light",
+							unsafeCSS: appDiffTheme,
 						}}
 					/>
 				</div>

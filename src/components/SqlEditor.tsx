@@ -10,7 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { barf, rosePineDawn } from "thememirror";
+import { ayuLight, barf } from "thememirror";
 import { SqlAIPreview } from "@/components/SqlAIPreview";
 import { Button } from "@/components/ui/button";
 import {
@@ -127,14 +127,39 @@ export function SqlEditor({
 		[onRunQuery, disabled, executing],
 	);
 
-	const fontTheme = useMemo(
+	const editorChromeTheme = useMemo(
 		() =>
 			EditorView.theme({
 				"&": {
+					backgroundColor: "var(--background)",
+					color: "var(--foreground)",
 					fontFamily: "'Google Sans Code Variable', monospace",
 				},
 				".cm-content": {
+					caretColor: "var(--primary)",
 					fontFamily: "'Google Sans Code Variable', monospace",
+				},
+				".cm-cursor, .cm-dropCursor": {
+					borderLeftColor: "var(--primary)",
+				},
+				"&.cm-focused .cm-selectionBackground, .cm-content ::selection": {
+					backgroundColor:
+						"color-mix(in oklch, var(--primary) 24%, transparent) !important",
+				},
+				".cm-activeLine": {
+					backgroundColor:
+						"color-mix(in oklch, var(--foreground) 4%, transparent)",
+				},
+				".cm-gutters": {
+					backgroundColor:
+						"color-mix(in oklch, var(--background) 96%, var(--foreground))",
+					borderRight: "1px solid var(--border)",
+					color: "var(--muted-foreground)",
+				},
+				".cm-activeLineGutter": {
+					backgroundColor:
+						"color-mix(in oklch, var(--foreground) 4%, transparent)",
+					color: "var(--foreground)",
 				},
 			}),
 		[],
@@ -176,16 +201,22 @@ export function SqlEditor({
 		() => [
 			runQueryKeymap,
 			sqlExtension,
-			fontTheme,
+			editorChromeTheme,
 			EditorState.readOnly.of(disabled),
 			EditorView.lineWrapping,
 			cursorExtension,
 		],
-		[runQueryKeymap, sqlExtension, fontTheme, disabled, cursorExtension],
+		[
+			runQueryKeymap,
+			sqlExtension,
+			editorChromeTheme,
+			disabled,
+			cursorExtension,
+		],
 	);
 	const draftExtensions = useMemo(
-		() => [sqlExtension, fontTheme, EditorView.lineWrapping],
-		[sqlExtension, fontTheme],
+		() => [sqlExtension, editorChromeTheme, EditorView.lineWrapping],
+		[sqlExtension, editorChromeTheme],
 	);
 
 	const handleGenerate = async () => {
@@ -371,7 +402,7 @@ export function SqlEditor({
 						embedded
 						editorHeight="100%"
 						editorExtensions={draftExtensions}
-						editorTheme={isDark ? barf : rosePineDawn}
+						editorTheme={isDark ? barf : ayuLight}
 						onDiscard={ai.onDiscard}
 						onReplace={() => {
 							if (aiDraft.status !== "ready") return;
@@ -386,7 +417,7 @@ export function SqlEditor({
 						className={framedEditor ? "min-h-0 flex-1" : undefined}
 						width="100%"
 						extensions={extensions}
-						theme={isDark ? barf : rosePineDawn}
+						theme={isDark ? barf : ayuLight}
 						onChange={onChange}
 						editable={!disabled}
 						basicSetup={{

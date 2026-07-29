@@ -25,13 +25,16 @@ mock.module("@pierre/diffs", () => ({
 mock.module("@pierre/diffs/react", () => ({
 	FileDiff: ({
 		fileDiff,
+		options,
 	}: {
 		fileDiff: { oldFile: DiffFile; newFile: DiffFile };
+		options: { unsafeCSS?: string };
 	}) => (
 		<div
 			data-testid="ai-sql-diff"
 			data-old={fileDiff.oldFile.contents}
 			data-new={fileDiff.newFile.contents}
+			data-theme-css={options.unsafeCSS}
 		/>
 	),
 }));
@@ -76,8 +79,6 @@ mock.module("@/components/ui/spinner", () => ({
 mock.module("@/lib/sqlSafety", () => ({
 	classifySqlIntent: () => "read",
 }));
-mock.module("thememirror", () => ({ barf: {}, rosePineDawn: {} }));
-
 const { cleanup, fireEvent, render, screen } = await import(
 	"@testing-library/react"
 );
@@ -103,6 +104,12 @@ test("streams an existing query into one unified diff", () => {
 	const diff = screen.getByTestId("ai-sql-diff");
 	expect(diff.dataset.old).toBe("SELECT id FROM users");
 	expect(diff.dataset.new).toBe("SELECT id, name FROM users");
+	expect(diff.dataset.themeCss).toContain(
+		"--diffs-light-bg: var(--background)",
+	);
+	expect(diff.dataset.themeCss).toContain(
+		"--diffs-dark-bg: var(--background)",
+	);
 	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
 	expect(screen.getByText("Composing query…")).toBeTruthy();
 });

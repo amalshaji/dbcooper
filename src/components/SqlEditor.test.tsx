@@ -24,7 +24,7 @@ mock.module("@uiw/react-codemirror", () => ({
 		</div>
 	),
 }));
-mock.module("thememirror", () => ({ barf: {}, rosePineDawn: {} }));
+mock.module("thememirror", () => ({ ayuLight: {}, barf: {} }));
 mock.module("@/lib/aiDraftState", () => ({
 	initialAiDraftState: { status: "idle" },
 	aiDraftReducer: (state: unknown) => state,
