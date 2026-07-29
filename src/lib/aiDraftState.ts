@@ -4,29 +4,34 @@ export interface SqlSelection {
 	text: string;
 }
 
+export type SqlEditScope =
+	| { kind: "query"; sql: string }
+	| { kind: "selection"; sql: string; selection: SqlSelection };
+
+export interface GeneratingAiDraft {
+	status: "generating";
+	requestId: string;
+	scope: SqlEditScope;
+	sql: string;
+}
+
+export interface ReadyAiDraft {
+	status: "ready";
+	scope: SqlEditScope;
+	sql: string;
+}
+
 export type AiDraftState =
 	| { status: "idle" }
-	| {
-			status: "generating";
-			requestId: string;
-			originalSql: string;
-			sql: string;
-			target?: SqlSelection;
-	  }
-	| {
-			status: "ready";
-			originalSql: string;
-			sql: string;
-			target?: SqlSelection;
-	  }
+	| GeneratingAiDraft
+	| ReadyAiDraft
 	| { status: "error"; message: string };
 
 export type AiDraftAction =
 	| {
 			type: "start";
 			requestId: string;
-			originalSql: string;
-			target?: SqlSelection;
+			scope: SqlEditScope;
 	  }
 	| { type: "preview"; requestId: string; sql: string }
 	| { type: "complete"; requestId: string; sql: string }
@@ -69,9 +74,8 @@ export function aiDraftReducer(
 			return {
 				status: "generating",
 				requestId: action.requestId,
-				originalSql: action.originalSql,
+				scope: action.scope,
 				sql: "",
-				...(action.target ? { target: action.target } : {}),
 			};
 		case "preview":
 			return state.status === "generating" &&
@@ -84,9 +88,8 @@ export function aiDraftReducer(
 			return action.sql.trim()
 				? {
 						status: "ready",
-						originalSql: state.originalSql,
+						scope: state.scope,
 						sql: action.sql,
-						...(state.target ? { target: state.target } : {}),
 					}
 				: {
 						status: "error",

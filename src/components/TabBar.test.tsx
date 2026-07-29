@@ -66,7 +66,7 @@ describe("TabBar query generation status", () => {
 		tab.ai.draft = {
 			status: "generating",
 			requestId: "request-1",
-			originalSql: "",
+			scope: { kind: "query", sql: "" },
 			sql: "",
 		};
 

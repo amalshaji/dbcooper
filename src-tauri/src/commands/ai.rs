@@ -1,4 +1,4 @@
-use crate::ai::{self, AiHarnessStatus, AiStatus, TableSchema};
+use crate::ai::{self, AiHarnessStatus, AiStatus, SqlEditScope, TableSchema};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
@@ -9,8 +9,7 @@ pub async fn generate_sql(
     session_id: String,
     db_type: String,
     instruction: String,
-    existing_sql: String,
-    selected_sql: Option<String>,
+    scope: SqlEditScope,
     tables: Vec<TableSchema>,
 ) -> Result<(), String> {
     println!("[AI] Starting SQL generation for session: {}", session_id);
@@ -23,8 +22,7 @@ pub async fn generate_sql(
         session_id,
         db_type,
         instruction,
-        existing_sql,
-        selected_sql,
+        scope,
         tables,
     )
     .await

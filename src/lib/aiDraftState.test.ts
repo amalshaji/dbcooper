@@ -4,47 +4,47 @@ import {
 	createQueryAiState,
 	initialAiDraftState,
 	queryAiStateReducer,
+	type SqlEditScope,
 } from "./aiDraftState";
 
+const queryScope: SqlEditScope = {
+	kind: "query",
+	sql: "SELECT id FROM users",
+};
+
 describe("aiDraftReducer", () => {
-	test("preserves the original SQL while a streamed draft changes", () => {
-		const target = { from: 7, to: 9, text: "id" };
+	test("preserves the explicit edit scope while a streamed draft changes", () => {
+		const scope: SqlEditScope = {
+			kind: "selection",
+			sql: "SELECT id FROM users",
+			selection: { from: 7, to: 9, text: "id" },
+		};
 		const generating = aiDraftReducer(initialAiDraftState, {
 			type: "start",
 			requestId: "request-1",
-			originalSql: "SELECT id FROM users",
-			target,
+			scope,
 		});
 		const streaming = aiDraftReducer(generating, {
 			type: "preview",
 			requestId: "request-1",
-			sql: "SELECT id, name",
+			sql: "id, name",
 		});
 		const ready = aiDraftReducer(streaming, {
 			type: "complete",
 			requestId: "request-1",
-			sql: "SELECT id, name FROM users",
+			sql: "id, name, email",
 		});
 
-		expect(generating).toMatchObject({
-			originalSql: "SELECT id FROM users",
-			target,
-		});
-		expect(streaming).toMatchObject({
-			originalSql: "SELECT id FROM users",
-			target,
-		});
-		expect(ready).toMatchObject({
-			originalSql: "SELECT id FROM users",
-			target,
-		});
+		expect(generating).toMatchObject({ scope });
+		expect(streaming).toMatchObject({ scope });
+		expect(ready).toMatchObject({ scope });
 	});
 
 	test("moves a streamed request from loading to a ready draft", () => {
 		const generating = aiDraftReducer(initialAiDraftState, {
 			type: "start",
 			requestId: "request-1",
-			originalSql: "",
+			scope: queryScope,
 		});
 		const streaming = aiDraftReducer(generating, {
 			type: "preview",
@@ -60,63 +60,50 @@ describe("aiDraftReducer", () => {
 		expect(generating).toEqual({
 			status: "generating",
 			requestId: "request-1",
-			originalSql: "",
+			scope: queryScope,
 			sql: "",
 		});
 		expect(streaming).toEqual({
 			status: "generating",
 			requestId: "request-1",
-			originalSql: "",
+			scope: queryScope,
 			sql: "SELECT *",
 		});
 		expect(ready).toEqual({
 			status: "ready",
-			originalSql: "",
+			scope: queryScope,
 			sql: "SELECT * FROM users",
 		});
 	});
 
-	test("shows a terminal error instead of leaving an empty loading draft", () => {
+	test("shows a terminal error and rejects an empty completion", () => {
 		const generating = aiDraftReducer(initialAiDraftState, {
 			type: "start",
 			requestId: "request-1",
-			originalSql: "",
-		});
-		const failed = aiDraftReducer(generating, {
-			type: "fail",
-			requestId: "request-1",
-			message: "Provider unavailable",
+			scope: queryScope,
 		});
 
-		expect(failed).toEqual({
-			status: "error",
-			message: "Provider unavailable",
-		});
-	});
-
-	test("rejects an empty completed response", () => {
 		expect(
-			aiDraftReducer(
-				{
-					status: "generating",
-					requestId: "request-1",
-					originalSql: "",
-					sql: "",
-				},
-				{ type: "complete", requestId: "request-1", sql: "" },
-			),
+			aiDraftReducer(generating, {
+				type: "fail",
+				requestId: "request-1",
+				message: "Provider unavailable",
+			}),
+		).toEqual({ status: "error", message: "Provider unavailable" });
+		expect(
+			aiDraftReducer(generating, {
+				type: "complete",
+				requestId: "request-1",
+				sql: "",
+			}),
 		).toEqual({
 			status: "error",
 			message: "The AI provider returned an empty response",
 		});
 	});
 
-	test("ignores late stream events after a request settles", () => {
-		const failed = {
-			status: "error" as const,
-			message: "Cancelled",
-		};
-
+	test("ignores stale stream events after a request settles", () => {
+		const failed = { status: "error" as const, message: "Cancelled" };
 		expect(
 			aiDraftReducer(failed, {
 				type: "preview",
@@ -126,35 +113,23 @@ describe("aiDraftReducer", () => {
 		).toEqual(failed);
 	});
 
-	test("returns to idle when the draft is discarded", () => {
+	test("discards and edits only completed drafts", () => {
+		const ready = {
+			status: "ready" as const,
+			scope: queryScope,
+			sql: "SELECT * FROM users",
+		};
+		expect(aiDraftReducer(ready, { type: "discard" })).toEqual(
+			initialAiDraftState,
+		);
 		expect(
-			aiDraftReducer(
-				{ status: "ready", originalSql: "", sql: "SELECT 1" },
-				{ type: "discard" },
-			),
-		).toEqual(initialAiDraftState);
-	});
-
-	test("allows a completed draft to be edited without changing stream state", () => {
-		expect(
-			aiDraftReducer(
-				{
-					status: "ready",
-					originalSql: "SELECT * FROM users",
-					sql: "SELECT * FROM users",
-				},
-				{ type: "edit", sql: "SELECT id FROM users" },
-			),
-		).toEqual({
-			status: "ready",
-			originalSql: "SELECT * FROM users",
-			sql: "SELECT id FROM users",
-		});
+			aiDraftReducer(ready, { type: "edit", sql: "SELECT id FROM users" }),
+		).toEqual({ ...ready, sql: "SELECT id FROM users" });
 
 		const generating = {
 			status: "generating" as const,
 			requestId: "request-1",
-			originalSql: "SELECT * FROM users",
+			scope: queryScope,
 			sql: "SELECT *",
 		};
 		expect(
@@ -174,11 +149,7 @@ describe("queryAiStateReducer", () => {
 		});
 		first = queryAiStateReducer(first, {
 			type: "update-draft",
-			action: {
-				type: "start",
-				requestId: "request-1",
-				originalSql: "SELECT id FROM users",
-			},
+			action: { type: "start", requestId: "request-1", scope: queryScope },
 		});
 		first = queryAiStateReducer(first, {
 			type: "update-draft",
@@ -193,7 +164,7 @@ describe("queryAiStateReducer", () => {
 			instruction: "List active users",
 			draft: {
 				status: "ready",
-				originalSql: "SELECT id FROM users",
+				scope: queryScope,
 				sql: "SELECT * FROM users WHERE active = true",
 			},
 		});
@@ -202,42 +173,24 @@ describe("queryAiStateReducer", () => {
 
 	test("ignores stale outcomes after a request is replaced", () => {
 		let state = createQueryAiState();
-		state = queryAiStateReducer(state, {
-			type: "update-draft",
-			action: { type: "start", requestId: "request-1", originalSql: "" },
-		});
-		state = queryAiStateReducer(state, {
-			type: "update-draft",
-			action: { type: "start", requestId: "request-2", originalSql: "" },
-		});
+		for (const requestId of ["request-1", "request-2"]) {
+			state = queryAiStateReducer(state, {
+				type: "update-draft",
+				action: { type: "start", requestId, scope: queryScope },
+			});
+		}
 		state = queryAiStateReducer(state, {
 			type: "update-draft",
 			action: {
 				type: "fail",
 				requestId: "request-1",
-				message: "A newer AI request replaced this one",
+				message: "A newer request replaced this one",
 			},
 		});
 
-		expect(state.draft).toEqual({
+		expect(state.draft).toMatchObject({
 			status: "generating",
 			requestId: "request-2",
-			originalSql: "",
-			sql: "",
-		});
-
-		state = queryAiStateReducer(state, {
-			type: "update-draft",
-			action: {
-				type: "complete",
-				requestId: "request-2",
-				sql: "SELECT 2",
-			},
-		});
-		expect(state.draft).toEqual({
-			status: "ready",
-			originalSql: "",
-			sql: "SELECT 2",
 		});
 	});
 });

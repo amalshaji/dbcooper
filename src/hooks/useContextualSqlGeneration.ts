@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useAIGeneration } from "@/hooks/useAIGeneration";
 import { selectTablesForAI } from "@/lib/aiTableSelection";
+import type { SqlEditScope } from "@/lib/aiDraftState";
 import type { DatabaseTable } from "@/types/table";
 import type { SchemaOverview, TableColumn } from "@/types/tabTypes";
 
@@ -23,8 +24,7 @@ export function useContextualSqlGeneration({
 		async (
 			requestKey: string,
 			instruction: string,
-			existingSQL: string,
-			selectedSQL: string | undefined,
+			scope: SqlEditScope,
 			onPreview: (sql: string) => void,
 		): Promise<string> => {
 			const overviewColumns = new Map(
@@ -43,7 +43,7 @@ export function useContextualSqlGeneration({
 			});
 			const selectedTables = selectTablesForAI(
 				instruction,
-				existingSQL,
+				scope.sql,
 				tableSchemas,
 			);
 
@@ -53,8 +53,7 @@ export function useContextualSqlGeneration({
 				requestKey,
 				dbType || "postgres",
 				instruction,
-				existingSQL,
-				selectedSQL,
+				scope,
 				selectedTables.map((table) => ({
 					schema: table.schema,
 					name: table.name,

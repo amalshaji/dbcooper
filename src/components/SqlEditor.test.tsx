@@ -26,6 +26,9 @@ interface EditorUpdate {
 }
 
 let editorUpdateListener: ((update: EditorUpdate) => void) | undefined;
+let editorCreateListener:
+	| ((view: { state: EditorUpdate["state"] }) => void)
+	| undefined;
 mock.module("@codemirror/view", () => ({
 	EditorView: {
 		lineWrapping: {},
@@ -44,14 +47,22 @@ mock.module("@uiw/react-codemirror", () => ({
 		value,
 		width,
 		editable,
+		onCreateEditor,
 	}: {
 		value: string;
 		width?: string;
 		editable?: boolean;
+		onCreateEditor?: (view: { state: EditorUpdate["state"] }) => void;
 	}) => (
-		<div data-testid="code-mirror" data-width={width} data-editable={editable}>
-			{value}
-		</div>
+		<>
+			{(() => {
+				editorCreateListener = onCreateEditor;
+				return null;
+			})()}
+			<div data-testid="code-mirror" data-width={width} data-editable={editable}>
+				{value}
+			</div>
+		</>
 	),
 }));
 mock.module("thememirror", () => ({ ayuLight: {}, barf: {} }));
@@ -62,35 +73,30 @@ mock.module("@/lib/aiDraftState", () => ({
 mock.module("@/components/SqlAIPreview", () => ({
 	SqlAIPreview: ({
 		draft,
-		currentSql,
-		currentVersionLabel,
-		preservationLabel,
-		onAppend,
-		onReplace,
-		replaceDisabled,
-		replaceTitle,
+		review,
+		onApply,
 	}: {
 		draft: { status: string; sql?: string; message?: string };
-		currentSql: string;
-		currentVersionLabel?: string;
-		preservationLabel?: string;
-		onAppend: () => void;
-		onReplace: () => void;
-		replaceDisabled?: boolean;
-		replaceTitle?: string;
+		review: {
+			currentSql: string;
+			currentVersionLabel: string;
+			preservationLabel: string;
+			replace: { enabled: boolean; reason?: string };
+		};
+		onApply: (mode: "append" | "replace") => void;
 	}) => (
-		<div data-testid="ai-draft" data-current={currentSql}>
-			<span>{currentVersionLabel}</span>
-			<span>{preservationLabel}</span>
+		<div data-testid="ai-draft" data-current={review.currentSql}>
+			<span>{review.currentVersionLabel}</span>
+			<span>{review.preservationLabel}</span>
 			{draft.sql ?? draft.message}
-			<button type="button" onClick={onAppend}>
+			<button type="button" onClick={() => onApply("append")}>
 				Append
 			</button>
 			<button
 				type="button"
-				onClick={onReplace}
-				disabled={replaceDisabled}
-				title={replaceTitle}
+				onClick={() => onApply("replace")}
+				disabled={!review.replace.enabled}
+				title={review.replace.reason}
 			>
 				Use in editor
 			</button>
@@ -156,6 +162,13 @@ const { SqlEditor } = await import("./SqlEditor");
 
 afterEach(cleanup);
 
+const queryReview = {
+	currentSql: "SELECT * FROM users",
+	currentVersionLabel: "Current" as const,
+	preservationLabel: "Current query is preserved" as const,
+	replace: { enabled: true as const },
+};
+
 test("renders the AI prompt and draft owned by the selected query tab", () => {
 	const commonProps = {
 		value: "SELECT * FROM users",
@@ -164,9 +177,11 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	};
 	const aiHandlers = {
 		configured: true,
+		review: null,
 		onInstructionChange: () => {},
 		onDraftChange: () => {},
 		onGenerate: async () => {},
+		onApplyDraft: () => {},
 		onDiscard: () => {},
 	};
 	const { rerender } = render(
@@ -179,7 +194,7 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 					draft: {
 						status: "generating",
 						requestId: "request-1",
-						originalSql: "SELECT * FROM users",
+						scope: { kind: "query", sql: "SELECT * FROM users" },
 						sql: "SELECT *",
 					},
 				},
@@ -216,11 +231,12 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 			{...commonProps}
 			ai={{
 				...aiHandlers,
+				review: queryReview,
 				state: {
 					instruction: "List active users",
 					draft: {
 						status: "ready",
-						originalSql: "SELECT * FROM users",
+						scope: { kind: "query", sql: "SELECT * FROM users" },
 						sql: "SELECT * FROM users WHERE active = true",
 					},
 				},
@@ -232,57 +248,153 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	);
 });
 
-test("appends a completed draft as a valid additional statement", () => {
-	let query = "";
-	let discarded = false;
+test("delegates completed draft application to the tab owner", () => {
+	let appliedMode = "";
 	render(
 		<SqlEditor
 			value="SELECT id FROM users"
-			onChange={(value) => {
-				query = value;
-			}}
+			onChange={() => {}}
 			ai={{
 				configured: true,
+				review: { ...queryReview, currentSql: "SELECT id FROM users" },
 				state: {
 					instruction: "Show organizations",
 					draft: {
 						status: "ready",
-						originalSql: "SELECT id FROM users",
+						scope: { kind: "query", sql: "SELECT id FROM users" },
 						sql: "SELECT id FROM organizations;",
 					},
 				},
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
 				onGenerate: async () => {},
-				onDiscard: () => {
-					discarded = true;
+				onApplyDraft: (mode) => {
+					appliedMode = mode;
 				},
+				onDiscard: () => {},
 			}}
 		/>,
 	);
 
 	fireEvent.click(screen.getByRole("button", { name: "Append" }));
-	expect(query).toBe("SELECT id FROM users;\n\nSELECT id FROM organizations;");
-	expect(discarded).toBe(true);
+	expect(appliedMode).toBe("append");
 });
 
-test("sends the selected SQL as the AI edit target", async () => {
-	let generatedTarget: { from: number; to: number; text: string } | undefined;
+test("clears a captured selection after the draft review unmounts the editor", async () => {
+	let generatedScope: unknown;
+	const handlers = {
+		configured: true,
+		onInstructionChange: () => {},
+		onDraftChange: () => {},
+		onGenerate: async (scope: unknown) => {
+			generatedScope = scope;
+		},
+		onApplyDraft: () => {},
+		onDiscard: () => {},
+	};
+	const { rerender } = render(
+		<SqlEditor
+			value="SELECT id FROM users"
+			onChange={() => {}}
+			ai={{
+				...handlers,
+				review: null,
+				state: {
+					instruction: "Improve this",
+					draft: { status: "idle" },
+				},
+			}}
+		/>,
+	);
+
+	act(() => {
+		editorUpdateListener?.({
+			selectionSet: true,
+			docChanged: false,
+			state: {
+				selection: { main: { from: 7, to: 9, head: 9 } },
+				doc: { lineAt: () => ({ number: 1, from: 0 }) },
+				sliceDoc: () => "id",
+			},
+		});
+	});
+	expect(screen.getByPlaceholderText("Ask AI to improve selected SQL…")).toBeTruthy();
+
+	rerender(
+		<SqlEditor
+			value="SELECT id FROM users"
+			onChange={() => {}}
+			ai={{
+				...handlers,
+				review: queryReview,
+				state: {
+					instruction: "Improve this",
+					draft: {
+						status: "ready",
+						scope: {
+							kind: "selection",
+							sql: "SELECT id FROM users",
+							selection: { from: 7, to: 9, text: "id" },
+						},
+						sql: "id, name",
+					},
+				},
+			}}
+		/>,
+	);
+	rerender(
+		<SqlEditor
+			value="SELECT id FROM users"
+			onChange={() => {}}
+			ai={{
+				...handlers,
+				review: null,
+				state: {
+					instruction: "Improve this",
+					draft: { status: "idle" },
+				},
+			}}
+		/>,
+	);
+	act(() => {
+		editorCreateListener?.({
+			state: {
+				selection: { main: { from: 0, to: 0, head: 0 } },
+				doc: { lineAt: () => ({ number: 1, from: 0 }) },
+				sliceDoc: () => "",
+			},
+		});
+	});
+
+	expect(screen.getByPlaceholderText("Ask for a query or change…")).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: /Generate draft/ }));
+	await waitFor(() =>
+		expect(generatedScope).toEqual({
+			kind: "query",
+			sql: "SELECT id FROM users",
+		}),
+	);
+});
+
+test("sends an explicit selected-SQL scope to AI", async () => {
+	let generatedScope: unknown;
 	render(
 		<SqlEditor
 			value="SELECT id, name FROM users"
 			onChange={() => {}}
 			ai={{
 				configured: true,
+				review: null,
 				state: {
 					instruction: "Include the email",
 					draft: { status: "idle" },
 				},
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
-				onGenerate: async (target) => {
-					generatedTarget = target;
+				onGenerate: async (scope) => {
+					generatedScope = scope;
 				},
+				onApplyDraft: () => {},
 				onDiscard: () => {},
 			}}
 		/>,
@@ -305,39 +417,53 @@ test("sends the selected SQL as the AI edit target", async () => {
 	).toBeTruthy();
 	fireEvent.click(screen.getByRole("button", { name: /Improve selection/ }));
 	await waitFor(() =>
-		expect(generatedTarget).toEqual({ from: 7, to: 15, text: "id, name" }),
+		expect(generatedScope).toEqual({
+			kind: "selection",
+			sql: "SELECT id, name FROM users",
+			selection: { from: 7, to: 15, text: "id, name" },
+		}),
 	);
 });
 
-test("replaces only the captured selection in the latest editor query", () => {
-	let query = "-- keep this comment\nSELECT id, name FROM users";
+test("delegates selection replacement to the tab owner", () => {
+	let appliedMode = "";
 	render(
 		<SqlEditor
-			value={query}
-			onChange={(value) => {
-				query = value;
-			}}
+			value="-- keep this comment\nSELECT id, name FROM users"
+			onChange={() => {}}
 			ai={{
 				configured: true,
+				review: {
+					currentSql: "id, name",
+					currentVersionLabel: "Selection",
+					preservationLabel: "Selected SQL is preserved",
+					replace: { enabled: true },
+				},
 				state: {
 					instruction: "Include email",
 					draft: {
 						status: "ready",
-						originalSql: "SELECT id, name FROM users",
-						target: { from: 7, to: 15, text: "id, name" },
+						scope: {
+							kind: "selection",
+							sql: "SELECT id, name FROM users",
+							selection: { from: 7, to: 15, text: "id, name" },
+						},
 						sql: "id, name, email",
 					},
 				},
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
 				onGenerate: async () => {},
+				onApplyDraft: (mode) => {
+					appliedMode = mode;
+				},
 				onDiscard: () => {},
 			}}
 		/>,
 	);
 
 	fireEvent.click(screen.getByRole("button", { name: "Use in editor" }));
-	expect(query).toBe("-- keep this comment\nSELECT id, name, email FROM users");
+	expect(appliedMode).toBe("replace");
 });
 
 test("does not overwrite SQL when the selected target changed during generation", () => {
@@ -350,18 +476,32 @@ test("does not overwrite SQL when the selected target changed during generation"
 			}}
 			ai={{
 				configured: true,
+				review: {
+					currentSql: "id, name",
+					currentVersionLabel: "Selection",
+					preservationLabel: "Selected SQL changed in the editor",
+					replace: {
+						enabled: false,
+						reason:
+							"The selected SQL changed. Append or discard this draft instead.",
+					},
+				},
 				state: {
 					instruction: "Include email",
 					draft: {
 						status: "ready",
-						originalSql: "SELECT id, name FROM users",
-						target: { from: 7, to: 15, text: "id, name" },
+						scope: {
+							kind: "selection",
+							sql: "SELECT id, name FROM users",
+							selection: { from: 7, to: 15, text: "id, name" },
+						},
 						sql: "id, name, email",
 					},
 				},
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
 				onGenerate: async () => {},
+				onApplyDraft: () => {},
 				onDiscard: () => {},
 			}}
 		/>,
@@ -384,10 +524,12 @@ test("offers AI generation for an empty database", () => {
 			tables={[]}
 			ai={{
 				configured: true,
+				review: null,
 				state: { instruction: "", draft: { status: "idle" } },
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
 				onGenerate: async () => {},
+				onApplyDraft: () => {},
 				onDiscard: () => {},
 			}}
 		/>,
@@ -406,17 +548,19 @@ test("keeps one editor frame while an AI draft is under review", () => {
 			toolbarActions={<button type="button">Beautify</button>}
 			ai={{
 				configured: true,
+				review: { ...queryReview, currentSql: "SELECT id FROM users" },
 				state: {
 					instruction: "Add names",
 					draft: {
 						status: "ready",
-						originalSql: "SELECT id FROM users",
+						scope: { kind: "query", sql: "SELECT id FROM users" },
 						sql: "SELECT id, name FROM users",
 					},
 				},
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
 				onGenerate: async () => {},
+				onApplyDraft: () => {},
 				onDiscard: () => {},
 			}}
 		/>,

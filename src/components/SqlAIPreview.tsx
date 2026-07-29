@@ -4,40 +4,31 @@ import CodeMirror from "@uiw/react-codemirror";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { AiDraftState } from "@/lib/aiDraftState";
+import type { AiDraftApplyMode, AiDraftReview } from "@/lib/sqlAiDraft";
 import { cn } from "@/lib/utils";
 
 interface SqlAIPreviewProps {
 	draft: Extract<AiDraftState, { status: "ready" }>;
-	currentSql: string;
-	currentVersionLabel?: string;
-	preservationLabel?: string;
-	onReplace: () => void;
-	onAppend: () => void;
+	review: AiDraftReview;
+	onApply: (mode: AiDraftApplyMode) => void;
 	onDiscard: () => void;
 	onDraftChange: (sql: string) => void;
 	embedded?: boolean;
 	editorHeight?: string;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
-	replaceDisabled?: boolean;
-	replaceTitle?: string;
 }
 
 export function SqlAIPreview({
 	draft,
-	currentSql,
-	currentVersionLabel = "Current",
-	preservationLabel = "Current query is preserved",
-	onReplace,
-	onAppend,
+	review,
+	onApply,
 	onDiscard,
 	onDraftChange,
 	embedded = false,
 	editorHeight = "300px",
 	editorExtensions = [],
 	editorTheme,
-	replaceDisabled = false,
-	replaceTitle,
 }: SqlAIPreviewProps) {
 	const [version, setVersion] = useState<"current" | "draft">("draft");
 	const showingCurrent = version === "current";
@@ -59,7 +50,7 @@ export function SqlAIPreview({
 						Review AI draft
 					</span>
 					<span className="truncate border-l pl-2 text-muted-foreground">
-						{preservationLabel}
+						{review.preservationLabel}
 					</span>
 				</div>
 				<div
@@ -78,7 +69,7 @@ export function SqlAIPreview({
 							showingCurrent && "bg-background shadow-sm hover:bg-background",
 						)}
 					>
-						{currentVersionLabel}
+						{review.currentVersionLabel}
 					</Button>
 					<Button
 						type="button"
@@ -98,14 +89,16 @@ export function SqlAIPreview({
 					<Button variant="ghost" size="sm" onClick={onDiscard}>
 						<X /> Discard
 					</Button>
-					<Button variant="ghost" size="sm" onClick={onAppend}>
+					<Button variant="ghost" size="sm" onClick={() => onApply("append")}>
 						<Plus /> Append
 					</Button>
 					<Button
 						size="sm"
-						onClick={onReplace}
-						disabled={replaceDisabled}
-						title={replaceTitle}
+						onClick={() => onApply("replace")}
+						disabled={!review.replace.enabled}
+						title={
+							review.replace.enabled ? undefined : review.replace.reason
+						}
 					>
 						<Check /> Use in editor
 					</Button>
@@ -119,7 +112,7 @@ export function SqlAIPreview({
 			>
 				<CodeMirror
 					aria-label={showingCurrent ? "Current SQL query" : "AI draft SQL"}
-					value={showingCurrent ? currentSql : draft.sql}
+					value={showingCurrent ? review.currentSql : draft.sql}
 					height={embedded ? "100%" : editorHeight}
 					width="100%"
 					extensions={editorExtensions}

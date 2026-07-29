@@ -24,6 +24,26 @@ pub struct ColumnSchema {
     pub nullable: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SqlEditScope {
+    Query {
+        sql: String,
+    },
+    Selection {
+        sql: String,
+        selection: SqlSelection,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlSelection {
+    pub from: usize,
+    pub to: usize,
+    pub text: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
@@ -137,18 +157,12 @@ pub async fn generate_sql(
     session_id: String,
     db_type: String,
     instruction: String,
-    existing_sql: String,
-    selected_sql: Option<String>,
+    scope: SqlEditScope,
     tables: Vec<TableSchema>,
 ) -> Result<(), String> {
     let settings = settings::load(pool).await?;
-    let (system_prompt, user_prompt) = prompts::sql_prompts(
-        &db_type,
-        &instruction,
-        &existing_sql,
-        selected_sql.as_deref(),
-        &tables,
-    );
+    let (system_prompt, user_prompt) =
+        prompts::sql_prompts(&db_type, &instruction, &scope, &tables);
 
     match settings.provider {
         AiProvider::OpenAI => {

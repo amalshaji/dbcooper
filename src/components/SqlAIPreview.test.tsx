@@ -54,18 +54,24 @@ afterEach(cleanup);
 
 const readyDraft = {
 	status: "ready" as const,
-	originalSql: "SELECT id FROM users",
+	scope: { kind: "query" as const, sql: "SELECT id FROM users" },
 	sql: "SELECT id, name FROM users",
+};
+
+const review = {
+	currentSql: "SELECT id FROM users",
+	currentVersionLabel: "Current" as const,
+	preservationLabel: "Current query is preserved" as const,
+	replace: { enabled: true as const },
 };
 
 test("reviews a completed AI draft in a single editor by default", () => {
 	render(
 		<SqlAIPreview
 			draft={readyDraft}
-			currentSql="SELECT id FROM users"
+			review={review}
 			onDraftChange={() => undefined}
-			onReplace={() => undefined}
-			onAppend={() => undefined}
+			onApply={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -84,12 +90,11 @@ test("switches between a read-only current query and an editable draft", () => {
 	render(
 		<SqlAIPreview
 			draft={readyDraft}
-			currentSql="SELECT id, email FROM users"
+			review={{ ...review, currentSql: "SELECT id, email FROM users" }}
 			onDraftChange={(sql) => {
 				editedSql = sql;
 			}}
-			onReplace={() => undefined}
-			onAppend={() => undefined}
+			onApply={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -114,10 +119,9 @@ test("exposes explicit discard, append, and replace actions", () => {
 	render(
 		<SqlAIPreview
 			draft={readyDraft}
-			currentSql="SELECT id FROM users"
+			review={review}
 			onDraftChange={() => undefined}
-			onReplace={() => actions.push("replace")}
-			onAppend={() => actions.push("append")}
+			onApply={(mode) => actions.push(mode)}
 			onDiscard={() => actions.push("discard")}
 		/>,
 	);
@@ -133,15 +137,14 @@ test("uses the existing editor frame instead of nested panel chrome", () => {
 		<SqlAIPreview
 			embedded
 			draft={readyDraft}
-			currentSql="SELECT id FROM users"
+			review={review}
 			onDraftChange={() => undefined}
-			onReplace={() => undefined}
-			onAppend={() => undefined}
+			onApply={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
 
-	const review = container.querySelector("section");
-	expect(review?.className).toContain("flex-1");
-	expect(review?.className).not.toContain("rounded-lg");
+	const reviewPanel = container.querySelector("section");
+	expect(reviewPanel?.className).toContain("flex-1");
+	expect(reviewPanel?.className).not.toContain("rounded-lg");
 });
