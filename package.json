@@ -27,7 +27,6 @@
     "@fontsource-variable/google-sans-code": "^5.2.3",
     "@fontsource/google-sans-flex": "^5.2.1",
     "@phosphor-icons/react": "^2.1.10",
-    "@pierre/diffs": "^1.2.12",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.14",

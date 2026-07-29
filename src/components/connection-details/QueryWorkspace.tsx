@@ -58,7 +58,7 @@ export function QueryWorkspace({
 		row: Record<string, unknown>;
 		index: number;
 	} | null>(null);
-	const reviewing = tab.ai.draft.status !== "idle";
+	const reviewing = tab.ai.draft.status === "ready";
 	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!tab.results?.length) return [];
 

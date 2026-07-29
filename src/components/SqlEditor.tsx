@@ -33,6 +33,14 @@ const emptyAiState: QueryAiState = {
 	draft: { status: "idle" },
 };
 
+function appendSqlStatement(currentSql: string, draftSql: string): string {
+	const current = currentSql.trimEnd();
+	const draft = draftSql.trim();
+	if (!current) return draft;
+	if (!draft) return current;
+	return `${current}${current.endsWith(";") ? "" : ";"}\n\n${draft}`;
+}
+
 interface TableSchema {
 	schema: string;
 	name: string;
@@ -84,7 +92,7 @@ export function SqlEditor({
 	const [isDark, setIsDark] = useState(false);
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
-	const reviewing = aiDraft.status !== "idle";
+	const reviewing = aiDraft.status === "ready";
 	const framedEditor = Boolean(onRunQuery) || reviewing;
 
 	useEffect(() => {
@@ -294,6 +302,20 @@ export function SqlEditor({
 					</div>
 				</div>
 			)}
+			{ai && aiDraft.status === "error" && (
+				<div
+					role="alert"
+					className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+				>
+					<WarningCircle className="size-4 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">
+						Couldn’t generate a draft. {aiDraft.message}
+					</span>
+					<Button variant="ghost" size="sm" onClick={ai.onDiscard}>
+						Dismiss
+					</Button>
+				</div>
+			)}
 			<div
 				data-testid="sql-editor-frame"
 				className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
@@ -397,15 +419,18 @@ export function SqlEditor({
 				{ai && reviewing ? (
 					<SqlAIPreview
 						draft={aiDraft}
+						currentSql={value}
 						onDraftChange={ai.onDraftChange}
-						dark={isDark}
 						embedded
 						editorHeight="100%"
 						editorExtensions={draftExtensions}
 						editorTheme={isDark ? barf : ayuLight}
 						onDiscard={ai.onDiscard}
+						onAppend={() => {
+							onChange(appendSqlStatement(value, aiDraft.sql));
+							ai.onDiscard();
+						}}
 						onReplace={() => {
-							if (aiDraft.status !== "ready") return;
 							onChange(aiDraft.sql);
 							ai.onDiscard();
 						}}

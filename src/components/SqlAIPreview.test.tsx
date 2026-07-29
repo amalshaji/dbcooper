@@ -9,58 +9,23 @@ if (!globalThis.document) GlobalRegistrator.register();
 mock.module("@/lib/utils", () => ({
 	cn: (...inputs: ClassValue[]) => twMerge(clsx(inputs)),
 }));
-
-interface DiffFile {
-	name: string;
-	contents: string;
-}
-
-mock.module("@pierre/diffs", () => ({
-	parseDiffFromFile: (oldFile: DiffFile, newFile: DiffFile) => ({
-		oldFile,
-		newFile,
-		hunks: [{ additionLines: 2, deletionLines: 1 }],
-	}),
-}));
-mock.module("@pierre/diffs/react", () => ({
-	FileDiff: ({
-		fileDiff,
-		options,
-	}: {
-		fileDiff: { oldFile: DiffFile; newFile: DiffFile };
-		options: { unsafeCSS?: string };
-	}) => (
-		<div
-			data-testid="ai-sql-diff"
-			data-old={fileDiff.oldFile.contents}
-			data-new={fileDiff.newFile.contents}
-			data-theme-css={options.unsafeCSS}
-		/>
-	),
-}));
 mock.module("@uiw/react-codemirror", () => ({
 	default: ({
 		value,
 		onChange,
 		editable,
-		placeholder,
-		minHeight,
-		maxHeight,
+		"aria-label": ariaLabel,
 	}: {
 		value: string;
 		onChange: (value: string) => void;
 		editable: boolean;
-		placeholder?: string;
-		minHeight?: string;
-		maxHeight?: string;
+		"aria-label"?: string;
 	}) => (
 		<textarea
+			aria-label={ariaLabel}
 			data-testid="ai-draft-editor"
-			data-min-height={minHeight}
-			data-max-height={maxHeight}
 			value={value}
 			readOnly={!editable}
-			placeholder={placeholder}
 			onChange={(event) => onChange(event.target.value)}
 		/>
 	),
@@ -79,6 +44,7 @@ mock.module("@/components/ui/spinner", () => ({
 mock.module("@/lib/sqlSafety", () => ({
 	classifySqlIntent: () => "read",
 }));
+
 const { cleanup, fireEvent, render, screen } = await import(
 	"@testing-library/react"
 );
@@ -86,81 +52,91 @@ const { SqlAIPreview } = await import("./SqlAIPreview");
 
 afterEach(cleanup);
 
-test("streams an existing query into one unified diff", () => {
+const readyDraft = {
+	status: "ready" as const,
+	originalSql: "SELECT id FROM users",
+	sql: "SELECT id, name FROM users",
+};
+
+test("reviews a completed AI draft in a single editor by default", () => {
 	render(
 		<SqlAIPreview
-			draft={{
-				status: "generating",
-				requestId: "request-1",
-				originalSql: "SELECT id FROM users",
-				sql: "SELECT id, name FROM users",
-			}}
+			draft={readyDraft}
+			currentSql="SELECT id FROM users"
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
+			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
 
-	const diff = screen.getByTestId("ai-sql-diff");
-	expect(diff.dataset.old).toBe("SELECT id FROM users");
-	expect(diff.dataset.new).toBe("SELECT id, name FROM users");
-	expect(diff.dataset.themeCss).toContain(
-		"--diffs-light-bg: var(--background)",
-	);
-	expect(diff.dataset.themeCss).toContain(
-		"--diffs-dark-bg: var(--background)",
-	);
-	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
-	expect(screen.getByText("Composing query…")).toBeTruthy();
+	expect(screen.getByText("Review AI draft")).toBeTruthy();
+	expect(screen.getByText("Current query is preserved")).toBeTruthy();
+	expect(screen.getByRole("button", { name: "AI draft" }).getAttribute("aria-pressed")).toBe("true");
+	const editor = screen.getByLabelText("AI draft SQL") as HTMLTextAreaElement;
+	expect(editor.value).toBe("SELECT id, name FROM users");
+	expect(editor.readOnly).toBe(false);
+	expect(screen.queryByTestId("legacy-diff")).toBeNull();
 });
 
-test("keeps the original editor visible until the first diff chunk arrives", () => {
+test("switches between a read-only current query and an editable draft", () => {
+	let editedSql = "";
 	render(
 		<SqlAIPreview
-			draft={{
-				status: "generating",
-				requestId: "request-1",
-				originalSql: "SELECT id FROM users",
-				sql: "",
+			draft={readyDraft}
+			currentSql="SELECT id, email FROM users"
+			onDraftChange={(sql) => {
+				editedSql = sql;
 			}}
-			onDraftChange={() => undefined}
 			onReplace={() => undefined}
+			onAppend={() => undefined}
 			onDiscard={() => undefined}
-			editorHeight="300px"
 		/>,
 	);
 
-	const editor = screen.getByTestId("ai-draft-editor") as HTMLTextAreaElement;
-	expect(editor.value).toBe("SELECT id FROM users");
-	expect(editor.readOnly).toBe(true);
-	expect(editor.dataset.minHeight).toBe("300px");
-	expect(editor.dataset.maxHeight).toBe("300px");
+	fireEvent.click(screen.getByRole("button", { name: "Current" }));
+	const currentEditor = screen.getByLabelText(
+		"Current SQL query",
+	) as HTMLTextAreaElement;
+	expect(currentEditor.value).toBe("SELECT id, email FROM users");
+	expect(currentEditor.readOnly).toBe(true);
+
+	fireEvent.click(screen.getByRole("button", { name: "AI draft" }));
+	const draftEditor = screen.getByLabelText("AI draft SQL");
+	fireEvent.change(draftEditor, {
+		target: { value: "SELECT id, name, email FROM users" },
+	});
+	expect(editedSql).toBe("SELECT id, name, email FROM users");
 });
 
-test("uses the standard app border radius", () => {
-	const { container } = render(
+test("exposes explicit discard, append, and replace actions", () => {
+	const actions: string[] = [];
+	render(
 		<SqlAIPreview
-			draft={{ status: "ready", originalSql: "", sql: "SELECT 1;" }}
+			draft={readyDraft}
+			currentSql="SELECT id FROM users"
 			onDraftChange={() => undefined}
-			onReplace={() => undefined}
-			onDiscard={() => undefined}
+			onReplace={() => actions.push("replace")}
+			onAppend={() => actions.push("append")}
+			onDiscard={() => actions.push("discard")}
 		/>,
 	);
 
-	expect(container.querySelector("section")?.className).toContain("rounded-lg");
+	fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+	fireEvent.click(screen.getByRole("button", { name: "Append" }));
+	fireEvent.click(screen.getByRole("button", { name: "Use in editor" }));
+	expect(actions).toEqual(["discard", "append", "replace"]);
 });
 
 test("uses the existing editor frame instead of nested panel chrome", () => {
 	const { container } = render(
 		<SqlAIPreview
 			embedded
-			draft={{
-				status: "ready",
-				originalSql: "SELECT id FROM users",
-				sql: "SELECT id, name FROM users",
-			}}
+			draft={readyDraft}
+			currentSql="SELECT id FROM users"
 			onDraftChange={() => undefined}
 			onReplace={() => undefined}
+			onAppend={() => undefined}
 			onDiscard={() => undefined}
 		/>,
 	);
@@ -168,92 +144,4 @@ test("uses the existing editor frame instead of nested panel chrome", () => {
 	const review = container.querySelector("section");
 	expect(review?.className).toContain("flex-1");
 	expect(review?.className).not.toContain("rounded-lg");
-});
-
-test("renders streamed SQL in a read-only draft editor", () => {
-	render(
-		<SqlAIPreview
-			draft={{
-				status: "generating",
-				requestId: "request-1",
-				originalSql: "",
-				sql: "SELECT *",
-			}}
-			onDraftChange={() => undefined}
-			onReplace={() => undefined}
-			onDiscard={() => undefined}
-		/>,
-	);
-
-	const editor = screen.getByTestId("ai-draft-editor") as HTMLTextAreaElement;
-	expect(editor.value).toBe("SELECT *");
-	expect(editor.readOnly).toBe(true);
-	expect(screen.getByText("Composing query…")).toBeTruthy();
-});
-
-test("keeps the empty loading state compact until SQL starts streaming", () => {
-	render(
-		<SqlAIPreview
-			draft={{
-				status: "generating",
-				requestId: "request-1",
-				originalSql: "",
-				sql: "",
-			}}
-			onDraftChange={() => undefined}
-			onReplace={() => undefined}
-			onDiscard={() => undefined}
-		/>,
-	);
-
-	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
-	expect(screen.getByText("Composing query…")).toBeTruthy();
-	expect(screen.queryByText("Not executed")).toBeNull();
-});
-
-test("accepts a completed diff without exposing a duplicate editor", () => {
-	let accepted = false;
-	render(
-		<SqlAIPreview
-			draft={{
-				status: "ready",
-				originalSql: "SELECT id FROM users",
-				sql: "SELECT id, name FROM users",
-			}}
-			onDraftChange={() => undefined}
-			onReplace={() => {
-				accepted = true;
-			}}
-			onDiscard={() => undefined}
-		/>,
-	);
-
-	fireEvent.click(screen.getByRole("button", { name: "Accept changes" }));
-	expect(accepted).toBe(true);
-	expect(screen.queryByTestId("ai-draft-editor")).toBeNull();
-	expect(screen.queryByText("Append")).toBeNull();
-});
-
-test("allows a completed new-query draft to be edited before it is applied", () => {
-	let editedSql = "";
-	render(
-		<SqlAIPreview
-			draft={{
-				status: "ready",
-				originalSql: "",
-				sql: "SELECT * FROM users",
-			}}
-			onDraftChange={(sql) => {
-				editedSql = sql;
-			}}
-			onReplace={() => undefined}
-			onDiscard={() => undefined}
-		/>,
-	);
-
-	const editor = screen.getByTestId("ai-draft-editor") as HTMLTextAreaElement;
-	expect(editor.readOnly).toBe(false);
-	fireEvent.change(editor, { target: { value: "SELECT id FROM users" } });
-	expect(editedSql).toBe("SELECT id FROM users");
-	expect(screen.getByText("Use in editor")).toBeTruthy();
 });

@@ -18,8 +18,20 @@ mock.module("@codemirror/view", () => ({
 	keymap: { of: () => ({}) },
 }));
 mock.module("@uiw/react-codemirror", () => ({
-	default: ({ value, width }: { value: string; width?: string }) => (
-		<div data-testid="code-mirror" data-width={width}>
+	default: ({
+		value,
+		width,
+		editable,
+	}: {
+		value: string;
+		width?: string;
+		editable?: boolean;
+	}) => (
+		<div
+			data-testid="code-mirror"
+			data-width={width}
+			data-editable={editable}
+		>
 			{value}
 		</div>
 	),
@@ -32,9 +44,21 @@ mock.module("@/lib/aiDraftState", () => ({
 mock.module("@/components/SqlAIPreview", () => ({
 	SqlAIPreview: ({
 		draft,
+		currentSql,
+		onAppend,
+		onReplace,
 	}: {
 		draft: { status: string; sql?: string; message?: string };
-	}) => <div data-testid="ai-draft">{draft.sql ?? draft.message}</div>,
+		currentSql: string;
+		onAppend: () => void;
+		onReplace: () => void;
+	}) => (
+		<div data-testid="ai-draft" data-current={currentSql}>
+			{draft.sql ?? draft.message}
+			<button type="button" onClick={onAppend}>Append</button>
+			<button type="button" onClick={onReplace}>Use in editor</button>
+		</div>
+	),
 }));
 mock.module("@/components/ui/button", () => ({
 	Button: ({ children, ...props }: ComponentProps<"button">) => (
@@ -77,7 +101,7 @@ mock.module("@/components/ui/tooltip", () => ({
 	TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-const { cleanup, render, screen, waitFor } = await import(
+const { cleanup, fireEvent, render, screen, waitFor } = await import(
 	"@testing-library/react"
 );
 const { SqlEditor } = await import("./SqlEditor");
@@ -119,7 +143,11 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 		(screen.getByPlaceholderText("Ask for a query or change…") as HTMLInputElement)
 			.value,
 	).toBe("List active users");
-	expect(screen.getByTestId("ai-draft").textContent).toBe("SELECT *");
+	expect(screen.queryByTestId("ai-draft")).toBeNull();
+	expect(screen.getByTestId("code-mirror").textContent).toBe(
+		"SELECT * FROM users",
+	);
+	expect(screen.getByTestId("code-mirror").dataset.editable).toBe("true");
 
 	rerender(
 		<SqlEditor
@@ -151,6 +179,42 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	expect(screen.getByTestId("ai-draft").textContent).toContain(
 		"WHERE active = true",
 	);
+});
+
+test("appends a completed draft as a valid additional statement", () => {
+	let query = "";
+	let discarded = false;
+	render(
+		<SqlEditor
+			value="SELECT id FROM users"
+			onChange={(value) => {
+				query = value;
+			}}
+			ai={{
+				configured: true,
+				state: {
+					instruction: "Show organizations",
+					draft: {
+						status: "ready",
+						originalSql: "SELECT id FROM users",
+						sql: "SELECT id FROM organizations;",
+					},
+				},
+				onInstructionChange: () => {},
+				onDraftChange: () => {},
+				onGenerate: async () => {},
+				onDiscard: () => {
+					discarded = true;
+				},
+			}}
+		/>,
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Append" }));
+	expect(query).toBe(
+		"SELECT id FROM users;\n\nSELECT id FROM organizations;",
+	);
+	expect(discarded).toBe(true);
 });
 
 test("offers AI generation for an empty database", () => {
