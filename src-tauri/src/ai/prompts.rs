@@ -43,6 +43,7 @@ pub fn sql_prompts(
     db_type: &str,
     instruction: &str,
     existing_sql: &str,
+    selected_sql: Option<&str>,
     tables: &[TableSchema],
 ) -> (String, String) {
     let schema_description = build_schema_description(tables);
@@ -70,6 +71,7 @@ Rules:
 - Prefer a read-only query unless the user explicitly requests a write
 - Treat explicit requests to create, alter, or drop database objects as writes and generate the requested DDL
 - The user instruction is authoritative; use existing SQL only when it is relevant to the requested result
+- If selected SQL is provided, return only the replacement SQL for that selection, not the full query
 - Return one statement unless the user explicitly requests multiple statements
 - Never assume the generated query will be executed automatically
 - {}
@@ -77,7 +79,12 @@ Rules:
         db_name, schema_description, syntax_note
     );
 
-    let user_prompt = if existing_sql.is_empty() {
+    let user_prompt = if let Some(selected_sql) = selected_sql {
+        format!(
+			"Full SQL query for context:\n```sql\n{}\n```\n\nSelected SQL to modify:\n```sql\n{}\n```\n\nInstruction: {}",
+			existing_sql, selected_sql, instruction
+		)
+    } else if existing_sql.is_empty() {
         format!("Generate SQL query: {}", instruction)
     } else {
         format!(
@@ -115,7 +122,7 @@ mod tests {
     #[test]
     fn sql_prompt_makes_explicit_ddl_requests_authoritative() {
         let (system_prompt, user_prompt) =
-            sql_prompts("duckdb", "Create two related tables", "", &[]);
+            sql_prompts("duckdb", "Create two related tables", "", None, &[]);
 
         assert!(system_prompt.contains("explicit requests to create, alter, or drop"));
         assert!(system_prompt.contains("user instruction is authoritative"));
@@ -124,9 +131,25 @@ mod tests {
 
     #[test]
     fn identifies_cloudflare_d1_as_sqlite_compatible() {
-        let (system, _) = sql_prompts("d1", "list users", "", &[]);
+        let (system, _) = sql_prompts("d1", "list users", "", None, &[]);
 
         assert!(system.contains("Cloudflare D1 SQL expert"));
         assert!(system.contains("Use Cloudflare D1's SQLite syntax"));
+    }
+
+    #[test]
+    fn selected_sql_requests_only_a_replacement_fragment() {
+        let (system, user) = sql_prompts(
+            "postgres",
+            "Include the email column",
+            "SELECT id, name FROM users",
+            Some("id, name"),
+            &[],
+        );
+
+        assert!(system.contains("return only the replacement SQL for that selection"));
+        assert!(user.contains("Full SQL query for context:\n```sql\nSELECT id, name FROM users"));
+        assert!(user.contains("Selected SQL to modify:\n```sql\nid, name"));
+        assert!(user.contains("Instruction: Include the email column"));
     }
 }

@@ -1,3 +1,9 @@
+export interface SqlSelection {
+	from: number;
+	to: number;
+	text: string;
+}
+
 export type AiDraftState =
 	| { status: "idle" }
 	| {
@@ -5,12 +11,23 @@ export type AiDraftState =
 			requestId: string;
 			originalSql: string;
 			sql: string;
+			target?: SqlSelection;
 	  }
-	| { status: "ready"; originalSql: string; sql: string }
+	| {
+			status: "ready";
+			originalSql: string;
+			sql: string;
+			target?: SqlSelection;
+	  }
 	| { status: "error"; message: string };
 
 export type AiDraftAction =
-	| { type: "start"; requestId: string; originalSql: string }
+	| {
+			type: "start";
+			requestId: string;
+			originalSql: string;
+			target?: SqlSelection;
+	  }
 	| { type: "preview"; requestId: string; sql: string }
 	| { type: "complete"; requestId: string; sql: string }
 	| { type: "edit"; sql: string }
@@ -54,6 +71,7 @@ export function aiDraftReducer(
 				requestId: action.requestId,
 				originalSql: action.originalSql,
 				sql: "",
+				...(action.target ? { target: action.target } : {}),
 			};
 		case "preview":
 			return state.status === "generating" &&
@@ -61,21 +79,21 @@ export function aiDraftReducer(
 				? { ...state, sql: action.sql }
 				: state;
 		case "complete":
-			if (
-				state.status !== "generating" ||
-				state.requestId !== action.requestId
-			)
+			if (state.status !== "generating" || state.requestId !== action.requestId)
 				return state;
 			return action.sql.trim()
-				? { status: "ready", originalSql: state.originalSql, sql: action.sql }
+				? {
+						status: "ready",
+						originalSql: state.originalSql,
+						sql: action.sql,
+						...(state.target ? { target: state.target } : {}),
+					}
 				: {
 						status: "error",
 						message: "The AI provider returned an empty response",
 					};
 		case "edit":
-			return state.status === "ready"
-				? { ...state, sql: action.sql }
-				: state;
+			return state.status === "ready" ? { ...state, sql: action.sql } : state;
 		case "fail":
 			return state.status === "generating" &&
 				state.requestId === action.requestId

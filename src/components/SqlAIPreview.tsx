@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 interface SqlAIPreviewProps {
 	draft: Extract<AiDraftState, { status: "ready" }>;
 	currentSql: string;
+	currentVersionLabel?: string;
+	preservationLabel?: string;
 	onReplace: () => void;
 	onAppend: () => void;
 	onDiscard: () => void;
@@ -17,11 +19,15 @@ interface SqlAIPreviewProps {
 	editorHeight?: string;
 	editorExtensions?: Extension[];
 	editorTheme?: Extension;
+	replaceDisabled?: boolean;
+	replaceTitle?: string;
 }
 
 export function SqlAIPreview({
 	draft,
 	currentSql,
+	currentVersionLabel = "Current",
+	preservationLabel = "Current query is preserved",
 	onReplace,
 	onAppend,
 	onDiscard,
@@ -30,6 +36,8 @@ export function SqlAIPreview({
 	editorHeight = "300px",
 	editorExtensions = [],
 	editorTheme,
+	replaceDisabled = false,
+	replaceTitle,
 }: SqlAIPreviewProps) {
 	const [version, setVersion] = useState<"current" | "draft">("draft");
 	const showingCurrent = version === "current";
@@ -51,7 +59,7 @@ export function SqlAIPreview({
 						Review AI draft
 					</span>
 					<span className="truncate border-l pl-2 text-muted-foreground">
-						Current query is preserved
+						{preservationLabel}
 					</span>
 				</div>
 				<div
@@ -70,7 +78,7 @@ export function SqlAIPreview({
 							showingCurrent && "bg-background shadow-sm hover:bg-background",
 						)}
 					>
-						Current
+						{currentVersionLabel}
 					</Button>
 					<Button
 						type="button"
@@ -93,7 +101,12 @@ export function SqlAIPreview({
 					<Button variant="ghost" size="sm" onClick={onAppend}>
 						<Plus /> Append
 					</Button>
-					<Button size="sm" onClick={onReplace}>
+					<Button
+						size="sm"
+						onClick={onReplace}
+						disabled={replaceDisabled}
+						title={replaceTitle}
+					>
 						<Check /> Use in editor
 					</Button>
 				</div>
@@ -117,7 +130,9 @@ export function SqlAIPreview({
 					editable={!showingCurrent}
 					readOnly={showingCurrent}
 					placeholder={
-						showingCurrent ? "No SQL in the current editor" : "AI draft is empty"
+						showingCurrent
+							? "No SQL in the current editor"
+							: "AI draft is empty"
 					}
 					basicSetup={{
 						lineNumbers: true,

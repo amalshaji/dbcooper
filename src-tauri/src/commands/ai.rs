@@ -10,6 +10,7 @@ pub async fn generate_sql(
     db_type: String,
     instruction: String,
     existing_sql: String,
+    selected_sql: Option<String>,
     tables: Vec<TableSchema>,
 ) -> Result<(), String> {
     println!("[AI] Starting SQL generation for session: {}", session_id);
@@ -23,6 +24,7 @@ pub async fn generate_sql(
         db_type,
         instruction,
         existing_sql,
+        selected_sql,
         tables,
     )
     .await

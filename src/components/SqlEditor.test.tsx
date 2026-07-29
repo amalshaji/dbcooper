@@ -1,6 +1,11 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import type { ComponentProps, ReactNode } from "react";
+import {
+	cloneElement,
+	isValidElement,
+	type ComponentProps,
+	type ReactNode,
+} from "react";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
@@ -9,11 +14,28 @@ mock.module("@codemirror/state", () => ({
 	EditorState: { readOnly: { of: () => ({}) } },
 	Prec: { highest: (value: unknown) => value },
 }));
+
+interface EditorUpdate {
+	selectionSet: boolean;
+	docChanged: boolean;
+	state: {
+		selection: { main: { from: number; to: number; head: number } };
+		doc: { lineAt: (position: number) => { number: number; from: number } };
+		sliceDoc: (from: number, to: number) => string;
+	};
+}
+
+let editorUpdateListener: ((update: EditorUpdate) => void) | undefined;
 mock.module("@codemirror/view", () => ({
 	EditorView: {
 		lineWrapping: {},
 		theme: () => ({}),
-		updateListener: { of: () => ({}) },
+		updateListener: {
+			of: (listener: (update: EditorUpdate) => void) => {
+				editorUpdateListener = listener;
+				return {};
+			},
+		},
 	},
 	keymap: { of: () => ({}) },
 }));
@@ -27,11 +49,7 @@ mock.module("@uiw/react-codemirror", () => ({
 		width?: string;
 		editable?: boolean;
 	}) => (
-		<div
-			data-testid="code-mirror"
-			data-width={width}
-			data-editable={editable}
-		>
+		<div data-testid="code-mirror" data-width={width} data-editable={editable}>
 			{value}
 		</div>
 	),
@@ -45,18 +63,37 @@ mock.module("@/components/SqlAIPreview", () => ({
 	SqlAIPreview: ({
 		draft,
 		currentSql,
+		currentVersionLabel,
+		preservationLabel,
 		onAppend,
 		onReplace,
+		replaceDisabled,
+		replaceTitle,
 	}: {
 		draft: { status: string; sql?: string; message?: string };
 		currentSql: string;
+		currentVersionLabel?: string;
+		preservationLabel?: string;
 		onAppend: () => void;
 		onReplace: () => void;
+		replaceDisabled?: boolean;
+		replaceTitle?: string;
 	}) => (
 		<div data-testid="ai-draft" data-current={currentSql}>
+			<span>{currentVersionLabel}</span>
+			<span>{preservationLabel}</span>
 			{draft.sql ?? draft.message}
-			<button type="button" onClick={onAppend}>Append</button>
-			<button type="button" onClick={onReplace}>Use in editor</button>
+			<button type="button" onClick={onAppend}>
+				Append
+			</button>
+			<button
+				type="button"
+				onClick={onReplace}
+				disabled={replaceDisabled}
+				title={replaceTitle}
+			>
+				Use in editor
+			</button>
 		</div>
 	),
 }));
@@ -98,10 +135,21 @@ mock.module("@/components/ui/spinner", () => ({ Spinner: () => <span /> }));
 mock.module("@/components/ui/tooltip", () => ({
 	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
 	TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-	TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+	TooltipTrigger: ({
+		children,
+		render,
+	}: {
+		children: ReactNode;
+		render?: ReactNode;
+	}) =>
+		isValidElement(render) ? (
+			cloneElement(render, {}, children)
+		) : (
+			<>{children}</>
+		),
 }));
 
-const { cleanup, fireEvent, render, screen, waitFor } = await import(
+const { act, cleanup, fireEvent, render, screen, waitFor } = await import(
 	"@testing-library/react"
 );
 const { SqlEditor } = await import("./SqlEditor");
@@ -140,8 +188,11 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	);
 
 	expect(
-		(screen.getByPlaceholderText("Ask for a query or change…") as HTMLInputElement)
-			.value,
+		(
+			screen.getByPlaceholderText(
+				"Ask for a query or change…",
+			) as HTMLInputElement
+		).value,
 	).toBe("List active users");
 	expect(screen.queryByTestId("ai-draft")).toBeNull();
 	expect(screen.getByTestId("code-mirror").textContent).toBe(
@@ -211,10 +262,118 @@ test("appends a completed draft as a valid additional statement", () => {
 	);
 
 	fireEvent.click(screen.getByRole("button", { name: "Append" }));
-	expect(query).toBe(
-		"SELECT id FROM users;\n\nSELECT id FROM organizations;",
-	);
+	expect(query).toBe("SELECT id FROM users;\n\nSELECT id FROM organizations;");
 	expect(discarded).toBe(true);
+});
+
+test("sends the selected SQL as the AI edit target", async () => {
+	let generatedTarget: { from: number; to: number; text: string } | undefined;
+	render(
+		<SqlEditor
+			value="SELECT id, name FROM users"
+			onChange={() => {}}
+			ai={{
+				configured: true,
+				state: {
+					instruction: "Include the email",
+					draft: { status: "idle" },
+				},
+				onInstructionChange: () => {},
+				onDraftChange: () => {},
+				onGenerate: async (target) => {
+					generatedTarget = target;
+				},
+				onDiscard: () => {},
+			}}
+		/>,
+	);
+
+	act(() => {
+		editorUpdateListener?.({
+			selectionSet: true,
+			docChanged: false,
+			state: {
+				selection: { main: { from: 7, to: 15, head: 15 } },
+				doc: { lineAt: () => ({ number: 1, from: 0 }) },
+				sliceDoc: () => "id, name",
+			},
+		});
+	});
+
+	expect(
+		screen.getByPlaceholderText("Ask AI to improve selected SQL…"),
+	).toBeTruthy();
+	fireEvent.click(screen.getByRole("button", { name: /Improve selection/ }));
+	await waitFor(() =>
+		expect(generatedTarget).toEqual({ from: 7, to: 15, text: "id, name" }),
+	);
+});
+
+test("replaces only the captured selection in the latest editor query", () => {
+	let query = "-- keep this comment\nSELECT id, name FROM users";
+	render(
+		<SqlEditor
+			value={query}
+			onChange={(value) => {
+				query = value;
+			}}
+			ai={{
+				configured: true,
+				state: {
+					instruction: "Include email",
+					draft: {
+						status: "ready",
+						originalSql: "SELECT id, name FROM users",
+						target: { from: 7, to: 15, text: "id, name" },
+						sql: "id, name, email",
+					},
+				},
+				onInstructionChange: () => {},
+				onDraftChange: () => {},
+				onGenerate: async () => {},
+				onDiscard: () => {},
+			}}
+		/>,
+	);
+
+	fireEvent.click(screen.getByRole("button", { name: "Use in editor" }));
+	expect(query).toBe("-- keep this comment\nSELECT id, name, email FROM users");
+});
+
+test("does not overwrite SQL when the selected target changed during generation", () => {
+	let query = "SELECT email FROM users";
+	render(
+		<SqlEditor
+			value={query}
+			onChange={(value) => {
+				query = value;
+			}}
+			ai={{
+				configured: true,
+				state: {
+					instruction: "Include email",
+					draft: {
+						status: "ready",
+						originalSql: "SELECT id, name FROM users",
+						target: { from: 7, to: 15, text: "id, name" },
+						sql: "id, name, email",
+					},
+				},
+				onInstructionChange: () => {},
+				onDraftChange: () => {},
+				onGenerate: async () => {},
+				onDiscard: () => {},
+			}}
+		/>,
+	);
+
+	expect(screen.getByText("Selection")).toBeTruthy();
+	expect(screen.getByText("Selected SQL changed in the editor")).toBeTruthy();
+	const useDraft = screen.getByRole("button", { name: "Use in editor" });
+	expect((useDraft as HTMLButtonElement).disabled).toBe(true);
+	expect(useDraft.getAttribute("title")).toContain("Append or discard");
+	fireEvent.click(useDraft);
+	expect(query).toBe("SELECT email FROM users");
 });
 
 test("offers AI generation for an empty database", () => {
@@ -317,7 +476,10 @@ test("keeps the Run query control inside the editor frame", () => {
 			onRunQuery={onRunQuery}
 		/>,
 	);
-	expect((screen.getByRole("button", { name: /Run query/ }) as HTMLButtonElement).disabled).toBe(false);
+	expect(
+		(screen.getByRole("button", { name: /Run query/ }) as HTMLButtonElement)
+			.disabled,
+	).toBe(false);
 });
 
 test("keeps supporting query actions beside Run query inside the editor frame", () => {

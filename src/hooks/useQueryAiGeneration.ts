@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import {
 	queryAiStateReducer,
 	type QueryAiStateAction,
+	type SqlSelection,
 } from "../lib/aiDraftState";
 import { isAiGenerationCancellation } from "../lib/aiGenerationSession";
 import type { QueryTab, Tab } from "../types/tabTypes";
@@ -17,6 +18,7 @@ type GenerateDraft = (
 	requestKey: string,
 	instruction: string,
 	existingSQL: string,
+	selectedSQL: string | undefined,
 	onPreview: (sql: string) => void,
 ) => Promise<string>;
 
@@ -64,11 +66,16 @@ export function useQueryAiGeneration({
 	);
 
 	const generateForTab = useCallback(
-		async (tabId: string, instruction: string, existingSQL: string) => {
+		async (
+			tabId: string,
+			instruction: string,
+			existingSQL: string,
+			target?: SqlSelection,
+		) => {
 			const requestId = crypto.randomUUID();
 			updateAiState(tabId, {
 				type: "update-draft",
-				action: { type: "start", requestId, originalSql: existingSQL },
+				action: { type: "start", requestId, originalSql: existingSQL, target },
 			});
 
 			const viewQuery = () => {
@@ -82,6 +89,7 @@ export function useQueryAiGeneration({
 					tabId,
 					instruction,
 					existingSQL,
+					target?.text,
 					(previewSql) =>
 						updateAiState(tabId, {
 							type: "update-draft",
@@ -137,11 +145,12 @@ export function useQueryAiGeneration({
 					type: "update-draft",
 					action: { type: "edit", sql },
 				}),
-			onGenerate: () =>
+			onGenerate: (target?: SqlSelection) =>
 				generateForTab(
 					tab.id,
 					tab.ai.instruction,
-					getExistingSqlForAi(tab.query),
+					target ? tab.query : getExistingSqlForAi(tab.query),
+					target,
 				),
 			onDiscard: () =>
 				updateAiState(tab.id, {

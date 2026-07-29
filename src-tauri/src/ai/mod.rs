@@ -138,11 +138,17 @@ pub async fn generate_sql(
     db_type: String,
     instruction: String,
     existing_sql: String,
+    selected_sql: Option<String>,
     tables: Vec<TableSchema>,
 ) -> Result<(), String> {
     let settings = settings::load(pool).await?;
-    let (system_prompt, user_prompt) =
-        prompts::sql_prompts(&db_type, &instruction, &existing_sql, &tables);
+    let (system_prompt, user_prompt) = prompts::sql_prompts(
+        &db_type,
+        &instruction,
+        &existing_sql,
+        selected_sql.as_deref(),
+        &tables,
+    );
 
     match settings.provider {
         AiProvider::OpenAI => {

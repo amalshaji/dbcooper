@@ -24,6 +24,7 @@ export function useContextualSqlGeneration({
 			requestKey: string,
 			instruction: string,
 			existingSQL: string,
+			selectedSQL: string | undefined,
 			onPreview: (sql: string) => void,
 		): Promise<string> => {
 			const overviewColumns = new Map(
@@ -53,6 +54,7 @@ export function useContextualSqlGeneration({
 				dbType || "postgres",
 				instruction,
 				existingSQL,
+				selectedSQL,
 				selectedTables.map((table) => ({
 					schema: table.schema,
 					name: table.name,

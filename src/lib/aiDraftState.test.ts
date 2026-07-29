@@ -8,10 +8,12 @@ import {
 
 describe("aiDraftReducer", () => {
 	test("preserves the original SQL while a streamed draft changes", () => {
+		const target = { from: 7, to: 9, text: "id" };
 		const generating = aiDraftReducer(initialAiDraftState, {
 			type: "start",
 			requestId: "request-1",
 			originalSql: "SELECT id FROM users",
+			target,
 		});
 		const streaming = aiDraftReducer(generating, {
 			type: "preview",
@@ -26,12 +28,15 @@ describe("aiDraftReducer", () => {
 
 		expect(generating).toMatchObject({
 			originalSql: "SELECT id FROM users",
+			target,
 		});
 		expect(streaming).toMatchObject({
 			originalSql: "SELECT id FROM users",
+			target,
 		});
 		expect(ready).toMatchObject({
 			originalSql: "SELECT id FROM users",
+			target,
 		});
 	});
 
@@ -90,7 +95,7 @@ describe("aiDraftReducer", () => {
 	});
 
 	test("rejects an empty completed response", () => {
-			expect(
+		expect(
 			aiDraftReducer(
 				{
 					status: "generating",

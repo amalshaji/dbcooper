@@ -26,7 +26,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { QueryAiState } from "@/lib/aiDraftState";
+import type { QueryAiState, SqlSelection } from "@/lib/aiDraftState";
 
 const emptyAiState: QueryAiState = {
 	instruction: "",
@@ -39,6 +39,19 @@ function appendSqlStatement(currentSql: string, draftSql: string): string {
 	if (!current) return draft;
 	if (!draft) return current;
 	return `${current}${current.endsWith(";") ? "" : ";"}\n\n${draft}`;
+}
+
+function resolveSelectionRange(
+	currentSql: string,
+	target: SqlSelection,
+): Pick<SqlSelection, "from" | "to"> | null {
+	if (currentSql.slice(target.from, target.to) === target.text) {
+		return { from: target.from, to: target.to };
+	}
+
+	const from = currentSql.indexOf(target.text);
+	if (from < 0 || currentSql.indexOf(target.text, from + 1) >= 0) return null;
+	return { from, to: from + target.text.length };
 }
 
 interface TableSchema {
@@ -56,7 +69,7 @@ interface SqlEditorAiProps {
 	configured: boolean | null;
 	onInstructionChange: (instruction: string) => void;
 	onDraftChange: (sql: string) => void;
-	onGenerate: () => Promise<void>;
+	onGenerate: (target?: SqlSelection) => Promise<void>;
 	onDiscard: () => void;
 }
 
@@ -90,6 +103,7 @@ export function SqlEditor({
 	disabled = false,
 }: SqlEditorProps) {
 	const [isDark, setIsDark] = useState(false);
+	const [selection, setSelection] = useState<SqlSelection>();
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
 	const reviewing = aiDraft.status === "ready";
@@ -173,9 +187,17 @@ export function SqlEditor({
 		[],
 	);
 
-	const cursorExtension = useMemo(
+	const editorActivityExtension = useMemo(
 		() =>
 			EditorView.updateListener.of((update) => {
+				if (update.selectionSet || update.docChanged) {
+					const { from, to } = update.state.selection.main;
+					setSelection(
+						from === to
+							? undefined
+							: { from, to, text: update.state.sliceDoc(from, to) },
+					);
+				}
 				if (update.selectionSet && onCursorActivity) {
 					const pos = update.state.selection.main.head;
 					const line = update.state.doc.lineAt(pos);
@@ -212,14 +234,14 @@ export function SqlEditor({
 			editorChromeTheme,
 			EditorState.readOnly.of(disabled),
 			EditorView.lineWrapping,
-			cursorExtension,
+			editorActivityExtension,
 		],
 		[
 			runQueryKeymap,
 			sqlExtension,
 			editorChromeTheme,
 			disabled,
-			cursorExtension,
+			editorActivityExtension,
 		],
 	);
 	const draftExtensions = useMemo(
@@ -228,11 +250,17 @@ export function SqlEditor({
 	);
 
 	const handleGenerate = async () => {
-		if (instruction.trim() && ai) await ai.onGenerate();
+		if (instruction.trim() && ai) await ai.onGenerate(selection);
 	};
 
 	const isButtonDisabled =
 		!instruction.trim() || generating || ai?.configured === false;
+	const targetRange =
+		aiDraft.status === "ready" && aiDraft.target
+			? resolveSelectionRange(value, aiDraft.target)
+			: null;
+	const selectionTargetChanged =
+		aiDraft.status === "ready" && Boolean(aiDraft.target) && !targetRange;
 
 	return (
 		<div className="space-y-2">
@@ -244,7 +272,9 @@ export function SqlEditor({
 							placeholder={
 								ai.configured === false
 									? "Configure AI in Settings to enable generation"
-									: "Ask for a query or change…"
+									: selection
+										? "Ask AI to improve selected SQL…"
+										: "Ask for a query or change…"
 							}
 							value={instruction}
 							onChange={(event) => ai.onInstructionChange(event.target.value)}
@@ -270,7 +300,7 @@ export function SqlEditor({
 								}
 							>
 								{generating ? <Spinner /> : <Sparkle />}
-								Generate draft
+								{selection ? "Improve selection" : "Generate draft"}
 							</TooltipTrigger>
 							{ai.configured === false && (
 								<TooltipContent>
@@ -281,7 +311,9 @@ export function SqlEditor({
 					</div>
 					<div className="flex items-center px-1 text-[11px] text-muted-foreground">
 						<span>
-							Context: current query · {tables.length} schema objects available
+							Context:{" "}
+							{selection ? "selected SQL · full query" : "current query"} ·{" "}
+							{tables.length} schema objects available
 						</span>
 						<div className="ml-auto flex items-center">
 							{["Add a safe limit", "Fix this query", "Join related data"].map(
@@ -419,7 +451,21 @@ export function SqlEditor({
 				{ai && reviewing ? (
 					<SqlAIPreview
 						draft={aiDraft}
-						currentSql={value}
+						currentSql={
+							aiDraft.target
+								? targetRange
+									? value.slice(targetRange.from, targetRange.to)
+									: aiDraft.target.text
+								: value
+						}
+						currentVersionLabel={aiDraft.target ? "Selection" : "Current"}
+						preservationLabel={
+							aiDraft.target
+								? selectionTargetChanged
+									? "Selected SQL changed in the editor"
+									: "Selected SQL is preserved"
+								: "Current query is preserved"
+						}
 						onDraftChange={ai.onDraftChange}
 						embedded
 						editorHeight="100%"
@@ -431,9 +477,22 @@ export function SqlEditor({
 							ai.onDiscard();
 						}}
 						onReplace={() => {
-							onChange(aiDraft.sql);
+							if (aiDraft.target) {
+								if (!targetRange) return;
+								onChange(
+									`${value.slice(0, targetRange.from)}${aiDraft.sql}${value.slice(targetRange.to)}`,
+								);
+							} else {
+								onChange(aiDraft.sql);
+							}
 							ai.onDiscard();
 						}}
+						replaceDisabled={selectionTargetChanged}
+						replaceTitle={
+							selectionTargetChanged
+								? "The selected SQL changed. Append or discard this draft instead."
+								: undefined
+						}
 					/>
 				) : (
 					<CodeMirror

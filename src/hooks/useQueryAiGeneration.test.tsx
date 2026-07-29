@@ -90,6 +90,7 @@ test("preserves a completed background draft and navigates to it from the toast"
 		_requestKey: string,
 		_instruction: string,
 		_existingSQL: string,
+		_selectedSQL: string | undefined,
 		onPreview: (sql: string) => void,
 	) => {
 		previewDraft = onPreview;
@@ -115,7 +116,8 @@ test("preserves a completed background draft and navigates to it from the toast"
 	let generation: Promise<void> | undefined;
 	act(() => {
 		const tab = result.current.tabs[0];
-		if (tab?.type !== "query") throw new Error("Expected the first tab to be a query");
+		if (tab?.type !== "query")
+			throw new Error("Expected the first tab to be a query");
 		generation = result.current.queryAi.getEditorAiProps(tab).onGenerate();
 	});
 	expect(result.current.tabs[0]).toMatchObject({
@@ -148,7 +150,8 @@ test("preserves a completed background draft and navigates to it from the toast"
 	expect(errorToasts).toHaveLength(0);
 
 	const viewQuery = successToasts[0]?.options?.action?.onClick;
-	if (!viewQuery) throw new Error("Expected the toast to include a View query action");
+	if (!viewQuery)
+		throw new Error("Expected the toast to include a View query action");
 	act(viewQuery);
 	expect(result.current.activeTabId).toBe(queryTab.id);
 });
@@ -184,6 +187,56 @@ test("does not treat the untouched starter query as AI context", async () => {
 	});
 
 	expect(existingSql).toBe("");
+});
+
+test("generates a replacement for the selected SQL while retaining the full query as context", async () => {
+	const queryTab = createQuery();
+	let existingSql: string | undefined;
+	let selectedSql: string | undefined;
+
+	const { result } = renderHook(() => {
+		const [tabs, setTabs] = useState<Tab[]>([queryTab]);
+		const [activeTabId, setActiveTabId] = useState<string | null>(queryTab.id);
+		const queryAi = useQueryAiGeneration({
+			tabs,
+			activeTabId,
+			setTabs,
+			setActiveTabId,
+			generateDraft: async (
+				_requestKey,
+				_instruction,
+				currentSql,
+				selection,
+			) => {
+				existingSql = currentSql;
+				selectedSql = selection;
+				return "id, name";
+			},
+			cancelGeneration: () => undefined,
+			isConfigured: true,
+		});
+		return { tabs, queryAi };
+	});
+
+	const target = { from: 7, to: 8, text: "*" };
+	await act(async () => {
+		const tab = result.current.tabs[0];
+		if (tab?.type !== "query") throw new Error("Expected a query tab");
+		await result.current.queryAi.getEditorAiProps(tab).onGenerate(target);
+	});
+
+	expect(existingSql).toBe("SELECT * FROM users");
+	expect(selectedSql).toBe("*");
+	expect(result.current.tabs[0]).toMatchObject({
+		type: "query",
+		ai: {
+			draft: {
+				status: "ready",
+				target,
+				sql: "id, name",
+			},
+		},
+	});
 });
 
 test("keeps edits to a completed draft in its query tab", () => {
@@ -247,9 +300,7 @@ test("cancels a generating tab without leaving state or showing a toast", async 
 		});
 		const closeTab = (tabId: string) => {
 			queryAi.cancelTabGeneration(tabId);
-			setTabs((currentTabs) =>
-				currentTabs.filter((tab) => tab.id !== tabId),
-			);
+			setTabs((currentTabs) => currentTabs.filter((tab) => tab.id !== tabId));
 		};
 		return { tabs, queryAi, closeTab };
 	});
@@ -257,7 +308,8 @@ test("cancels a generating tab without leaving state or showing a toast", async 
 	let generation: Promise<void> | undefined;
 	act(() => {
 		const tab = result.current.tabs[0];
-		if (tab?.type !== "query") throw new Error("Expected the first tab to be a query");
+		if (tab?.type !== "query")
+			throw new Error("Expected the first tab to be a query");
 		generation = result.current.queryAi.getEditorAiProps(tab).onGenerate();
 	});
 
