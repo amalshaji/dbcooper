@@ -14,7 +14,6 @@ import {
 import { isAiGenerationCancellation } from "../lib/aiGenerationSession";
 import {
 	applyReadyAiDraft,
-	createAiDraftReview,
 	type AiDraftApplyMode,
 } from "../lib/sqlAiDraft";
 import type { QueryTab, Tab } from "../types/tabTypes";
@@ -144,12 +143,7 @@ export function useQueryAiGeneration({
 					if (tab.ai.draft.status !== "ready") return tab;
 
 					const applied = applyReadyAiDraft(tab.query, tab.ai.draft, mode);
-					if (!applied.ok) {
-						toast.error("Couldn’t apply AI draft", {
-							description: applied.reason,
-						});
-						return tab;
-					}
+					if (!applied.ok) return tab;
 
 					return {
 						...tab,
@@ -168,10 +162,6 @@ export function useQueryAiGeneration({
 	const getEditorAiProps = useCallback(
 		(tab: QueryTab) => ({
 			state: tab.ai,
-			review:
-				tab.ai.draft.status === "ready"
-					? createAiDraftReview(tab.query, tab.ai.draft)
-					: null,
 			configured: isConfigured,
 			onInstructionChange: (instruction: string) =>
 				updateAiState(tab.id, { type: "set-instruction", instruction }),

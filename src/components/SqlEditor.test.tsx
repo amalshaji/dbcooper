@@ -162,13 +162,6 @@ const { SqlEditor } = await import("./SqlEditor");
 
 afterEach(cleanup);
 
-const queryReview = {
-	currentSql: "SELECT * FROM users",
-	currentVersionLabel: "Current" as const,
-	preservationLabel: "Current query is preserved" as const,
-	replace: { enabled: true as const },
-};
-
 test("renders the AI prompt and draft owned by the selected query tab", () => {
 	const commonProps = {
 		value: "SELECT * FROM users",
@@ -177,7 +170,6 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 	};
 	const aiHandlers = {
 		configured: true,
-		review: null,
 		onInstructionChange: () => {},
 		onDraftChange: () => {},
 		onGenerate: async () => {},
@@ -231,7 +223,6 @@ test("renders the AI prompt and draft owned by the selected query tab", () => {
 			{...commonProps}
 			ai={{
 				...aiHandlers,
-				review: queryReview,
 				state: {
 					instruction: "List active users",
 					draft: {
@@ -256,7 +247,6 @@ test("delegates completed draft application to the tab owner", () => {
 			onChange={() => {}}
 			ai={{
 				configured: true,
-				review: { ...queryReview, currentSql: "SELECT id FROM users" },
 				state: {
 					instruction: "Show organizations",
 					draft: {
@@ -298,7 +288,6 @@ test("clears a captured selection after the draft review unmounts the editor", a
 			onChange={() => {}}
 			ai={{
 				...handlers,
-				review: null,
 				state: {
 					instruction: "Improve this",
 					draft: { status: "idle" },
@@ -326,7 +315,6 @@ test("clears a captured selection after the draft review unmounts the editor", a
 			onChange={() => {}}
 			ai={{
 				...handlers,
-				review: queryReview,
 				state: {
 					instruction: "Improve this",
 					draft: {
@@ -348,7 +336,6 @@ test("clears a captured selection after the draft review unmounts the editor", a
 			onChange={() => {}}
 			ai={{
 				...handlers,
-				review: null,
 				state: {
 					instruction: "Improve this",
 					draft: { status: "idle" },
@@ -384,7 +371,6 @@ test("sends an explicit selected-SQL scope to AI", async () => {
 			onChange={() => {}}
 			ai={{
 				configured: true,
-				review: null,
 				state: {
 					instruction: "Include the email",
 					draft: { status: "idle" },
@@ -433,12 +419,6 @@ test("delegates selection replacement to the tab owner", () => {
 			onChange={() => {}}
 			ai={{
 				configured: true,
-				review: {
-					currentSql: "id, name",
-					currentVersionLabel: "Selection",
-					preservationLabel: "Selected SQL is preserved",
-					replace: { enabled: true },
-				},
 				state: {
 					instruction: "Include email",
 					draft: {
@@ -476,16 +456,6 @@ test("does not overwrite SQL when the selected target changed during generation"
 			}}
 			ai={{
 				configured: true,
-				review: {
-					currentSql: "id, name",
-					currentVersionLabel: "Selection",
-					preservationLabel: "Selected SQL changed in the editor",
-					replace: {
-						enabled: false,
-						reason:
-							"The selected SQL changed. Append or discard this draft instead.",
-					},
-				},
 				state: {
 					instruction: "Include email",
 					draft: {
@@ -524,7 +494,6 @@ test("offers AI generation for an empty database", () => {
 			tables={[]}
 			ai={{
 				configured: true,
-				review: null,
 				state: { instruction: "", draft: { status: "idle" } },
 				onInstructionChange: () => {},
 				onDraftChange: () => {},
@@ -548,7 +517,6 @@ test("keeps one editor frame while an AI draft is under review", () => {
 			toolbarActions={<button type="button">Beautify</button>}
 			ai={{
 				configured: true,
-				review: { ...queryReview, currentSql: "SELECT id FROM users" },
 				state: {
 					instruction: "Add names",
 					draft: {

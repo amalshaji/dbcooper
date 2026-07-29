@@ -20,7 +20,10 @@ import type {
 	SqlEditScope,
 	SqlSelection,
 } from "@/lib/aiDraftState";
-import type { AiDraftApplyMode, AiDraftReview } from "@/lib/sqlAiDraft";
+import {
+	createAiDraftReview,
+	type AiDraftApplyMode,
+} from "../lib/sqlAiDraft";
 
 const emptyAiState: QueryAiState = {
 	instruction: "",
@@ -39,7 +42,6 @@ interface TableSchema {
 
 interface SqlEditorAiProps {
 	state: QueryAiState;
-	review: AiDraftReview | null;
 	configured: boolean | null;
 	onInstructionChange: (instruction: string) => void;
 	onDraftChange: (sql: string) => void;
@@ -82,6 +84,8 @@ export function SqlEditor({
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
 	const reviewing = aiDraft.status === "ready";
+	const review =
+		aiDraft.status === "ready" ? createAiDraftReview(value, aiDraft) : null;
 	const framedEditor = Boolean(onRunQuery) || reviewing;
 
 	useEffect(() => {
@@ -271,10 +275,10 @@ export function SqlEditor({
 					reviewing={reviewing}
 					executing={executing}
 				/>
-				{ai && aiDraft.status === "ready" && ai.review ? (
+				{ai && aiDraft.status === "ready" && review ? (
 					<SqlAIPreview
 						draft={aiDraft}
-						review={ai.review}
+						review={review}
 						onDraftChange={ai.onDraftChange}
 						embedded
 						editorHeight="100%"
