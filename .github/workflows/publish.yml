@@ -1,63 +1,241 @@
-name: 'publish'
+name: Prepare stable release
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Tag to publish (e.g. v1.2.3)'
+      bump:
+        description: Version bump
         required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - explicit
+      version:
+        description: Explicit version, used only when Version bump is explicit
+        required: false
         type: string
-  workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
-    secrets:
-      TAURI_SIGNING_PRIVATE_KEY:
-        required: true
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
-        required: true
-  push:
-    tags:
-      - 'v*'
-      - '!v*-canary.*'
+  pull_request_target:
+    types: [closed]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
 
 jobs:
-  macos:
+  prepare:
+    name: Prepare release pull request
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Resolve release version
+        id: version
+        env:
+          EXPLICIT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          version="$(bun .github/scripts/release-version.ts "$VERSION_BUMP" "$EXPLICIT_VERSION")"
+          tag="v$version"
+          branch="release/$tag"
+          branch_exists=false
+
+          if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            merge_base="$(git merge-base HEAD "origin/$branch")"
+            branch_commit_count="$(git rev-list --count "$merge_base..origin/$branch")"
+            changed_files="$(git diff --name-only "$merge_base..origin/$branch")"
+            branch_version="$(git show "origin/$branch:src-tauri/tauri.conf.json" | jq -r '.version')"
+
+            if [ "$branch_commit_count" != "1" ] || \
+              [ "$changed_files" != "src-tauri/tauri.conf.json" ] || \
+              [ "$branch_version" != "$version" ]; then
+              echo "Existing release branch $branch does not match the requested version change."
+              exit 1
+            fi
+
+            branch_exists=true
+            echo "Reusing existing release branch $branch."
+          fi
+
+          release_json="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq --slurp --compact-output --arg tag "$tag" \
+                'add | map(select(.tag_name == $tag)) | first // empty'
+          )"
+          tag_sha="$(git ls-remote origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
+          if [ -n "$release_json" ] || [ -n "$tag_sha" ]; then
+            echo "Release or tag $tag already exists."
+            exit 1
+          fi
+
+          {
+            echo "branch=$branch"
+            echo "branch_exists=$branch_exists"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open release pull request
+        env:
+          BRANCH: ${{ steps.version.outputs.branch }}
+          BRANCH_EXISTS: ${{ steps.version.outputs.branch_exists }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BRANCH_EXISTS" != "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/tauri.conf.json
+            git commit -m "chore: prepare $TAG"
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+
+          pr_body="$(printf '## Summary\n\n- update the application version to %s\n- trigger the verified stable build after this PR merges\n\nThe stable tag and draft release are created only after verification and the signed build succeed.\n' "$VERSION")"
+          pr_url="$(gh pr list \
+            --base main \
+            --head "$BRANCH" \
+            --state open \
+            --json url \
+            --jq '.[0].url // empty')"
+          if [ -z "$pr_url" ]; then
+            pr_url="$(gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --label release \
+              --title "Release $TAG" \
+              --body "$pr_body")"
+          fi
+
+          {
+            echo "## Stable release PR ready"
+            echo
+            echo "- Version: \`$VERSION\`"
+            echo "- Pull request: $pr_url"
+            echo
+            echo "Review and merge the PR to start the verified stable build."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate:
+    name: Validate merged release
+    if: >-
+      ${{
+        github.event_name == 'pull_request_target' &&
+        github.event.pull_request.merged &&
+        github.event.pull_request.base.ref == 'main' &&
+        contains(github.event.pull_request.labels.*.name, 'release')
+      }}
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Validate version and release state
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          version="$(bun -e "console.log((await Bun.file('./src-tauri/tauri.conf.json').json()).version)")"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid stable version: $version"
+            exit 1
+          fi
+
+          tag="v$version"
+          release_json="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+              jq --slurp --compact-output --arg tag "$tag" \
+                'add | map(select(.tag_name == $tag)) | first // empty'
+          )"
+
+          tag_sha="$(git ls-remote origin "refs/tags/$tag^{}" | awk 'NR == 1 { print $1 }')"
+          if [ -z "$tag_sha" ]; then
+            tag_sha="$(git ls-remote origin "refs/tags/$tag" | awk 'NR == 1 { print $1 }')"
+          fi
+
+          if [ -n "$release_json" ]; then
+            if [ "$(jq -r '.draft' <<< "$release_json")" != "true" ]; then
+              echo "Release $tag is already published."
+              exit 1
+            fi
+
+            if [ -n "$tag_sha" ]; then
+              if [ "$tag_sha" != "$SOURCE_SHA" ]; then
+                echo "Existing tag $tag points to $tag_sha, not $SOURCE_SHA."
+                exit 1
+              fi
+            elif [ "$(jq -r '.target_commitish' <<< "$release_json")" != "$SOURCE_SHA" ]; then
+              echo "Existing draft $tag targets a different commit."
+              exit 1
+            fi
+
+            echo "Resuming existing draft release $tag."
+          elif [ -n "$tag_sha" ]; then
+            echo "Tag $tag already exists without a matching draft release."
+            exit 1
+          fi
+
+          {
+            echo "sha=$SOURCE_SHA"
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Run release verification
+    needs: validate
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ needs.validate.outputs.sha }}
+
+  release:
+    name: Build signed release draft
+    needs: [validate, verify]
     permissions:
       contents: write
     runs-on: macos-26
-
     steps:
-      - name: Resolve tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            tag="${{ inputs.tag }}"
-          fi
-
-          if [ -z "$tag" ]; then
-            echo "Error: tag input required"
-            exit 1
-          fi
-          if ! echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: stable releases require a vMAJOR.MINOR.PATCH tag"
-            exit 1
-          fi
-
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          ref: ${{ steps.tag.outputs.tag }}
+          ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
 
-      - name: Setup bun
+      - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -75,18 +253,115 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Run frontend checks
-        run: bun run check
-
-      - uses: tauri-apps/tauri-action@v0
+      - name: Build, sign, and prepare draft release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ steps.tag.outputs.tag }}
-          releaseName: ${{ steps.tag.outputs.tag }}
-          releaseBody: 'See the assets to download this version and install.'
+          retryAttempts: 3
+          tagName: ${{ needs.validate.outputs.tag }}
+          releaseName: ${{ needs.validate.outputs.tag }}
+          releaseBody: See the assets to download this version and install.
+          releaseCommitish: ${{ needs.validate.outputs.sha }}
           releaseDraft: true
           prerelease: false
           args: '--target aarch64-apple-darwin'
+
+      - name: Validate draft release assets
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+          RELEASE_URL: ${{ steps.tauri.outputs.releaseHtmlUrl }}
+          SOURCE_SHA: ${{ needs.validate.outputs.sha }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if ! echo "$RELEASE_ID" | grep -Eq '^[0-9]+$'; then
+            echo "Tauri action did not return a valid release ID."
+            exit 1
+          fi
+          if [ -z "$RELEASE_URL" ]; then
+            echo "Tauri action did not return a release URL."
+            exit 1
+          fi
+
+          release_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID")"
+          if [ "$(jq -r '.tag_name' <<< "$release_json")" != "$TAG" ]; then
+            echo "Release $RELEASE_ID does not belong to $TAG."
+            exit 1
+          fi
+          if [ "$(jq -r '.draft' <<< "$release_json")" != "true" ]; then
+            echo "Release $TAG is not a draft."
+            exit 1
+          fi
+
+          tag_sha="$(git ls-remote origin "refs/tags/$TAG^{}" | awk 'NR == 1 { print $1 }')"
+          if [ -z "$tag_sha" ]; then
+            tag_sha="$(git ls-remote origin "refs/tags/$TAG" | awk 'NR == 1 { print $1 }')"
+          fi
+          if [ -n "$tag_sha" ] && [ "$tag_sha" != "$SOURCE_SHA" ]; then
+            echo "Draft tag $TAG points to $tag_sha, not $SOURCE_SHA."
+            exit 1
+          fi
+          if [ -z "$tag_sha" ] && [ "$(jq -r '.target_commitish' <<< "$release_json")" != "$SOURCE_SHA" ]; then
+            echo "Draft release $TAG targets a different commit."
+            exit 1
+          fi
+
+          assets_json="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100")"
+          expected_assets=(
+            "DBcooper_${VERSION}_aarch64.dmg"
+            "DBcooper_aarch64.app.tar.gz"
+            "DBcooper_aarch64.app.tar.gz.sig"
+            "latest.json"
+          )
+          for asset in "${expected_assets[@]}"; do
+            if ! jq -e --arg asset "$asset" 'any(.[]; .name == $asset and .state == "uploaded")' \
+              <<< "$assets_json" >/dev/null; then
+              echo "Draft release is missing uploaded asset $asset."
+              exit 1
+            fi
+          done
+
+          manifest_asset_id="$(
+            jq -r '.[] | select(.name == "latest.json") | .id' <<< "$assets_json"
+          )"
+          manifest_path="$RUNNER_TEMP/latest.json"
+          gh api \
+            -H 'Accept: application/octet-stream' \
+            "repos/$GITHUB_REPOSITORY/releases/assets/$manifest_asset_id" \
+            > "$manifest_path"
+
+          archive_url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/DBcooper_aarch64.app.tar.gz"
+          jq -e \
+            --arg version "$VERSION" \
+            --arg archive_url "$archive_url" \
+            '.version == $version and
+             .platforms["darwin-aarch64"].url == $archive_url and
+             (.platforms["darwin-aarch64"].signature | length > 0)' \
+            "$manifest_path" >/dev/null
+
+          echo "url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize release draft
+        env:
+          RELEASE_URL: ${{ steps.draft.outputs.url }}
+          SOURCE_SHA: ${{ needs.validate.outputs.sha }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          {
+            echo "## Stable release draft ready"
+            echo
+            echo "- Release: [$TAG]($RELEASE_URL)"
+            echo "- Source commit: \`$SOURCE_SHA\`"
+            echo "- Signed updater manifest: validated"
+            echo
+            echo "Review the notes and assets, smoke-test the DMG, then publish the draft."
+            echo "Publishing the release will trigger the existing Homebrew cask update."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-import { ArrowsClockwise, Plus } from "@phosphor-icons/react";
+import { ArrowClockwise, Plus } from "@phosphor-icons/react";
 import { RowEditSheet } from "@/components/RowEditSheet";
 import { RowInsertSheet } from "@/components/RowInsertSheet";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ export function TableDataWorkspace({
 								{tab.loading ? (
 									<Spinner />
 								) : (
-									<ArrowsClockwise className="w-4 h-4" />
+									<ArrowClockwise className="w-4 h-4" />
 								)}
 								Refresh Data
 							</Button>

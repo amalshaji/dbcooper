@@ -32,4 +32,4 @@
 ## Releases
 
 - Every successful merge to `main` produces a canary build. Stable remains the default updater channel; canary updates require explicit opt-in in Settings.
-- Stable release PRs must update `src-tauri/tauri.conf.json` and carry the `release` label. After merge, `tag-on-merge.yml` creates the stable tag and `publish.yml` creates the draft release.
+- Start stable releases by running **Prepare stable release** on `main` with a `patch`, `minor`, `major`, or explicit version. The workflow opens the version PR; after it is reviewed and merged, the workflow verifies the merged source and builds the signed app before creating the stable tag and draft release. Smoke-test the DMG before publishing the draft.

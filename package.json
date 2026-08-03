@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:macos-icons": "./scripts/build-macos-icons.sh",
-    "test": "bun test src",
+		"test": "bun test src ./.github/scripts/release-version.test.ts",
     "test:d1-local": "./scripts/test-d1-local.sh",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
