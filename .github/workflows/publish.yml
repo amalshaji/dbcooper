@@ -57,10 +57,24 @@ jobs:
           version="$(bun .github/scripts/release-version.ts "$VERSION_BUMP" "$EXPLICIT_VERSION")"
           tag="v$version"
           branch="release/$tag"
+          branch_exists=false
 
           if git ls-remote --exit-code origin "refs/heads/$branch" >/dev/null 2>&1; then
-            echo "Release branch $branch already exists."
-            exit 1
+            git fetch --no-tags origin "refs/heads/$branch:refs/remotes/origin/$branch"
+            merge_base="$(git merge-base HEAD "origin/$branch")"
+            branch_commit_count="$(git rev-list --count "$merge_base..origin/$branch")"
+            changed_files="$(git diff --name-only "$merge_base..origin/$branch")"
+            branch_version="$(git show "origin/$branch:src-tauri/tauri.conf.json" | jq -r '.version')"
+
+            if [ "$branch_commit_count" != "1" ] || \
+              [ "$changed_files" != "src-tauri/tauri.conf.json" ] || \
+              [ "$branch_version" != "$version" ]; then
+              echo "Existing release branch $branch does not match the requested version change."
+              exit 1
+            fi
+
+            branch_exists=true
+            echo "Reusing existing release branch $branch."
           fi
 
           release_json="$(
@@ -76,6 +90,7 @@ jobs:
 
           {
             echo "branch=$branch"
+            echo "branch_exists=$branch_exists"
             echo "tag=$tag"
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
@@ -83,25 +98,36 @@ jobs:
       - name: Open release pull request
         env:
           BRANCH: ${{ steps.version.outputs.branch }}
+          BRANCH_EXISTS: ${{ steps.version.outputs.branch_exists }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/tauri.conf.json
-          git commit -m "chore: prepare $TAG"
-          git push origin "HEAD:refs/heads/$BRANCH"
+          if [ "$BRANCH_EXISTS" != "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src-tauri/tauri.conf.json
+            git commit -m "chore: prepare $TAG"
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
 
           pr_body="$(printf '## Summary\n\n- update the application version to %s\n- trigger the verified stable build after this PR merges\n\nThe stable tag and draft release are created only after verification and the signed build succeed.\n' "$VERSION")"
-          pr_url="$(gh pr create \
+          pr_url="$(gh pr list \
             --base main \
             --head "$BRANCH" \
-            --label release \
-            --title "Release $TAG" \
-            --body "$pr_body")"
+            --state open \
+            --json url \
+            --jq '.[0].url // empty')"
+          if [ -z "$pr_url" ]; then
+            pr_url="$(gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --label release \
+              --title "Release $TAG" \
+              --body "$pr_body")"
+          fi
 
           {
             echo "## Stable release PR ready"
