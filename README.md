@@ -134,15 +134,13 @@ The app is configured to build for macOS ARM (Apple Silicon). The build process:
 
 ## Releases
 
-Stable releases are built and signed successfully before their tag is created.
-To publish a new version:
+Releases are automated via GitHub Actions. To publish a new version:
 
-1. Update `src-tauri/tauri.conf.json` to the next stable version
-2. Open a pull request to `main` and apply the `release` label
-3. Review and merge the release PR
-4. Wait for verification and the signed build to finish; the workflow then
-   creates the tag (for example, `v1.2.3`) and draft release
-5. Review the notes and assets, smoke-test the DMG, then publish the draft
+1. Update `version` in `src-tauri/tauri.conf.json`
+2. Open a PR and add the `release` label
+3. Merge the PR into `main`
+4. GitHub Actions will create and push the tag (e.g., `v0.0.42`), then build a draft release
+5. Review and publish the release
 
 ### Canary releases
 

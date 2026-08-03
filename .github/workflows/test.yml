@@ -5,17 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_call:
-    inputs:
-      ref:
-        required: false
-        type: string
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     services:
       postgres:
@@ -89,8 +82,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
