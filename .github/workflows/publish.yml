@@ -219,6 +219,8 @@ jobs:
   verify:
     name: Run release verification
     needs: validate
+    permissions:
+      contents: write
     uses: ./.github/workflows/test.yml
     with:
       ref: ${{ needs.validate.outputs.sha }}
