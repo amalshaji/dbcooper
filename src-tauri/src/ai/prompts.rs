@@ -1,4 +1,4 @@
-use super::TableSchema;
+use super::{SqlEditScope, TableSchema};
 
 const MAX_COLUMNS_PER_TABLE_IN_PROMPT: usize = 80;
 
@@ -42,7 +42,7 @@ fn build_schema_description(tables: &[TableSchema]) -> String {
 pub fn sql_prompts(
     db_type: &str,
     instruction: &str,
-    existing_sql: &str,
+    scope: &SqlEditScope,
     tables: &[TableSchema],
 ) -> (String, String) {
     let schema_description = build_schema_description(tables);
@@ -70,6 +70,7 @@ Rules:
 - Prefer a read-only query unless the user explicitly requests a write
 - Treat explicit requests to create, alter, or drop database objects as writes and generate the requested DDL
 - The user instruction is authoritative; use existing SQL only when it is relevant to the requested result
+- If selected SQL is provided, return only the replacement SQL for that selection, not the full query
 - Return one statement unless the user explicitly requests multiple statements
 - Never assume the generated query will be executed automatically
 - {}
@@ -77,14 +78,19 @@ Rules:
         db_name, schema_description, syntax_note
     );
 
-    let user_prompt = if existing_sql.is_empty() {
-        format!("Generate SQL query: {}", instruction)
-    } else {
-        format!(
-            "Modify this SQL query:\n```sql\n{}\n```\n\nInstruction: {}",
-            existing_sql, instruction
-        )
-    };
+    let user_prompt = match scope {
+		SqlEditScope::Selection { sql, selection } => format!(
+			"Full SQL query for context:\n```sql\n{}\n```\n\nSelected SQL to modify:\n```sql\n{}\n```\n\nInstruction: {}",
+			sql, selection.text, instruction
+		),
+		SqlEditScope::Query { sql } if sql.is_empty() => {
+			format!("Generate SQL query: {}", instruction)
+		}
+		SqlEditScope::Query { sql } => format!(
+			"Modify this SQL query:\n```sql\n{}\n```\n\nInstruction: {}",
+			sql, instruction
+		),
+	};
 
     (system_prompt, user_prompt)
 }
@@ -110,12 +116,14 @@ User request:
 
 #[cfg(test)]
 mod tests {
-    use super::sql_prompts;
+    use super::{sql_prompts, SqlEditScope};
+    use crate::ai::SqlSelection;
 
     #[test]
     fn sql_prompt_makes_explicit_ddl_requests_authoritative() {
+        let scope = SqlEditScope::Query { sql: String::new() };
         let (system_prompt, user_prompt) =
-            sql_prompts("duckdb", "Create two related tables", "", &[]);
+            sql_prompts("duckdb", "Create two related tables", &scope, &[]);
 
         assert!(system_prompt.contains("explicit requests to create, alter, or drop"));
         assert!(system_prompt.contains("user instruction is authoritative"));
@@ -124,9 +132,28 @@ mod tests {
 
     #[test]
     fn identifies_cloudflare_d1_as_sqlite_compatible() {
-        let (system, _) = sql_prompts("d1", "list users", "", &[]);
+        let scope = SqlEditScope::Query { sql: String::new() };
+        let (system, _) = sql_prompts("d1", "list users", &scope, &[]);
 
         assert!(system.contains("Cloudflare D1 SQL expert"));
         assert!(system.contains("Use Cloudflare D1's SQLite syntax"));
+    }
+
+    #[test]
+    fn selected_sql_requests_only_a_replacement_fragment() {
+        let scope = SqlEditScope::Selection {
+            sql: "SELECT id, name FROM users".to_string(),
+            selection: SqlSelection {
+                from: 7,
+                to: 15,
+                text: "id, name".to_string(),
+            },
+        };
+        let (system, user) = sql_prompts("postgres", "Include the email column", &scope, &[]);
+
+        assert!(system.contains("return only the replacement SQL for that selection"));
+        assert!(user.contains("Full SQL query for context:\n```sql\nSELECT id, name FROM users"));
+        assert!(user.contains("Selected SQL to modify:\n```sql\nid, name"));
+        assert!(user.contains("Instruction: Include the email column"));
     }
 }

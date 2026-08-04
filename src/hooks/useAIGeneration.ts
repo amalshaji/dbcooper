@@ -7,6 +7,7 @@ import {
 	startAiGenerationSession,
 } from "@/lib/aiGenerationSession";
 import { api } from "@/lib/tauri";
+import type { SqlEditScope } from "@/lib/aiDraftState";
 
 interface TableSchema {
 	schema: string;
@@ -45,7 +46,7 @@ export function useAIGeneration() {
 			requestKey: string,
 			dbType: string,
 			instruction: string,
-			existingSQL: string,
+			scope: SqlEditScope,
 			tables: TableSchema[],
 			onStream: (chunk: string) => void,
 			onComplete?: (sql: string) => void,
@@ -56,11 +57,11 @@ export function useAIGeneration() {
 				listen: <T>(eventName: string, handler: AiGenerationListener<T>) =>
 					listen<T>(eventName, (event) => handler(event)),
 				invoke: (command, args) => invoke(command, args),
-				invokeArgs: {
-					sessionId,
-					dbType,
-					instruction,
-					existingSql: existingSQL,
+					invokeArgs: {
+						sessionId,
+						dbType,
+						instruction,
+						scope,
 					tables,
 				},
 				onChunk: onStream,

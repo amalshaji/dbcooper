@@ -1,20 +1,29 @@
 import { type SQLConfig, sql } from "@codemirror/lang-sql";
 import { EditorState, Prec } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { Sparkle, Warning, WarningCircle } from "@phosphor-icons/react";
+import { WarningCircle } from "@phosphor-icons/react";
 import CodeMirror from "@uiw/react-codemirror";
-import { useEffect, useMemo, useState } from "react";
-import { barf, rosePineDawn } from "thememirror";
-import { SqlAIPreview } from "@/components/SqlAIPreview";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Spinner } from "@/components/ui/spinner";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
-import type { QueryAiState } from "@/lib/aiDraftState";
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
+import { ayuLight, barf } from "thememirror";
+import { SqlAiPrompt } from "./SqlAiPrompt";
+import { SqlAIPreview } from "@/components/SqlAIPreview";
+import { SqlEditorToolbar } from "./SqlEditorToolbar";
+import { Button } from "@/components/ui/button";
+import type {
+	QueryAiState,
+	SqlEditScope,
+	SqlSelection,
+} from "@/lib/aiDraftState";
+import {
+	createAiDraftReview,
+	type AiDraftApplyMode,
+} from "../lib/sqlAiDraft";
 
 const emptyAiState: QueryAiState = {
 	instruction: "",
@@ -35,7 +44,9 @@ interface SqlEditorAiProps {
 	state: QueryAiState;
 	configured: boolean | null;
 	onInstructionChange: (instruction: string) => void;
-	onGenerate: () => Promise<void>;
+	onDraftChange: (sql: string) => void;
+	onGenerate: (scope: SqlEditScope) => Promise<void>;
+	onApplyDraft: (mode: AiDraftApplyMode) => void;
 	onDiscard: () => void;
 }
 
@@ -43,6 +54,9 @@ interface SqlEditorProps {
 	value: string;
 	onChange: (value: string) => void;
 	onRunQuery?: () => void;
+	onRunAllQueries?: () => void;
+	toolbarActions?: ReactNode;
+	executing?: boolean;
 	disabled?: boolean;
 	height?: string;
 	tables?: TableSchema[];
@@ -55,6 +69,9 @@ export function SqlEditor({
 	value,
 	onChange,
 	onRunQuery,
+	onRunAllQueries,
+	toolbarActions,
+	executing = false,
 	height = "300px",
 	tables = [],
 	ai,
@@ -63,8 +80,13 @@ export function SqlEditor({
 	disabled = false,
 }: SqlEditorProps) {
 	const [isDark, setIsDark] = useState(false);
+	const [selection, setSelection] = useState<SqlSelection>();
 	const { instruction, draft: aiDraft } = ai?.state ?? emptyAiState;
 	const generating = aiDraft.status === "generating";
+	const draftVisible = generating || aiDraft.status === "ready";
+	const review =
+		draftVisible ? createAiDraftReview(value, aiDraft) : null;
+	const framedEditor = Boolean(onRunQuery) || draftVisible;
 
 	useEffect(() => {
 		const checkTheme = () => {
@@ -89,7 +111,12 @@ export function SqlEditor({
 					{
 						key: "Mod-Enter",
 						run: (view) => {
-							if (onRunQuery && !disabled && view.state.doc.toString().trim()) {
+							if (
+								onRunQuery &&
+								!disabled &&
+								!executing &&
+								view.state.doc.toString().trim()
+							) {
 								onRunQuery();
 								return true;
 							}
@@ -98,32 +125,67 @@ export function SqlEditor({
 					},
 				]),
 			),
-		[onRunQuery, disabled],
+		[onRunQuery, disabled, executing],
 	);
 
-	const fontTheme = useMemo(
+	const editorChromeTheme = useMemo(
 		() =>
 			EditorView.theme({
 				"&": {
+					backgroundColor: "var(--background)",
+					color: "var(--foreground)",
 					fontFamily: "'Google Sans Code Variable', monospace",
 				},
 				".cm-content": {
+					caretColor: "var(--primary)",
 					fontFamily: "'Google Sans Code Variable', monospace",
+				},
+				".cm-cursor, .cm-dropCursor": {
+					borderLeftColor: "var(--primary)",
+				},
+				"&.cm-focused .cm-selectionBackground, .cm-content ::selection": {
+					backgroundColor:
+						"color-mix(in oklch, var(--primary) 24%, transparent) !important",
+				},
+				".cm-activeLine": {
+					backgroundColor:
+						"color-mix(in oklch, var(--foreground) 4%, transparent)",
+				},
+				".cm-gutters": {
+					backgroundColor:
+						"color-mix(in oklch, var(--background) 96%, var(--foreground))",
+					borderRight: "1px solid var(--border)",
+					color: "var(--muted-foreground)",
+				},
+				".cm-activeLineGutter": {
+					backgroundColor:
+						"color-mix(in oklch, var(--foreground) 4%, transparent)",
+					color: "var(--foreground)",
 				},
 			}),
 		[],
 	);
 
-	const cursorExtension = useMemo(
+	const updateSelection = useCallback((state: EditorState) => {
+		const { from, to } = state.selection.main;
+		setSelection(
+			from === to ? undefined : { from, to, text: state.sliceDoc(from, to) },
+		);
+	}, []);
+
+	const editorActivityExtension = useMemo(
 		() =>
 			EditorView.updateListener.of((update) => {
+				if (update.selectionSet || update.docChanged) {
+					updateSelection(update.state);
+				}
 				if (update.selectionSet && onCursorActivity) {
 					const pos = update.state.selection.main.head;
 					const line = update.state.doc.lineAt(pos);
 					onCursorActivity(line.number - 1, pos - line.from);
 				}
 			}),
-		[onCursorActivity],
+		[onCursorActivity, updateSelection],
 	);
 
 	const sqlSchema = useMemo(() => {
@@ -150,162 +212,114 @@ export function SqlEditor({
 		() => [
 			runQueryKeymap,
 			sqlExtension,
-			fontTheme,
+			editorChromeTheme,
 			EditorState.readOnly.of(disabled),
 			EditorView.lineWrapping,
-			cursorExtension,
+			editorActivityExtension,
 		],
-		[runQueryKeymap, sqlExtension, fontTheme, disabled, cursorExtension],
+		[
+			runQueryKeymap,
+			sqlExtension,
+			editorChromeTheme,
+			disabled,
+			editorActivityExtension,
+		],
 	);
-
-	const handleGenerate = async () => {
-		if (instruction.trim() && ai) await ai.onGenerate();
-	};
-
-	const isButtonDisabled =
-		!instruction.trim() || generating || ai?.configured === false;
+	const draftExtensions = useMemo(
+		() => [sqlExtension, editorChromeTheme, EditorView.lineWrapping],
+		[sqlExtension, editorChromeTheme],
+	);
 
 	return (
 		<div className="space-y-2">
 			{ai && (
-				<div className="space-y-2">
-					<div className="flex gap-1 rounded-lg border bg-muted/20 p-1 shadow-sm focus-within:border-ring">
-						<Sparkle className="ml-2 mt-2 size-4 shrink-0 text-primary" />
-						<Input
-							placeholder={
-								ai.configured === false
-									? "Configure AI in Settings to enable generation"
-									: "Ask for a query or change…"
-							}
-							value={instruction}
-							onChange={(event) => ai.onInstructionChange(event.target.value)}
-							onKeyDown={(event) => {
-								if (
-									event.key === "Enter" &&
-									!generating &&
-									ai.configured !== false
-								)
-									void handleGenerate();
-							}}
-							disabled={generating || ai.configured === false}
-							className="h-8 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
-						/>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<Button
-										onClick={() => void handleGenerate()}
-										disabled={isButtonDisabled}
-										className="whitespace-nowrap"
-									/>
-								}
-							>
-								{generating ? <Spinner /> : <Sparkle />}
-								Generate draft
-							</TooltipTrigger>
-							{ai.configured === false && (
-								<TooltipContent>
-									Configure an AI provider in Settings
-								</TooltipContent>
-							)}
-						</Tooltip>
-					</div>
-					<div className="flex items-center px-1 text-[11px] text-muted-foreground">
-						<span>
-							Context: current query · {tables.length} schema objects available
-						</span>
-						<div className="ml-auto flex items-center">
-							{["Add a safe limit", "Fix this query", "Join related data"].map(
-								(prompt) => (
-									<Button
-										key={prompt}
-										variant="ghost"
-										size="sm"
-										className="h-6 px-2 text-[11px]"
-										onClick={() => ai.onInstructionChange(prompt)}
-										disabled={generating}
-									>
-										{prompt}
-									</Button>
-								),
-							)}
-						</div>
-					</div>
-				</div>
-			)}
-			{ai && aiDraft.status !== "idle" && (
-				<SqlAIPreview
-					draft={aiDraft}
-					hasExistingSql={Boolean(value.trim())}
-					onDiscard={ai.onDiscard}
-					onAppend={() => {
-						if (aiDraft.status !== "ready") return;
-						onChange(`${value.trimEnd()}\n\n${aiDraft.sql}`);
-						ai.onDiscard();
-					}}
-					onReplace={() => {
-						if (aiDraft.status !== "ready") return;
-						onChange(aiDraft.sql);
-						ai.onDiscard();
-					}}
+				<SqlAiPrompt
+					value={value}
+					instruction={instruction}
+					selection={selection}
+					tableCount={tables.length}
+					configured={ai.configured}
+					generating={generating}
+					onInstructionChange={ai.onInstructionChange}
+					onGenerate={ai.onGenerate}
 				/>
+			)}
+			{ai && aiDraft.status === "error" && (
+				<div
+					role="alert"
+					className="flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+				>
+					<WarningCircle className="size-4 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">
+						Couldn’t generate a draft. {aiDraft.message}
+					</span>
+					<Button variant="ghost" size="sm" onClick={ai.onDiscard}>
+						Dismiss
+					</Button>
+				</div>
 			)}
 			<div
-				className="relative min-w-0 overflow-hidden rounded-md border font-mono"
+				data-testid="sql-editor-frame"
+				className={`relative min-w-0 overflow-hidden rounded-md border font-mono${
+					framedEditor ? " flex flex-col" : ""
+				}`}
+				style={framedEditor ? { height } : undefined}
 			>
-				<div className="absolute top-2 right-2 z-10 flex gap-1">
-					{cursorWarning && (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<div className="cursor-pointer">
-										<Warning className="w-5 h-5 text-amber-500" weight="fill" />
-									</div>
-								}
-							/>
-							<TooltipContent>
-								<p>{cursorWarning}</p>
-							</TooltipContent>
-						</Tooltip>
-					)}
-					{value.trim() === "" && (
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<div className="cursor-pointer">
-										<WarningCircle
-											className="w-5 h-5 text-red-500"
-											weight="fill"
-										/>
-									</div>
-								}
-							/>
-							<TooltipContent>
-								<p>Query is empty - cannot execute</p>
-							</TooltipContent>
-						</Tooltip>
-					)}
-				</div>
-				<CodeMirror
+				<SqlEditorToolbar
 					value={value}
-					height={height}
-					width="100%"
-					extensions={extensions}
-					theme={isDark ? barf : rosePineDawn}
-					onChange={onChange}
-					editable={!disabled}
-					basicSetup={{
-						lineNumbers: true,
-						foldGutter: true,
-						dropCursor: false,
-						allowMultipleSelections: false,
-						indentOnInput: true,
-						bracketMatching: true,
-						closeBrackets: true,
-						autocompletion: true,
-						highlightSelectionMatches: false,
-					}}
+					toolbarActions={toolbarActions}
+					onRunQuery={onRunQuery}
+					onRunAllQueries={onRunAllQueries}
+					cursorWarning={cursorWarning}
+					disabled={disabled}
+					draftVisible={draftVisible}
+					executing={executing}
 				/>
+				{ai && aiDraft.status === "generating" && review ? (
+					<SqlAIPreview
+						draft={aiDraft}
+						review={review}
+						embedded
+						editorHeight="100%"
+						editorExtensions={draftExtensions}
+						editorTheme={isDark ? barf : ayuLight}
+					/>
+				) : ai && aiDraft.status === "ready" && review ? (
+					<SqlAIPreview
+						draft={aiDraft}
+						review={review}
+						onDraftChange={ai.onDraftChange}
+						embedded
+						editorHeight="100%"
+						editorExtensions={draftExtensions}
+						editorTheme={isDark ? barf : ayuLight}
+						onDiscard={ai.onDiscard}
+						onApply={ai.onApplyDraft}
+					/>
+				) : (
+					<CodeMirror
+						value={value}
+						height={framedEditor ? "100%" : height}
+						className={framedEditor ? "min-h-0 flex-1" : undefined}
+						width="100%"
+						extensions={extensions}
+						theme={isDark ? barf : ayuLight}
+						onChange={onChange}
+						editable={!disabled}
+						onCreateEditor={(view) => updateSelection(view.state)}
+						basicSetup={{
+							lineNumbers: true,
+							foldGutter: true,
+							dropCursor: false,
+							allowMultipleSelections: false,
+							indentOnInput: true,
+							bracketMatching: true,
+							closeBrackets: true,
+							autocompletion: true,
+							highlightSelectionMatches: false,
+						}}
+					/>
+				)}
 			</div>
 		</div>
 	);

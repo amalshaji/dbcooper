@@ -9,14 +9,19 @@ import { toast } from "sonner";
 import {
 	queryAiStateReducer,
 	type QueryAiStateAction,
+	type SqlEditScope,
 } from "../lib/aiDraftState";
 import { isAiGenerationCancellation } from "../lib/aiGenerationSession";
+import {
+	applyReadyAiDraft,
+	type AiDraftApplyMode,
+} from "../lib/sqlAiDraft";
 import type { QueryTab, Tab } from "../types/tabTypes";
 
 type GenerateDraft = (
 	requestKey: string,
 	instruction: string,
-	existingSQL: string,
+	scope: SqlEditScope,
 	onPreview: (sql: string) => void,
 ) => Promise<string>;
 
@@ -64,11 +69,15 @@ export function useQueryAiGeneration({
 	);
 
 	const generateForTab = useCallback(
-		async (tabId: string, instruction: string, existingSQL: string) => {
+		async (tabId: string, instruction: string, requestedScope: SqlEditScope) => {
 			const requestId = crypto.randomUUID();
+			const scope: SqlEditScope =
+				requestedScope.kind === "query"
+					? { kind: "query", sql: getExistingSqlForAi(requestedScope.sql) }
+					: requestedScope;
 			updateAiState(tabId, {
 				type: "update-draft",
-				action: { type: "start", requestId },
+				action: { type: "start", requestId, scope },
 			});
 
 			const viewQuery = () => {
@@ -81,7 +90,7 @@ export function useQueryAiGeneration({
 				const sql = await generateDraft(
 					tabId,
 					instruction,
-					existingSQL,
+					scope,
 					(previewSql) =>
 						updateAiState(tabId, {
 							type: "update-draft",
@@ -126,25 +135,51 @@ export function useQueryAiGeneration({
 		[generateDraft, setActiveTabId, updateAiState],
 	);
 
+	const applyDraft = useCallback(
+		(tabId: string, mode: AiDraftApplyMode) => {
+			setTabs((currentTabs) =>
+				currentTabs.map((tab) => {
+					if (tab.id !== tabId || tab.type !== "query") return tab;
+					if (tab.ai.draft.status !== "ready") return tab;
+
+					const applied = applyReadyAiDraft(tab.query, tab.ai.draft, mode);
+					if (!applied.ok) return tab;
+
+					return {
+						...tab,
+						query: applied.sql,
+						ai: {
+							...tab.ai,
+							draft: { status: "idle" },
+						},
+					};
+				}),
+			);
+		},
+		[setTabs],
+	);
+
 	const getEditorAiProps = useCallback(
 		(tab: QueryTab) => ({
 			state: tab.ai,
 			configured: isConfigured,
 			onInstructionChange: (instruction: string) =>
 				updateAiState(tab.id, { type: "set-instruction", instruction }),
-			onGenerate: () =>
-				generateForTab(
-					tab.id,
-					tab.ai.instruction,
-					getExistingSqlForAi(tab.query),
-				),
+			onDraftChange: (sql: string) =>
+				updateAiState(tab.id, {
+					type: "update-draft",
+					action: { type: "edit", sql },
+				}),
+			onGenerate: (scope: SqlEditScope) =>
+				generateForTab(tab.id, tab.ai.instruction, scope),
+			onApplyDraft: (mode: AiDraftApplyMode) => applyDraft(tab.id, mode),
 			onDiscard: () =>
 				updateAiState(tab.id, {
 					type: "update-draft",
 					action: { type: "discard" },
 				}),
 		}),
-		[generateForTab, isConfigured, updateAiState],
+		[applyDraft, generateForTab, isConfigured, updateAiState],
 	);
 
 	return {

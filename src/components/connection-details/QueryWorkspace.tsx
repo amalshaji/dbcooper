@@ -2,13 +2,11 @@ import { useMemo, useState } from "react";
 import type React from "react";
 import { format as formatSQL } from "sql-formatter";
 import {
-	CaretDown,
 	Check,
 	Copy,
 	DownloadSimple,
 	FloppyDisk,
 	PaintBrush,
-	PlayCircle,
 } from "@phosphor-icons/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { toast } from "sonner";
@@ -23,15 +21,8 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import { getSqlFormatterLanguage } from "@/lib/databaseCapabilities";
 import type { SqlConnection } from "@/types/connection";
 import type { DatabaseTable } from "@/types/table";
@@ -67,6 +58,8 @@ export function QueryWorkspace({
 		row: Record<string, unknown>;
 		index: number;
 	} | null>(null);
+	const draftVisible =
+		tab.ai.draft.status === "generating" || tab.ai.draft.status === "ready";
 	const queryColumns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
 		if (!tab.results?.length) return [];
 
@@ -111,133 +104,89 @@ export function QueryWorkspace({
 			</div>
 		);
 	};
+	const queryToolbarActions = controller.saveDialog.open ? (
+		<div className="flex items-center gap-2">
+			<Input
+				placeholder="Query name"
+				value={controller.saveDialog.name}
+				onChange={(e) => controller.changeSaveQueryName(e.target.value)}
+				className="h-8 w-40"
+				disabled={draftVisible}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						controller.saveQuery();
+					} else if (e.key === "Escape") {
+						controller.closeSaveDialog();
+					}
+				}}
+				autoFocus
+			/>
+			<Button
+				size="sm"
+				onClick={controller.saveQuery}
+				disabled={draftVisible || !controller.saveDialog.name.trim()}
+			>
+				Save
+			</Button>
+			<Button size="sm" variant="ghost" onClick={controller.closeSaveDialog}>
+				Cancel
+			</Button>
+		</div>
+	) : (
+		<>
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={() => {
+					try {
+						const formatted = formatSQL(tab.query, {
+							language: getSqlFormatterLanguage(
+								connection?.db_type || "postgres",
+							),
+							tabWidth: 2,
+							keywordCase: "upper",
+						});
+						controller.changeQuery(formatted);
+						toast.success("SQL formatted");
+					} catch (error) {
+						toast.error("Failed to format SQL", {
+							description:
+								error instanceof Error ? error.message : "Unknown error",
+						});
+					}
+				}}
+				disabled={draftVisible || !tab.query.trim()}
+			>
+				<PaintBrush className="w-4 h-4" />
+				Beautify
+			</Button>
+			<Button
+				size="sm"
+				variant="outline"
+				onClick={controller.openSaveDialog}
+				disabled={draftVisible || !tab.query.trim()}
+			>
+				<FloppyDisk className="w-4 h-4" />
+				Save query
+			</Button>
+		</>
+	);
 
 	return (
 		<div className="space-y-3">
 			<Card className="workspace-panel gap-2">
 				<CardHeader>
-					<div className="flex items-center justify-between">
-						<div>
-							<CardTitle>SQL editor</CardTitle>
-							<CardDescription>Write and execute SQL queries</CardDescription>
-						</div>
-						<div className="flex items-center gap-2">
-							{controller.saveDialog.open ? (
-								<div className="flex items-center gap-2">
-									<Input
-										placeholder="Query name"
-										value={controller.saveDialog.name}
-										onChange={(e) =>
-											controller.changeSaveQueryName(e.target.value)
-										}
-										className="w-40"
-										onKeyDown={(e) => {
-											if (e.key === "Enter") {
-												controller.saveQuery();
-											} else if (e.key === "Escape") {
-												controller.closeSaveDialog();
-											}
-										}}
-										autoFocus
-									/>
-									<Button
-										size="sm"
-										onClick={controller.saveQuery}
-										disabled={!controller.saveDialog.name.trim()}
-									>
-										Save
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={controller.closeSaveDialog}
-									>
-										Cancel
-									</Button>
-								</div>
-							) : (
-								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => {
-											try {
-												const formatted = formatSQL(tab.query, {
-													language: getSqlFormatterLanguage(
-														connection?.db_type || "postgres",
-													),
-													tabWidth: 2,
-													keywordCase: "upper",
-												});
-												controller.changeQuery(formatted);
-												toast.success("SQL formatted");
-											} catch (error) {
-												toast.error("Failed to format SQL", {
-													description:
-														error instanceof Error
-															? error.message
-															: "Unknown error",
-												});
-											}
-										}}
-										disabled={!tab.query.trim()}
-									>
-										<PaintBrush className="w-4 h-4" />
-										Beautify
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={controller.openSaveDialog}
-										disabled={!tab.query.trim()}
-									>
-										<FloppyDisk className="w-4 h-4" />
-										Save query
-									</Button>
-									<div className="flex">
-										<Button
-											size="sm"
-											onClick={controller.runQuery}
-											disabled={tab.executing}
-											className="rounded-r-none border-r-0 -mr-1"
-										>
-											{tab.executing ? <Spinner /> : null}
-											Run query{" "}
-											<span className="text-xs opacity-60">
-												({navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}
-												+↵)
-											</span>
-										</Button>
-										<DropdownMenu>
-											<DropdownMenuTrigger
-												render={
-													<Button
-														size="sm"
-														className="px-1 rounded-l-none border border-border"
-														disabled={tab.executing}
-													>
-														<CaretDown className="w-4 h-4" />
-													</Button>
-												}
-											/>
-											<DropdownMenuContent align="end">
-												<DropdownMenuItem onClick={controller.runAllQueries}>
-													<PlayCircle className="w-4 h-4" />
-													Run all queries
-												</DropdownMenuItem>
-											</DropdownMenuContent>
-										</DropdownMenu>
-									</div>
-								</>
-							)}
-						</div>
-					</div>
+					<CardTitle>SQL editor</CardTitle>
+					<CardDescription>Write and execute SQL queries</CardDescription>
 				</CardHeader>
 				<CardContent>
 					<SqlEditor
 						value={tab.query}
 						onChange={controller.changeQuery}
 						onRunQuery={controller.runQuery}
+						onRunAllQueries={controller.runAllQueries}
+						toolbarActions={queryToolbarActions}
+						executing={tab.executing}
 						height="300px"
 						// disabled={!tab.query.trim()}
 						tables={tables.map((t) => ({
