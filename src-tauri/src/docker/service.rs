@@ -314,7 +314,6 @@ pub async fn docker_link_connection(
         username: request.username,
         password: request.password,
         ssl: false,
-        db_type: request.engine.db_type().to_string(),
         file_path: None,
         connection_uri,
         ssh_enabled: false,

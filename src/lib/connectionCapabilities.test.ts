@@ -8,12 +8,14 @@ import type { MongoConnection } from "@/types/connection";
 describe("connection capabilities", () => {
 	test("routes MongoDB through URI-native document behavior", () => {
 		expect(getConnectionCapabilities("mongodb")).toEqual({
+			label: "MongoDB",
 			workspace: "document",
 			form: "uri",
 			loadsSchema: false,
 			fileDatabase: false,
 			structuredRowMutations: false,
 			defaultPort: 27017,
+			testStrategy: "mongo",
 		});
 	});
 

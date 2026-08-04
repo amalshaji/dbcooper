@@ -22,7 +22,7 @@ async fn insert_connection(
     .bind(&data.database)
     .bind(&data.username)
     .bind(&data.password)
-    .bind(&data.db_type)
+    .bind(data.db_type())
     .bind(&data.connection_uri)
     .fetch_one(&mut **transaction)
     .await

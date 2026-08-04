@@ -54,3 +54,18 @@ pub fn ensure_read_only_pipeline(pipeline: &[Value]) -> Result<(), String> {
     }
     Ok(())
 }
+
+pub fn is_system_namespace(database: &str, collection: &str) -> bool {
+    matches!(database, "config" | "local")
+        || database.starts_with("__mdb_internal_")
+        || collection.starts_with("system.")
+}
+
+pub fn ensure_mutable_namespace(database: &str, collection: &str) -> Result<(), String> {
+    if is_system_namespace(database, collection) {
+        return Err(format!(
+            "MongoDB system namespace {database}.{collection} is read-only in DBcooper"
+        ));
+    }
+    Ok(())
+}

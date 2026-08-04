@@ -4,7 +4,7 @@ use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use serde_json::Value;
 
-use super::codec::{bson_json, json_document, safe_error};
+use super::codec::{bson_json, ensure_mutable_namespace, json_document, safe_error};
 use super::{
     CreateMongoIndexRequest, MongoDriver, MongoIndexInfo, MongoValidatorSettings,
     SetMongoValidatorRequest,
@@ -12,6 +12,7 @@ use super::{
 
 impl MongoDriver {
     pub async fn create_collection(&self, database: &str, collection: &str) -> Result<(), String> {
+        ensure_mutable_namespace(database, collection)?;
         self.client
             .database(database)
             .create_collection(collection)
@@ -21,6 +22,7 @@ impl MongoDriver {
     }
 
     pub async fn drop_collection(&self, database: &str, collection: &str) -> Result<(), String> {
+        ensure_mutable_namespace(database, collection)?;
         self.client
             .database(database)
             .collection::<Document>(collection)
@@ -62,6 +64,7 @@ impl MongoDriver {
     }
 
     pub async fn create_index(&self, request: CreateMongoIndexRequest) -> Result<String, String> {
+        ensure_mutable_namespace(&request.database, &request.collection)?;
         if request.keys.is_empty() {
             return Err("An index requires at least one field".to_string());
         }
@@ -106,6 +109,7 @@ impl MongoDriver {
         collection: &str,
         name: &str,
     ) -> Result<(), String> {
+        ensure_mutable_namespace(database, collection)?;
         if name == "_id_" {
             return Err("The _id_ index cannot be dropped".to_string());
         }
@@ -157,6 +161,7 @@ impl MongoDriver {
     }
 
     pub async fn set_validator(&self, request: SetMongoValidatorRequest) -> Result<(), String> {
+        ensure_mutable_namespace(&request.database, &request.collection)?;
         if !matches!(
             request.validation_level.as_str(),
             "off" | "strict" | "moderate"

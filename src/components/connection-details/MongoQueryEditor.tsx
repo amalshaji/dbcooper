@@ -1,11 +1,7 @@
-import {
-	Funnel,
-	ListDashes,
-	Play,
-	SortAscending,
-} from "@phosphor-icons/react";
+import { Funnel, ListDashes, Play, SortAscending } from "@phosphor-icons/react";
 import { MongoJsonEditor } from "@/components/connection-details/MongoJsonEditor";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import type { MongoQueryEditor as MongoQueryEditorState } from "@/lib/mongo/querySpec";
 
@@ -23,7 +19,21 @@ export function MongoQueryEditor({
 	disabled: boolean;
 }) {
 	const runAction = (
-		<div className="mt-2 flex justify-end">
+		<div className="mt-2 flex items-center justify-end gap-2">
+			<label className="flex items-center gap-2 text-xs text-muted-foreground">
+				Limit
+				<Input
+					type="number"
+					min={1}
+					max={1000}
+					className="h-8 w-20"
+					value={editor.limit}
+					onChange={(event) =>
+						onChange({ ...editor, limit: Number(event.target.value) })
+					}
+					aria-label="Query result limit"
+				/>
+			</label>
 			<Button size="sm" onClick={onRun} disabled={disabled || loading}>
 				{loading ? <Spinner /> : <Play />}
 				Run query
@@ -42,7 +52,7 @@ export function MongoQueryEditor({
 					value={editor.pipeline}
 					height="132px"
 					ariaLabel="Aggregation pipeline"
-					onChange={(pipeline) => onChange({ type: "aggregate", pipeline })}
+					onChange={(pipeline) => onChange({ ...editor, pipeline })}
 				/>
 				{runAction}
 			</section>

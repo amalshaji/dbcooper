@@ -79,7 +79,9 @@ export function MongoDocumentBrowser({
 						className="ml-auto"
 						size="xs"
 						variant="ghost"
-						disabled={!workbench.namespace.collection}
+						disabled={
+							!workbench.namespace.collection || workbench.namespaceReadOnly
+						}
 						onClick={workbench.actions.beginDocument}
 					>
 						<FilePlus />
@@ -145,31 +147,32 @@ export function MongoDocumentBrowser({
 						: workbench.selectedDocument
 							? "Document"
 							: "Inspector"}
-					{(workbench.inspector.isNew || workbench.selectedDocument) && (
-						<>
-							<Button
-								className="ml-auto"
-								size="xs"
-								disabled={workbench.loading}
-								onClick={() => void workbench.actions.saveDocument()}
-							>
-								{workbench.loading && <Spinner />}
-								<FloppyDisk />
-								{workbench.inspector.isNew ? "Insert" : "Save"}
-							</Button>
-							{workbench.selectedDocument && (
+					{!workbench.namespaceReadOnly &&
+						(workbench.inspector.isNew || workbench.selectedDocument) && (
+							<>
 								<Button
-									size="icon-xs"
-									variant="ghost"
-									className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-									onClick={() => setDeleteDialogOpen(true)}
-									aria-label="Delete document"
+									className="ml-auto"
+									size="xs"
+									disabled={workbench.loading}
+									onClick={() => void workbench.actions.saveDocument()}
 								>
-									<Trash />
+									{workbench.loading && <Spinner />}
+									<FloppyDisk />
+									{workbench.inspector.isNew ? "Insert" : "Save"}
 								</Button>
-							)}
-						</>
-					)}
+								{workbench.selectedDocument && (
+									<Button
+										size="icon-xs"
+										variant="ghost"
+										className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+										onClick={() => setDeleteDialogOpen(true)}
+										aria-label="Delete document"
+									>
+										<Trash />
+									</Button>
+								)}
+							</>
+						)}
 				</div>
 				<MongoJsonEditor
 					className="h-0 min-h-0 flex-1 rounded-none border-0"
@@ -177,7 +180,8 @@ export function MongoDocumentBrowser({
 					height="100%"
 					onChange={workbench.actions.setDocumentText}
 					editable={
-						workbench.inspector.isNew || Boolean(workbench.selectedDocument)
+						!workbench.namespaceReadOnly &&
+						(workbench.inspector.isNew || Boolean(workbench.selectedDocument))
 					}
 					ariaLabel="MongoDB document"
 				/>

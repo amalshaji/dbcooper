@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { LatestRequestRegistry } from "../../lib/connection-details/latestRequestRegistry";
 import {
 	buildMongoQuerySpec,
 	mongoQueryKind,
@@ -23,6 +24,7 @@ const DEFAULT_FIND_EDITOR: Extract<MongoQueryEditor, { type: "find" }> = {
 	filter: "{}",
 	projection: "{}",
 	sort: "{}",
+	limit: 100,
 };
 const DEFAULT_AGGREGATE_EDITOR: Extract<
 	MongoQueryEditor,
@@ -30,6 +32,7 @@ const DEFAULT_AGGREGATE_EDITOR: Extract<
 > = {
 	type: "aggregate",
 	pipeline: "[]",
+	limit: 100,
 };
 
 interface EditorSession {
@@ -66,6 +69,9 @@ export function useMongoWorkbench(uuid: string) {
 	});
 	const editor = editorSession[editorSession.mode];
 	const [result, setResult] = useState<MongoDocumentPage | null>(null);
+	const [resultNamespace, setResultNamespace] = useState<MongoNamespace | null>(
+		null,
+	);
 	const [inspector, setInspector] = useState<InspectorState>({
 		selectedIndex: null,
 		documentText: "{}",
@@ -76,8 +82,19 @@ export function useMongoWorkbench(uuid: string) {
 	const [history, setHistory] = useState<QueryHistory[]>([]);
 	const [queryName, setQueryName] = useState("");
 	const [editorLoadRevision, setEditorLoadRevision] = useState(0);
+	const [showSystemCollections, setShowSystemCollections] = useState(false);
 	const initializedCatalog = useRef(false);
 	const suppressNextNamespaceRun = useRef(false);
+	const requests = useRef(new LatestRequestRegistry());
+
+	const namespaceReadOnly = catalog.some((database) =>
+		database.collections.some(
+			(collection) =>
+				collection.database === namespace.database &&
+				collection.name === namespace.collection &&
+				collection.is_system,
+		),
+	);
 
 	const selectedDocument =
 		inspector.selectedIndex === null
@@ -94,10 +111,12 @@ export function useMongoWorkbench(uuid: string) {
 	}, [selectedDocument, inspector.isNew]);
 
 	const refreshRecords = useCallback(async () => {
+		const request = requests.current.issue("records");
 		const [saved, recent] = await Promise.all([
 			api.queries.list(uuid),
 			api.queries.history(uuid),
 		]);
+		if (!requests.current.isLatest(request)) return;
 		setSavedQueries(
 			saved.filter((item) => item.query_kind.startsWith("mongo_")),
 		);
@@ -105,16 +124,21 @@ export function useMongoWorkbench(uuid: string) {
 	}, [uuid]);
 
 	const refreshCatalog = useCallback(async () => {
+		const request = requests.current.issue("catalog");
 		try {
 			const next = await api.mongo.listCatalog(uuid);
+			if (!requests.current.isLatest(request)) return;
 			setCatalog(next);
-			const first = next[0]?.collections[0];
+			const first = next
+				.flatMap((database) => database.collections)
+				.find((collection) => !collection.is_system);
 			if (!initializedCatalog.current && first) {
 				initializedCatalog.current = true;
-				setExpanded(new Set([next[0].name]));
-				setNamespace({ database: next[0].name, collection: first.name });
+				setExpanded(new Set([first.database]));
+				setNamespace({ database: first.database, collection: first.name });
 			}
 		} catch (error) {
+			if (!requests.current.isLatest(request)) return;
 			toast.error("Could not load MongoDB catalog", {
 				description: String(error),
 			});
@@ -122,8 +146,10 @@ export function useMongoWorkbench(uuid: string) {
 	}, [uuid]);
 
 	useEffect(() => {
+		const registry = requests.current;
 		void refreshCatalog();
 		void refreshRecords();
+		return () => registry.invalidateAll();
 	}, [refreshCatalog, refreshRecords]);
 
 	const run = useCallback(async () => {
@@ -131,6 +157,7 @@ export function useMongoWorkbench(uuid: string) {
 			toast.error("Select a MongoDB collection first");
 			return;
 		}
+		const request = requests.current.issue("query");
 		setLoading(true);
 		const started = performance.now();
 		try {
@@ -139,12 +166,6 @@ export function useMongoWorkbench(uuid: string) {
 				spec.type === "find"
 					? await api.mongo.find(uuid, spec)
 					: await api.mongo.aggregate(uuid, spec);
-			setResult(next);
-			setInspector((current) => ({
-				...current,
-				selectedIndex: next.documents.length > 0 ? 0 : null,
-				isNew: false,
-			}));
 			await api.queries.recordHistory({
 				connectionUuid: uuid,
 				query: serializeMongoQuerySpec(spec),
@@ -153,11 +174,20 @@ export function useMongoWorkbench(uuid: string) {
 				timeTakenMs: Math.round(performance.now() - started),
 				rowCount: next.returned_count,
 			});
+			if (!requests.current.isLatest(request)) return;
+			setResult(next);
+			setResultNamespace(namespace);
+			setInspector((current) => ({
+				...current,
+				selectedIndex: next.documents.length > 0 ? 0 : null,
+				isNew: false,
+			}));
 			void refreshRecords();
 		} catch (error) {
+			if (!requests.current.isLatest(request)) return;
 			toast.error("MongoDB query failed", { description: String(error) });
 		} finally {
-			setLoading(false);
+			if (requests.current.isLatest(request)) setLoading(false);
 		}
 	}, [editor, namespace, refreshRecords, uuid]);
 
@@ -195,6 +225,7 @@ export function useMongoWorkbench(uuid: string) {
 	const loadQuery = useCallback((query: string) => {
 		try {
 			const spec = parseMongoQuerySpec(query);
+			requests.current.invalidate("query");
 			suppressNextNamespaceRun.current = true;
 			setNamespace({ database: spec.database, collection: spec.collection });
 			const nextEditor = queryEditorFromSpec(spec);
@@ -205,6 +236,8 @@ export function useMongoWorkbench(uuid: string) {
 			}));
 			setEditorLoadRevision((current) => current + 1);
 			setResult(null);
+			setResultNamespace(null);
+			setLoading(false);
 			setInspector({
 				selectedIndex: null,
 				documentText: "{}",
@@ -220,13 +253,16 @@ export function useMongoWorkbench(uuid: string) {
 			const separator = value.indexOf(".");
 			const database =
 				separator === -1 ? namespace.database : value.slice(0, separator);
-			const collection =
-				separator === -1 ? value : value.slice(separator + 1);
+			const collection = separator === -1 ? value : value.slice(separator + 1);
 			if (!database || !collection) {
 				throw new Error("Enter a collection name or database.collection");
 			}
 			await api.mongo.createCollection(uuid, database, collection);
 			await refreshCatalog();
+			requests.current.invalidate("query");
+			setLoading(false);
+			setResult(null);
+			setResultNamespace(null);
 			setExpanded((current) => new Set(current).add(database));
 			setEditorSession((current) => ({ ...current, mode: "find" }));
 			setNamespace({ database, collection });
@@ -235,18 +271,27 @@ export function useMongoWorkbench(uuid: string) {
 	);
 
 	const dropCollection = useCallback(async () => {
+		if (namespaceReadOnly) {
+			throw new Error("MongoDB system collections are read-only in DBcooper");
+		}
 		await api.mongo.dropCollection(
 			uuid,
 			namespace.database,
 			namespace.collection,
 		);
+		requests.current.invalidate("query");
+		setLoading(false);
 		setNamespace((current) => ({ ...current, collection: "" }));
 		setResult(null);
+		setResultNamespace(null);
 		await refreshCatalog();
-	}, [namespace, refreshCatalog, uuid]);
+	}, [namespace, namespaceReadOnly, refreshCatalog, uuid]);
 
 	const saveDocument = useCallback(async () => {
 		try {
+			if (namespaceReadOnly) {
+				throw new Error("MongoDB system collections are read-only in DBcooper");
+			}
 			const document = parseDocument(inspector.documentText);
 			if (inspector.isNew) {
 				await api.mongo.insertOne(uuid, { ...namespace, document });
@@ -260,19 +305,22 @@ export function useMongoWorkbench(uuid: string) {
 		} catch (error) {
 			toast.error("Could not save document", { description: String(error) });
 		}
-	}, [inspector, namespace, run, selectedDocument, uuid]);
+	}, [inspector, namespace, namespaceReadOnly, run, selectedDocument, uuid]);
 
 	const deleteDocument = useCallback(async () => {
 		const id = selectedDocument?._id;
 		if (id === undefined) return;
 		try {
+			if (namespaceReadOnly) {
+				throw new Error("MongoDB system collections are read-only in DBcooper");
+			}
 			await api.mongo.deleteOne(uuid, { ...namespace, id });
 			toast.success("Document deleted");
 			await run();
 		} catch (error) {
 			toast.error("Could not delete document", { description: String(error) });
 		}
-	}, [namespace, run, selectedDocument, uuid]);
+	}, [namespace, namespaceReadOnly, run, selectedDocument, uuid]);
 
 	return {
 		catalog,
@@ -280,6 +328,7 @@ export function useMongoWorkbench(uuid: string) {
 		namespace,
 		editor,
 		result,
+		resultNamespace,
 		inspector,
 		selectedDocument,
 		loading,
@@ -287,6 +336,8 @@ export function useMongoWorkbench(uuid: string) {
 		history,
 		queryName,
 		editorLoadRevision,
+		showSystemCollections,
+		namespaceReadOnly,
 		actions: {
 			setEditor: (nextEditor: MongoQueryEditor) =>
 				setEditorSession((current) => ({
@@ -296,6 +347,7 @@ export function useMongoWorkbench(uuid: string) {
 			setMode: (mode: MongoQueryEditor["type"]) =>
 				setEditorSession((current) => ({ ...current, mode })),
 			setQueryName,
+			setShowSystemCollections,
 			refreshCatalog,
 			run,
 			saveQuery,
@@ -310,6 +362,15 @@ export function useMongoWorkbench(uuid: string) {
 					return next;
 				}),
 			selectCollection: (database: string, collection: string) => {
+				requests.current.invalidate("query");
+				setLoading(false);
+				setResult(null);
+				setResultNamespace(null);
+				setInspector({
+					selectedIndex: null,
+					documentText: "{}",
+					isNew: false,
+				});
 				setEditorSession((current) => ({ ...current, mode: "find" }));
 				setNamespace({ database, collection });
 			},

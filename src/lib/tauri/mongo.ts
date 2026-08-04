@@ -5,6 +5,7 @@ import type { TestConnectionResult } from "@/lib/tauri/shared";
 export interface MongoCollectionInfo {
 	database: string;
 	name: string;
+	is_system: boolean;
 }
 
 export interface MongoDatabaseInfo {
@@ -34,7 +35,6 @@ export interface MongoDocumentPage {
 	returned_count: number;
 	has_more: boolean;
 	execution_time_ms: number;
-	estimated_total: number | null;
 }
 
 export interface MongoDocumentMutation {

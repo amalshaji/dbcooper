@@ -5,6 +5,7 @@ use serde_json::Value;
 pub struct MongoCollectionInfo {
     pub database: String,
     pub name: String,
+    pub is_system: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -40,7 +41,6 @@ pub struct MongoDocumentPage {
     pub returned_count: usize,
     pub has_more: bool,
     pub execution_time_ms: u128,
-    pub estimated_total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

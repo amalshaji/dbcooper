@@ -52,6 +52,11 @@ struct PoolEntry {
 pub enum PooledConnection {
     Tabular(Arc<Box<dyn DatabaseDriver>>),
     Mongo(Arc<MongoDriver>),
+    #[cfg(test)]
+    Test {
+        activity: Arc<()>,
+        shutdowns: Arc<std::sync::atomic::AtomicUsize>,
+    },
 }
 
 impl PooledConnection {
@@ -59,12 +64,22 @@ impl PooledConnection {
         match self {
             Self::Tabular(driver) => driver.test_connection().await,
             Self::Mongo(driver) => driver.ping().await,
+            #[cfg(test)]
+            Self::Test { .. } => Ok(TestConnectionResult {
+                success: true,
+                message: "Connected successfully".to_string(),
+            }),
         }
     }
 
     async fn shutdown(&self) {
-        if let Self::Mongo(driver) = self {
-            driver.shutdown().await;
+        match self {
+            Self::Mongo(driver) => driver.shutdown().await,
+            #[cfg(test)]
+            Self::Test { shutdowns, .. } => {
+                shutdowns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            Self::Tabular(_) => {}
         }
     }
 
@@ -72,6 +87,8 @@ impl PooledConnection {
         match self {
             Self::Tabular(driver) => Arc::strong_count(driver),
             Self::Mongo(driver) => Arc::strong_count(driver),
+            #[cfg(test)]
+            Self::Test { activity, .. } => Arc::strong_count(activity),
         }
     }
 }
@@ -89,6 +106,34 @@ fn should_keep_entry(entry: &PoolEntry) -> bool {
         .lock()
         .map(|last_used| last_used.elapsed() < IDLE_TIMEOUT)
         .unwrap_or(true)
+}
+
+fn take_idle_entries(pools: &mut HashMap<String, PoolEntry>) -> Vec<(String, PoolEntry)> {
+    let expired = pools
+        .iter()
+        .filter_map(|(uuid, entry)| (!should_keep_entry(entry)).then_some(uuid.clone()))
+        .collect::<Vec<_>>();
+    expired
+        .into_iter()
+        .filter_map(|uuid| pools.remove(&uuid).map(|entry| (uuid, entry)))
+        .collect()
+}
+
+async fn shutdown_entries(entries: impl IntoIterator<Item = PoolEntry>) {
+    for entry in entries {
+        entry.connection.shutdown().await;
+    }
+}
+
+async fn replace_pool_entry(
+    pools: &RwLock<HashMap<String, PoolEntry>>,
+    uuid: &str,
+    entry: PoolEntry,
+) {
+    let replaced = pools.write().await.insert(uuid.to_string(), entry);
+    if let Some(replaced) = replaced {
+        replaced.connection.shutdown().await;
+    }
 }
 
 /// Connection pool manager
@@ -121,14 +166,14 @@ impl PoolManager {
             let mut ticker = tokio::time::interval(IDLE_CHECK_INTERVAL);
             loop {
                 ticker.tick().await;
-                let mut pools = pools.write().await;
-                pools.retain(|uuid, entry| {
-                    let keep = should_keep_entry(entry);
-                    if !keep {
-                        println!("[Pool] Evicting idle connection {}", uuid);
-                    }
-                    keep
-                });
+                let expired = {
+                    let mut pools = pools.write().await;
+                    take_idle_entries(&mut pools)
+                };
+                for (uuid, _) in &expired {
+                    println!("[Pool] Evicting idle connection {}", uuid);
+                }
+                shutdown_entries(expired.into_iter().map(|(_, entry)| entry)).await;
             }
         });
     }
@@ -223,11 +268,7 @@ impl PoolManager {
             ssh_tunnel,
         };
 
-        // Store in pool
-        {
-            let mut pools = self.pools.write().await;
-            pools.insert(uuid.to_string(), entry);
-        }
+        replace_pool_entry(&self.pools, uuid, entry).await;
 
         if status == ConnectionStatus::Connected {
             Ok(())
@@ -324,6 +365,8 @@ impl PoolManager {
             Some(PooledConnection::Mongo(_)) => {
                 Err("This operation is not supported for MongoDB connections".to_string())
             }
+            #[cfg(test)]
+            Some(PooledConnection::Test { .. }) => Err("Test connection has no driver".to_string()),
             None => Err("Connection not found. Please connect first.".to_string()),
         }
     }
@@ -334,6 +377,8 @@ impl PoolManager {
             Some(PooledConnection::Tabular(_)) => {
                 Err("This operation requires a MongoDB connection".to_string())
             }
+            #[cfg(test)]
+            Some(PooledConnection::Test { .. }) => Err("Test connection has no driver".to_string()),
             None => Err("Connection not found. Please connect first.".to_string()),
         }
     }
@@ -521,6 +566,39 @@ mod tests {
 
         assert!(should_keep_entry(&entry));
         assert!(entry.last_used.lock().unwrap().elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn idle_eviction_runs_connection_shutdown_after_removal() {
+        let shutdowns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut entry = expired_entry();
+        entry.connection = PooledConnection::Test {
+            activity: Arc::new(()),
+            shutdowns: shutdowns.clone(),
+        };
+        let mut pools = HashMap::from([("connection-1".to_string(), entry)]);
+
+        let expired = take_idle_entries(&mut pools);
+        assert!(pools.is_empty());
+        shutdown_entries(expired.into_iter().map(|(_, entry)| entry)).await;
+
+        assert_eq!(shutdowns.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn reconnect_shuts_down_the_replaced_connection() {
+        let shutdowns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut previous = expired_entry();
+        previous.connection = PooledConnection::Test {
+            activity: Arc::new(()),
+            shutdowns: shutdowns.clone(),
+        };
+        let pools = RwLock::new(HashMap::from([("connection-1".to_string(), previous)]));
+
+        replace_pool_entry(&pools, "connection-1", expired_entry()).await;
+
+        assert_eq!(shutdowns.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(pools.read().await.contains_key("connection-1"));
     }
 
     #[tokio::test]

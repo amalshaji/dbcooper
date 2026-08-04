@@ -7,12 +7,15 @@ mock.module("@/components/connection-details/MongoJsonEditor", () => ({
 	MongoJsonEditor: ({
 		className,
 		ariaLabel,
+		editable,
 	}: {
 		className?: string;
 		ariaLabel?: string;
+		editable?: boolean;
 	}) => (
 		<div
 			data-mongo-json-editor
+			data-editable={editable}
 			className={className}
 			aria-label={ariaLabel}
 		/>
@@ -73,6 +76,7 @@ mock.module("@/lib/tauri", () => ({
 }));
 
 const { MongoAiAssistant } = await import("./MongoAiAssistant");
+const { MongoCatalogSidebar } = await import("./MongoCatalogSidebar");
 const { MongoCollectionAdmin } = await import("./MongoCollectionAdmin");
 const { MongoDocumentBrowser } = await import("./MongoDocumentBrowser");
 const { MongoQueryEditor } = await import("./MongoQueryEditor");
@@ -90,6 +94,73 @@ test("uses shared compact controls for MongoDB index administration", () => {
 	expect(markup).toContain('data-slot="select-trigger"');
 	expect(markup).not.toContain("<select");
 	expect(markup.match(/data-size="sm"/g) ?? []).toHaveLength(2);
+});
+
+test("hides system collections by default and labels them read-only when revealed", () => {
+	const controller = {
+		catalog: [
+			{
+				name: "admin",
+				collections: [
+					{ database: "admin", name: "system.users", is_system: true },
+				],
+			},
+			{
+				name: "app",
+				collections: [{ database: "app", name: "users", is_system: false }],
+			},
+		],
+		expanded: new Set(["admin", "app"]),
+		namespace: { database: "app", collection: "users" },
+		showSystemCollections: false,
+		savedQueries: [],
+		history: [],
+		actions: {
+			setShowSystemCollections: () => undefined,
+			refreshCatalog: async () => undefined,
+			toggleDatabase: () => undefined,
+			selectCollection: () => undefined,
+			loadQuery: () => undefined,
+		},
+	} as unknown as MongoWorkbenchController;
+
+	const hidden = renderToStaticMarkup(
+		<MongoCatalogSidebar
+			workbench={controller}
+			onCreateCollection={() => undefined}
+		/>,
+	);
+	const revealed = renderToStaticMarkup(
+		<MongoCatalogSidebar
+			workbench={
+				{
+					...controller,
+					showSystemCollections: true,
+				} as MongoWorkbenchController
+			}
+			onCreateCollection={() => undefined}
+		/>,
+	);
+
+	expect(hidden).not.toContain("system.users");
+	expect(hidden).toContain(">users<");
+	expect(revealed).toContain("system.users");
+	expect(revealed).toContain("Read-only system collection");
+});
+
+test("removes collection mutations from read-only system namespaces", () => {
+	const markup = renderToStaticMarkup(
+		<MongoCollectionAdmin
+			uuid="connection-1"
+			database="admin"
+			collection="system.users"
+			view="indexes"
+			readOnly
+		/>,
+	);
+
+	expect(markup).not.toContain("Create index");
+	expect(markup).not.toContain('aria-label="Drop');
 });
 
 test("labels generated MongoDB queries as drafts that are not executed", () => {
@@ -143,15 +214,19 @@ test("bounds the document editor so CodeMirror owns vertical scrolling", () => {
 		/>,
 	);
 
-	expect(markup).toContain(
-		'class="h-0 min-h-0 flex-1 rounded-none border-0"',
-	);
+	expect(markup).toContain('class="h-0 min-h-0 flex-1 rounded-none border-0"');
 });
 
 test("places the run action with the MongoDB query editors", () => {
 	const markup = renderToStaticMarkup(
 		<MongoQueryEditor
-			editor={{ type: "find", filter: "{}", projection: "{}", sort: "{}" }}
+			editor={{
+				type: "find",
+				filter: "{}",
+				projection: "{}",
+				sort: "{}",
+				limit: 100,
+			}}
 			onChange={() => undefined}
 			onRun={() => undefined}
 			loading={false}

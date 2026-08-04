@@ -20,6 +20,19 @@ fn rejects_write_stages_in_read_only_aggregations() {
 }
 
 #[test]
+fn classifies_reserved_namespaces_and_blocks_direct_mutation() {
+    assert!(is_system_namespace("admin", "system.users"));
+    assert!(is_system_namespace("config", "system.sessions"));
+    assert!(is_system_namespace("local", "startup_log"));
+    assert!(is_system_namespace("__mdb_internal_search", "metadata"));
+    assert!(!is_system_namespace("app", "users"));
+
+    assert!(ensure_mutable_namespace("app", "users").is_ok());
+    assert!(ensure_mutable_namespace("admin", "system.users").is_err());
+    assert!(ensure_mutable_namespace("config", "settings").is_err());
+}
+
+#[test]
 fn canonical_extended_json_round_trips_bson_identity() {
     let id = mongodb::bson::oid::ObjectId::parse_str("507f1f77bcf86cd799439011").unwrap();
     let value = bson_json(Bson::Document(doc! { "_id": id, "count": 42_i64 }));

@@ -347,7 +347,6 @@ impl ManagedDatabasePlan {
             username: self.username.clone(),
             password: self.password.clone(),
             ssl: false,
-            db_type: self.engine.db_type().to_string(),
             file_path: None,
             connection_uri: if self.engine == DockerDatabaseEngine::Mongodb {
                 Some(connection_string(

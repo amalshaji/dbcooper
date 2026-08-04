@@ -1,6 +1,6 @@
 use crate::ai::settings::AiSettings;
 use crate::ai::{
-    clean_generated_sql, emit_chunk, emit_done, emit_error, ChatMessage, OpenAIError,
+    clean_generated_query, emit_chunk, emit_done, emit_error, ChatMessage, OpenAIError,
     OpenAIRequest, StreamResponse,
 };
 use futures_util::StreamExt;
@@ -29,7 +29,7 @@ fn parse_stream_content(line: &str) -> Option<String> {
         .content
 }
 
-pub async fn generate_sql(
+pub async fn generate_query(
     app: AppHandle,
     session_id: String,
     settings: AiSettings,
@@ -105,6 +105,6 @@ pub async fn generate_sql(
         emit_chunk(&app, &session_id, content);
     }
 
-    emit_done(&app, session_id, clean_generated_sql(&full_response));
+    emit_done(&app, session_id, clean_generated_query(&full_response));
     Ok(())
 }

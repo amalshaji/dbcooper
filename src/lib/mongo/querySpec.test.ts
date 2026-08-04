@@ -68,7 +68,13 @@ describe("MongoDB query specifications", () => {
 
 	test("builds one typed find specification from editor state", () => {
 		const spec = buildMongoQuerySpec(
-			{ type: "find", filter: "{\"active\":true}", projection: "{}", sort: "{}" },
+			{
+				type: "find",
+				filter: '{"active":true}',
+				projection: "{}",
+				sort: "{}",
+				limit: 7,
+			},
 			{ database: "app", collection: "users" },
 		);
 
@@ -80,7 +86,7 @@ describe("MongoDB query specifications", () => {
 			filter: { active: true },
 			projection: {},
 			sort: {},
-			limit: 100,
+			limit: 7,
 		});
 		expect(mongoQueryKind(spec)).toBe("mongo_find");
 		expect(queryEditorFromSpec(spec)).toEqual({
@@ -88,7 +94,28 @@ describe("MongoDB query specifications", () => {
 			filter: '{\n  "active": true\n}',
 			projection: "{}",
 			sort: "{}",
+			limit: 7,
 		});
+	});
+
+	test("round-trips the execution limit through editor state", () => {
+		const persisted = parseMongoQuerySpec(
+			JSON.stringify({
+				version: 1,
+				type: "aggregate",
+				database: "app",
+				collection: "events",
+				pipeline: [{ $match: { active: true } }],
+				limit: 7,
+			}),
+		);
+
+		expect(
+			buildMongoQuerySpec(queryEditorFromSpec(persisted), {
+				database: persisted.database,
+				collection: persisted.collection,
+			}),
+		).toEqual(persisted);
 	});
 
 	test("accepts common Mongo shell object syntax in find editors", () => {
@@ -98,6 +125,7 @@ describe("MongoDB query specifications", () => {
 				filter: `{ name: 'Amal', score: { $gt: 5, }, }`,
 				projection: "{ name: 1 }",
 				sort: "{ name: 1 }",
+				limit: 100,
 			},
 			{ database: "app", collection: "users" },
 		);
@@ -115,6 +143,7 @@ describe("MongoDB query specifications", () => {
 			{
 				type: "aggregate",
 				pipeline: `[{ $match: { name: 'Amal' } }]`,
+				limit: 100,
 			},
 			{ database: "app", collection: "users" },
 		);
@@ -133,6 +162,7 @@ describe("MongoDB query specifications", () => {
 					filter: "{ score: Infinity }",
 					projection: "{}",
 					sort: "{}",
+					limit: 100,
 				},
 				{ database: "app", collection: "users" },
 			),

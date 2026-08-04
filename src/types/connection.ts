@@ -75,7 +75,6 @@ export type ConnectionFormData = {
 	username: string;
 	password: string;
 	ssl: boolean;
-	db_type: ConnectionType;
 	file_path?: string;
 	connection_uri?: string;
 	ssh_enabled?: boolean;

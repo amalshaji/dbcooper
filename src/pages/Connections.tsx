@@ -202,7 +202,6 @@ export function Connections() {
 				connection.type === "mongodb"
 					? {
 							type: "mongodb",
-							db_type: "mongodb",
 							name: `${connection.name} (Copy)`,
 							connection_uri: connection.connection_uri,
 							host: "",
@@ -213,28 +212,27 @@ export function Connections() {
 							ssl: false,
 						}
 					: {
-				type: connection.type,
-				name: `${connection.name} (Copy)`,
-				host: connection.host,
-				port: connection.port,
-				database: connection.database,
-				username: connection.username,
-				password: connection.password,
-				ssl: Boolean(connection.ssl),
-				db_type: connection.db_type,
-				file_path: connection.file_path ?? undefined,
-				ssh_enabled: connection.ssh_enabled
-					? Boolean(connection.ssh_enabled)
-					: undefined,
-				ssh_host: connection.ssh_host,
-				ssh_port: connection.ssh_port,
-				ssh_user: connection.ssh_user,
-				ssh_password: connection.ssh_password,
-				ssh_key_path: connection.ssh_key_path,
-				ssh_use_key: connection.ssh_use_key
-					? Boolean(connection.ssh_use_key)
-					: undefined,
-				};
+							type: connection.type,
+							name: `${connection.name} (Copy)`,
+							host: connection.host,
+							port: connection.port,
+							database: connection.database,
+							username: connection.username,
+							password: connection.password,
+							ssl: Boolean(connection.ssl),
+							file_path: connection.file_path ?? undefined,
+							ssh_enabled: connection.ssh_enabled
+								? Boolean(connection.ssh_enabled)
+								: undefined,
+							ssh_host: connection.ssh_host,
+							ssh_port: connection.ssh_port,
+							ssh_user: connection.ssh_user,
+							ssh_password: connection.ssh_password,
+							ssh_key_path: connection.ssh_key_path,
+							ssh_use_key: connection.ssh_use_key
+								? Boolean(connection.ssh_use_key)
+								: undefined,
+						};
 
 			await api.connections.create(duplicatedData);
 			await fetchConnections();

@@ -41,8 +41,6 @@ pub struct ConnectionFormData {
     pub username: String,
     pub password: String,
     pub ssl: bool,
-    #[serde(default = "default_db_type")]
-    pub db_type: String,
     #[serde(default)]
     pub file_path: Option<String>,
     #[serde(default)]
@@ -63,8 +61,10 @@ pub struct ConnectionFormData {
     pub ssh_use_key: bool,
 }
 
-fn default_db_type() -> String {
-    "postgres".to_string()
+impl ConnectionFormData {
+    pub fn db_type(&self) -> &str {
+        &self.connection_type
+    }
 }
 
 fn default_ssh_port() -> i64 {

@@ -50,7 +50,7 @@ pub async fn create_connection(
     .bind(&data.username)
     .bind(&data.password)
     .bind(ssl)
-    .bind(&data.db_type)
+    .bind(data.db_type())
     .bind(&data.file_path)
     .bind(connection_uri_for(&data))
     .bind(ssh_enabled)
@@ -95,7 +95,7 @@ pub async fn update_connection(
     .bind(&data.username)
     .bind(&data.password)
     .bind(ssl)
-    .bind(&data.db_type)
+    .bind(data.db_type())
     .bind(&data.file_path)
     .bind(connection_uri_for(&data))
     .bind(ssh_enabled)
@@ -213,22 +213,12 @@ pub async fn import_connections(
         return Err("MongoDB connections require export version 2".to_string());
     }
     for connection in &data.connections {
-        if (connection.db_type == "mongodb" || connection.connection_type == "mongodb")
-            && (connection.db_type != "mongodb" || connection.connection_type != "mongodb")
-        {
-            return Err("MongoDB connection type and driver type must match".to_string());
-        }
-        if connection.db_type == "mongodb" {
-            if connection.ssh_enabled {
-                return Err("SSH tunnels are not supported for MongoDB".to_string());
-            }
-            crate::database::mongodb::validate_connection_uri(
-                connection
-                    .connection_uri
-                    .as_deref()
-                    .ok_or_else(|| "MongoDB connection URI is required".to_string())?,
-            )?;
-        }
+        validate_connection_fields(
+            &connection.connection_type,
+            &connection.db_type,
+            connection.ssh_enabled,
+            connection.connection_uri.as_deref(),
+        )?;
     }
 
     let mut imported_count = 0u32;
@@ -300,25 +290,59 @@ pub async fn import_connections(
 }
 
 fn validate_connection_data(data: &ConnectionFormData) -> Result<(), String> {
-    let uses_mongodb = data.db_type == "mongodb" || data.connection_type == "mongodb";
+    validate_connection_fields(
+        &data.connection_type,
+        data.db_type(),
+        data.ssh_enabled,
+        data.connection_uri.as_deref(),
+    )
+}
+
+fn validate_connection_fields(
+    connection_type: &str,
+    db_type: &str,
+    ssh_enabled: bool,
+    connection_uri: Option<&str>,
+) -> Result<(), String> {
+    let uses_mongodb = connection_type == "mongodb" || db_type == "mongodb";
     if !uses_mongodb {
         return Ok(());
     }
-    if data.db_type != "mongodb" || data.connection_type != "mongodb" {
+    if connection_type != "mongodb" || db_type != "mongodb" {
         return Err("MongoDB connection type and driver type must match".to_string());
     }
-    if data.ssh_enabled {
+    if ssh_enabled {
         return Err("SSH tunnels are not supported for MongoDB".to_string());
     }
-    let uri = data
-        .connection_uri
-        .as_deref()
-        .ok_or_else(|| "MongoDB connection URI is required".to_string())?;
+    let uri = connection_uri.ok_or_else(|| "MongoDB connection URI is required".to_string())?;
     crate::database::mongodb::validate_connection_uri(uri)
 }
 
 fn connection_uri_for(data: &ConnectionFormData) -> Option<&str> {
-    (data.db_type == "mongodb")
+    (data.connection_type == "mongodb")
         .then_some(data.connection_uri.as_deref())
         .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_connection_fields;
+
+    #[test]
+    fn validates_form_and_import_driver_identity_through_one_boundary() {
+        assert!(validate_connection_fields(
+            "mongodb",
+            "mongodb",
+            false,
+            Some("mongodb://localhost:27017/app"),
+        )
+        .is_ok());
+        assert!(validate_connection_fields(
+            "mongodb",
+            "postgres",
+            false,
+            Some("mongodb://localhost:27017/app"),
+        )
+        .is_err());
+    }
 }

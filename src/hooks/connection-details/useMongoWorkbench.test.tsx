@@ -1,31 +1,37 @@
 import { afterEach, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import type { MongoFindRequest } from "../../lib/tauri";
+import type {
+	MongoDatabaseInfo,
+	MongoDocumentPage,
+	MongoFindRequest,
+} from "../../lib/tauri";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
 const findRequests: MongoFindRequest[] = [];
 const historyRecords: Array<Record<string, unknown>> = [];
 const createdCollections: Array<{ database: string; collection: string }> = [];
+const defaultCatalog: MongoDatabaseInfo[] = [
+	{
+		name: "app",
+		collections: [{ database: "app", name: "users", is_system: false }],
+	},
+];
+let catalogResponse = defaultCatalog;
+let findHandler = async (): Promise<MongoDocumentPage> => ({
+	documents: [{ _id: 1, name: "Ada" }],
+	returned_count: 1,
+	has_more: false,
+	execution_time_ms: 1,
+});
 
 mock.module("../../lib/tauri", () => ({
 	api: {
 		mongo: {
-			listCatalog: async () => [
-				{
-					name: "app",
-					collections: [{ database: "app", name: "users" }],
-				},
-			],
+			listCatalog: async () => catalogResponse,
 			find: async (_uuid: string, request: MongoFindRequest) => {
 				findRequests.push(request);
-				return {
-					documents: [{ _id: 1, name: "Ada" }],
-					returned_count: 1,
-					has_more: false,
-					execution_time_ms: 1,
-					estimated_total: 1,
-				};
+				return findHandler();
 			},
 			aggregate: async () => {
 				throw new Error("not used");
@@ -58,6 +64,88 @@ afterEach(() => {
 	findRequests.length = 0;
 	historyRecords.length = 0;
 	createdCollections.length = 0;
+	catalogResponse = defaultCatalog;
+	findHandler = async () => ({
+		documents: [{ _id: 1, name: "Ada" }],
+		returned_count: 1,
+		has_more: false,
+		execution_time_ms: 1,
+	});
+});
+
+test("skips system namespaces when choosing the initial collection", async () => {
+	catalogResponse = [
+		{
+			name: "admin",
+			collections: [
+				{ database: "admin", name: "system.users", is_system: true },
+			],
+		},
+		...defaultCatalog,
+	];
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(result.current.result?.returned_count).toBe(1));
+
+	expect(result.current.namespace).toEqual({
+		database: "app",
+		collection: "users",
+	});
+	expect(findRequests[0]).toMatchObject({
+		database: "app",
+		collection: "users",
+	});
+});
+
+test("does not let an older query overwrite a newer result", async () => {
+	const pending: Array<(page: MongoDocumentPage) => void> = [];
+	findHandler = () =>
+		new Promise<MongoDocumentPage>((resolve) => pending.push(resolve));
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(pending).toHaveLength(1));
+	await act(async () => {
+		pending.shift()?.({
+			documents: [{ _id: "initial" }],
+			returned_count: 1,
+			has_more: false,
+			execution_time_ms: 1,
+		});
+	});
+	await waitFor(() =>
+		expect(result.current.result?.documents[0]._id).toBe("initial"),
+	);
+
+	act(() => {
+		void result.current.actions.run();
+	});
+	await waitFor(() => expect(pending).toHaveLength(1));
+	act(() => {
+		void result.current.actions.run();
+	});
+	await waitFor(() => expect(pending).toHaveLength(2));
+
+	await act(async () => {
+		pending[1]?.({
+			documents: [{ _id: "newer" }],
+			returned_count: 1,
+			has_more: false,
+			execution_time_ms: 2,
+		});
+	});
+	await waitFor(() =>
+		expect(result.current.result?.documents[0]._id).toBe("newer"),
+	);
+	await act(async () => {
+		pending[0]?.({
+			documents: [{ _id: "older" }],
+			returned_count: 1,
+			has_more: false,
+			execution_time_ms: 3,
+		});
+	});
+
+	expect(result.current.result?.documents[0]._id).toBe("newer");
 });
 
 test("loads the first namespace and records the exact query specification it runs", async () => {

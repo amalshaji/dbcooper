@@ -7,7 +7,7 @@ pub mod duckdb_helper;
 pub mod mcp;
 mod ssh_tunnel;
 
-use commands::ai::{detect_ai_harnesses, generate_sql, get_ai_status};
+use commands::ai::{detect_ai_harnesses, generate_query, get_ai_status};
 use commands::connections::{
     create_connection, delete_connection, export_connection, get_connection_by_uuid,
     get_connections, import_connections, update_connection,
@@ -295,7 +295,7 @@ pub fn run() {
             get_all_settings,
             #[cfg(desktop)]
             check_for_update,
-            generate_sql,
+            generate_query,
             detect_ai_harnesses,
             get_ai_status,
             pool_connect,

@@ -5,7 +5,10 @@ mod query;
 mod tests;
 mod types;
 use codec::safe_error;
-pub use codec::{ensure_read_only_pipeline, validate_connection_uri};
+pub use codec::{
+    ensure_mutable_namespace, ensure_read_only_pipeline, is_system_namespace,
+    validate_connection_uri,
+};
 use mongodb::bson::doc;
 use mongodb::options::{ClientOptions, ServerApi, ServerApiVersion};
 use mongodb::Client;
@@ -69,6 +72,7 @@ impl MongoDriver {
                 .into_iter()
                 .map(|collection| MongoCollectionInfo {
                     database: name.clone(),
+                    is_system: is_system_namespace(&name, &collection),
                     name: collection,
                 })
                 .collect();

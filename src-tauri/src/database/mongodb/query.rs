@@ -3,7 +3,7 @@ use mongodb::bson::{doc, Bson, Document};
 use serde_json::Value;
 use std::time::Instant;
 
-use super::codec::{bson_json, json_document, page_limit, safe_error};
+use super::codec::{bson_json, ensure_mutable_namespace, json_document, page_limit, safe_error};
 use super::{
     ensure_read_only_pipeline, MongoAggregateRequest, MongoDeleteRequest, MongoDocumentMutation,
     MongoDocumentPage, MongoDriver, MongoFindRequest, MongoMutationResult, MongoReplaceRequest,
@@ -37,7 +37,6 @@ impl MongoDriver {
             .map_err(|error| safe_error("MongoDB find failed", error, &self.uri))?;
         let has_more = documents.len() > limit as usize;
         documents.truncate(limit as usize);
-        let estimated_total = collection.estimated_document_count().await.ok();
         let documents: Vec<Value> = documents
             .into_iter()
             .map(|document| bson_json(Bson::Document(document)))
@@ -47,7 +46,6 @@ impl MongoDriver {
             documents,
             has_more,
             execution_time_ms: started.elapsed().as_millis(),
-            estimated_total,
         })
     }
 
@@ -86,7 +84,6 @@ impl MongoDriver {
             documents,
             has_more,
             execution_time_ms: started.elapsed().as_millis(),
-            estimated_total: None,
         })
     }
 
@@ -94,6 +91,7 @@ impl MongoDriver {
         &self,
         request: MongoDocumentMutation,
     ) -> Result<MongoMutationResult, String> {
+        ensure_mutable_namespace(&request.database, &request.collection)?;
         let document = json_document(request.document, "document")?;
         let result = self
             .client
@@ -112,6 +110,7 @@ impl MongoDriver {
         &self,
         request: MongoReplaceRequest,
     ) -> Result<MongoMutationResult, String> {
+        ensure_mutable_namespace(&request.database, &request.collection)?;
         let id: Bson = serde_json::from_value(request.id)
             .map_err(|error| format!("Invalid Extended JSON in _id: {error}"))?;
         let document = json_document(request.document, "document")?;
@@ -140,6 +139,7 @@ impl MongoDriver {
         &self,
         request: MongoDeleteRequest,
     ) -> Result<MongoMutationResult, String> {
+        ensure_mutable_namespace(&request.database, &request.collection)?;
         let id: Bson = serde_json::from_value(request.id)
             .map_err(|error| format!("Invalid Extended JSON in _id: {error}"))?;
         let result = self

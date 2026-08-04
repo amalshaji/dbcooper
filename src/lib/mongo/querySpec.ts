@@ -29,8 +29,14 @@ export type MongoNamespace = Pick<
 	"database" | "collection"
 >;
 export type MongoQueryEditor =
-	| { type: "find"; filter: string; projection: string; sort: string }
-	| { type: "aggregate"; pipeline: string };
+	| {
+			type: "find";
+			filter: string;
+			projection: string;
+			sort: string;
+			limit: number;
+	  }
+	| { type: "aggregate"; pipeline: string; limit: number };
 
 function isObject(value: unknown): value is JsonObject {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -73,6 +79,13 @@ function readString(value: unknown, label: string): string {
 	return value;
 }
 
+function readLimit(value: unknown): number {
+	if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 1_000) {
+		throw new Error("limit must be an integer between 1 and 1000");
+	}
+	return Number(value);
+}
+
 export function parseMongoQuerySpec(value: string): MongoQuerySpec {
 	const parsed: unknown = JSON.parse(value);
 	if (!isObject(parsed) || parsed.version !== 1) {
@@ -81,7 +94,7 @@ export function parseMongoQuerySpec(value: string): MongoQuerySpec {
 
 	const database = readString(parsed.database, "database");
 	const collection = readString(parsed.collection, "collection");
-	const limit = typeof parsed.limit === "number" ? parsed.limit : 100;
+	const limit = readLimit(parsed.limit ?? 100);
 
 	if (parsed.type === "find") {
 		return {
@@ -132,7 +145,7 @@ export function buildMongoQuerySpec(
 			filter: parseEditorObject(editor.filter, "filter"),
 			projection: parseEditorObject(editor.projection, "projection"),
 			sort: parseEditorObject(editor.sort, "sort"),
-			limit: 100,
+			limit: readLimit(editor.limit),
 		};
 	}
 
@@ -145,7 +158,7 @@ export function buildMongoQuerySpec(
 		type: "aggregate",
 		...namespace,
 		pipeline,
-		limit: 100,
+		limit: readLimit(editor.limit),
 	};
 }
 
@@ -156,11 +169,13 @@ export function queryEditorFromSpec(spec: MongoQuerySpec): MongoQueryEditor {
 			filter: JSON.stringify(spec.filter, null, 2),
 			projection: JSON.stringify(spec.projection, null, 2),
 			sort: JSON.stringify(spec.sort, null, 2),
+			limit: spec.limit,
 		};
 	}
 	return {
 		type: "aggregate",
 		pipeline: JSON.stringify(spec.pipeline, null, 2),
+		limit: spec.limit,
 	};
 }
 

@@ -5,9 +5,11 @@ import type { MongoWorkbenchController } from "./useMongoWorkbench";
 if (!globalThis.document) GlobalRegistrator.register();
 
 const generationCalls: Array<{
-	dbType: string;
-	existingQuery: string;
-	tables: unknown[];
+	context: {
+		kind: string;
+		existingQuery: string;
+		collections: unknown[];
+	};
 }> = [];
 const mongoFindRequests: unknown[] = [];
 const generatedQuery = JSON.stringify({
@@ -25,16 +27,18 @@ mock.module("../useAIGeneration", () => ({
 	useAIGeneration: () => ({
 		isConfigured: true,
 		cancelGeneration: () => undefined,
-		generateSQL: async (
+		generateQuery: async (
 			_requestKey: string,
-			dbType: string,
 			_instruction: string,
-			existingQuery: string,
-			tables: unknown[],
+			context: {
+				kind: string;
+				existingQuery: string;
+				collections: unknown[];
+			},
 			onStream: (chunk: string) => void,
 			onComplete: (query: string) => void,
 		) => {
-			generationCalls.push({ dbType, existingQuery, tables });
+			generationCalls.push({ context });
 			onStream(generatedQuery);
 			onComplete(generatedQuery);
 		},
@@ -50,7 +54,6 @@ mock.module("../../lib/tauri", () => ({
 					returned_count: 1,
 					has_more: false,
 					execution_time_ms: 1,
-					estimated_total: 1,
 				};
 			},
 		},
@@ -69,12 +72,24 @@ afterEach(() => {
 test("generates a MongoDB draft and loads it only after explicit approval", async () => {
 	const loadedQueries: string[] = [];
 	const workbench = {
-		editor: { type: "find", filter: "{}", projection: "{}", sort: "{}" },
+		editor: {
+			type: "find",
+			filter: "{}",
+			projection: "{}",
+			sort: "{}",
+			limit: 100,
+		},
 		namespace: { database: "app", collection: "users" },
 		catalog: [
 			{
+				name: "admin",
+				collections: [
+					{ database: "admin", name: "system.users", is_system: true },
+				],
+			},
+			{
 				name: "app",
-				collections: [{ database: "app", name: "users" }],
+				collections: [{ database: "app", name: "users", is_system: false }],
 			},
 		],
 		result: {
@@ -82,8 +97,8 @@ test("generates a MongoDB draft and loads it only after explicit approval", asyn
 			returned_count: 1,
 			has_more: false,
 			execution_time_ms: 1,
-			estimated_total: 1,
 		},
+		resultNamespace: { database: "app", collection: "users" },
 		actions: { loadQuery: (query: string) => loadedQueries.push(query) },
 	} as unknown as MongoWorkbenchController;
 	const { result } = renderHook(() =>
@@ -94,24 +109,26 @@ test("generates a MongoDB draft and loads it only after explicit approval", asyn
 	await act(async () => result.current.generate());
 
 	expect(generationCalls).toHaveLength(1);
-	expect(generationCalls[0].dbType).toBe("mongodb");
-	expect(JSON.parse(generationCalls[0].existingQuery)).toMatchObject({
+	expect(generationCalls[0].context.kind).toBe("mongo");
+	expect(JSON.parse(generationCalls[0].context.existingQuery)).toMatchObject({
 		version: 1,
 		type: "find",
 		database: "app",
 		collection: "users",
 	});
-	expect(generationCalls[0].tables).toEqual([
+	expect(generationCalls[0].context.collections).toEqual([
 		{
-			schema: "app",
+			database: "app",
 			name: "users",
-			columns: [
+			fields: [
 				{ name: "_id", type: "number", nullable: false },
 				{ name: "name", type: "string", nullable: false },
 			],
 		},
 	]);
-	expect(JSON.stringify(generationCalls[0].tables)).not.toContain("Amal");
+	expect(JSON.stringify(generationCalls[0].context.collections)).not.toContain(
+		"Amal",
+	);
 	expect(result.current.state.draft.status).toBe("ready");
 	expect(loadedQueries).toHaveLength(0);
 	expect(mongoFindRequests).toHaveLength(0);
@@ -129,12 +146,13 @@ test("generates from a clean baseline when the current MongoDB editor is invalid
 			filter: '{ name: "Amal"',
 			projection: "{}",
 			sort: "{}",
+			limit: 100,
 		},
 		namespace: { database: "app", collection: "users" },
 		catalog: [
 			{
 				name: "app",
-				collections: [{ database: "app", name: "users" }],
+				collections: [{ database: "app", name: "users", is_system: false }],
 			},
 		],
 		actions: { loadQuery: () => undefined },
@@ -147,7 +165,7 @@ test("generates from a clean baseline when the current MongoDB editor is invalid
 	await act(async () => result.current.generate());
 
 	expect(generationCalls).toHaveLength(1);
-	expect(JSON.parse(generationCalls[0].existingQuery)).toEqual({
+	expect(JSON.parse(generationCalls[0].context.existingQuery)).toEqual({
 		version: 1,
 		type: "find",
 		database: "app",
@@ -158,16 +176,18 @@ test("generates from a clean baseline when the current MongoDB editor is invalid
 		limit: 100,
 	});
 	expect(mongoFindRequests).toHaveLength(1);
-	expect(generationCalls[0].tables).toEqual([
+	expect(generationCalls[0].context.collections).toEqual([
 		{
-			schema: "app",
+			database: "app",
 			name: "users",
-			columns: [
+			fields: [
 				{ name: "_id", type: "number", nullable: false },
 				{ name: "name", type: "string", nullable: false },
 			],
 		},
 	]);
-	expect(JSON.stringify(generationCalls[0].tables)).not.toContain("Amal");
+	expect(JSON.stringify(generationCalls[0].context.collections)).not.toContain(
+		"Amal",
+	);
 	expect(result.current.state.draft.status).toBe("ready");
 });

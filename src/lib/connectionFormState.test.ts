@@ -5,7 +5,6 @@ import { mergeD1ConnectionFields } from "./connectionFormState";
 test("merges D1 field changes into the latest form state", () => {
 	const initial: ConnectionFormData = {
 		type: "d1",
-		db_type: "d1",
 		name: "Production",
 		host: "api.cloudflare.com",
 		port: 443,

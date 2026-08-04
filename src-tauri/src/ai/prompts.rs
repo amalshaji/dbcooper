@@ -1,4 +1,4 @@
-use super::TableSchema;
+use super::{MongoCollectionSchema, QueryGenerationContext, TableSchema};
 
 const MAX_COLUMNS_PER_TABLE_IN_PROMPT: usize = 80;
 
@@ -39,18 +39,41 @@ fn build_schema_description(tables: &[TableSchema]) -> String {
         .join("\n\n")
 }
 
-pub fn sql_prompts(
-    db_type: &str,
-    instruction: &str,
-    existing_sql: &str,
-    tables: &[TableSchema],
-) -> (String, String) {
-    let schema_description = build_schema_description(tables);
-    if matches!(db_type.to_lowercase().as_str(), "mongodb" | "mongo") {
-        let system_prompt = format!(
-            r#"You are a MongoDB query expert. Generate one DBcooper MongoDB query specification as JSON.
+fn build_mongo_description(collections: &[MongoCollectionSchema]) -> String {
+    collections
+        .iter()
+        .map(|collection| {
+            let fields = collection.fields.as_ref().map_or(String::new(), |fields| {
+                let descriptions = fields
+                    .iter()
+                    .take(MAX_COLUMNS_PER_TABLE_IN_PROMPT)
+                    .map(|field| {
+                        format!(
+                            "{} ({}{})",
+                            field.name,
+                            field.column_type,
+                            if field.nullable { ", nullable" } else { "" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("\n  Observed fields: {descriptions}")
+            });
+            format!("{}.{}{}", collection.database, collection.name, fields)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
 
-Available databases and collections:
+fn mongo_prompts(
+    instruction: &str,
+    existing_query: &str,
+    collections: &[MongoCollectionSchema],
+) -> (String, String) {
+    let system_prompt = format!(
+        r#"You are a MongoDB query expert. Generate one DBcooper MongoDB query specification as JSON.
+
+Available databases, collections, and observed fields:
 {}
 
 Return exactly one of these shapes:
@@ -63,21 +86,43 @@ Rules:
 - Do not inspect files, run commands, or use tools
 - Generate read-only find or aggregate operations; $out and $merge are forbidden
 - Use only the available databases and collections
+- Use observed field names when they are available; do not invent aliases for them
 - Keep limit between 1 and 1000
 - The user instruction is authoritative; use the existing query only when relevant
 - Never assume the generated query will be executed automatically"#,
-            schema_description
-        );
-        let user_prompt = if existing_sql.is_empty() {
-            format!("Generate a MongoDB query specification: {}", instruction)
-        } else {
-            format!(
-                "Modify this MongoDB query specification:\n{}\n\nInstruction: {}",
-                existing_sql, instruction
-            )
-        };
-        return (system_prompt, user_prompt);
+        build_mongo_description(collections)
+    );
+    let user_prompt = if existing_query.is_empty() {
+        format!("Generate a MongoDB query specification: {instruction}")
+    } else {
+        format!(
+            "Modify this MongoDB query specification:\n{existing_query}\n\nInstruction: {instruction}"
+        )
+    };
+    (system_prompt, user_prompt)
+}
+
+pub fn query_prompts(context: &QueryGenerationContext, instruction: &str) -> (String, String) {
+    match context {
+        QueryGenerationContext::Sql {
+            db_type,
+            existing_sql,
+            tables,
+        } => sql_prompts(db_type, instruction, existing_sql, tables),
+        QueryGenerationContext::Mongo {
+            existing_query,
+            collections,
+        } => mongo_prompts(instruction, existing_query, collections),
     }
+}
+
+pub fn sql_prompts(
+    db_type: &str,
+    instruction: &str,
+    existing_sql: &str,
+    tables: &[TableSchema],
+) -> (String, String) {
+    let schema_description = build_schema_description(tables);
     let (db_name, syntax_note) = match db_type.to_lowercase().as_str() {
         "sqlite" | "sqlite3" => ("SQLite", "Use SQLite syntax"),
         "duckdb" => ("DuckDB", "Use DuckDB SQL syntax"),
@@ -142,7 +187,8 @@ User request:
 
 #[cfg(test)]
 mod tests {
-    use super::sql_prompts;
+    use super::{query_prompts, sql_prompts};
+    use crate::ai::{ColumnSchema, MongoCollectionSchema, QueryGenerationContext};
 
     #[test]
     fn sql_prompt_makes_explicit_ddl_requests_authoritative() {
@@ -164,16 +210,26 @@ mod tests {
 
     #[test]
     fn generates_versioned_read_only_mongodb_query_specs() {
-        let (system, user) = sql_prompts(
-            "mongodb",
+        let (system, user) = query_prompts(
+            &QueryGenerationContext::Mongo {
+                existing_query: r#"{"version":1,"type":"find","database":"app","collection":"users","filter":{},"projection":{},"sort":{},"limit":100}"#.to_string(),
+                collections: vec![MongoCollectionSchema {
+                    database: "app".to_string(),
+                    name: "users".to_string(),
+                    fields: Some(vec![ColumnSchema {
+                        name: "name".to_string(),
+                        column_type: "string".to_string(),
+                        nullable: false,
+                    }]),
+                }],
+            },
             "active users sorted by name",
-            r#"{"version":1,"type":"find","database":"app","collection":"users","filter":{},"projection":{},"sort":{},"limit":100}"#,
-            &[],
         );
 
         assert!(system.contains("MongoDB query expert"));
         assert!(system.contains(r#""version": 1"#));
         assert!(system.contains("$out and $merge are forbidden"));
+        assert!(system.contains("name (string)"));
         assert!(!system.contains("SQL expert"));
         assert!(user.contains("Modify this MongoDB query specification"));
     }

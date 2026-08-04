@@ -2,6 +2,9 @@ import {
 	CaretDown,
 	CaretRight,
 	Database,
+	Eye,
+	EyeSlash,
+	Lock,
 	Plus,
 	TerminalWindow,
 } from "@phosphor-icons/react";
@@ -15,11 +18,37 @@ export function MongoCatalogSidebar({
 	workbench: MongoWorkbenchController;
 	onCreateCollection: () => void;
 }) {
+	const visibleCatalog = workbench.catalog
+		.map((database) => ({
+			...database,
+			collections: database.collections.filter(
+				(collection) =>
+					workbench.showSystemCollections || !collection.is_system,
+			),
+		}))
+		.filter((database) => database.collections.length > 0);
+
 	return (
 		<aside className="w-60 shrink-0 overflow-auto border-r bg-sidebar/80 p-2">
 			<div className="mb-1.5 flex h-8 items-center justify-between px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
 				<span>Databases</span>
 				<div className="flex items-center gap-0.5">
+					<Button
+						size="icon-xs"
+						variant="ghost"
+						onClick={() =>
+							workbench.actions.setShowSystemCollections(
+								!workbench.showSystemCollections,
+							)
+						}
+						aria-label={
+							workbench.showSystemCollections
+								? "Hide system collections"
+								: "Show system collections"
+						}
+					>
+						{workbench.showSystemCollections ? <EyeSlash /> : <Eye />}
+					</Button>
 					<Button
 						size="icon-xs"
 						variant="ghost"
@@ -38,12 +67,12 @@ export function MongoCatalogSidebar({
 					</Button>
 				</div>
 			</div>
-			{workbench.catalog.length === 0 && (
+			{visibleCatalog.length === 0 && (
 				<div className="mx-2 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">
 					No databases found
 				</div>
 			)}
-			{workbench.catalog.map((database) => (
+			{visibleCatalog.map((database) => (
 				<div key={database.name}>
 					<button
 						className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-sm transition-colors hover:bg-accent/70"
@@ -73,7 +102,15 @@ export function MongoCatalogSidebar({
 									)
 								}
 							>
-								{collection.name}
+								<span className="flex min-w-0 items-center gap-1.5">
+									<span className="truncate">{collection.name}</span>
+									{collection.is_system && (
+										<Lock
+											className="size-3 shrink-0 text-muted-foreground"
+											aria-label="Read-only system collection"
+										/>
+									)}
+								</span>
 							</button>
 						))}
 				</div>

@@ -144,7 +144,7 @@ export function MongoConnectionWorkspace({
 								? namespace
 								: "Select a collection"}
 						</span>
-						{workbench.namespace.collection && (
+						{workbench.namespace.collection && !workbench.namespaceReadOnly && (
 							<Button
 								size="icon-sm"
 								variant="ghost"
@@ -207,6 +207,7 @@ export function MongoConnectionWorkspace({
 							database={workbench.namespace.database}
 							collection={workbench.namespace.collection}
 							view={collectionView}
+							readOnly={workbench.namespaceReadOnly}
 						/>
 					)}
 				</main>

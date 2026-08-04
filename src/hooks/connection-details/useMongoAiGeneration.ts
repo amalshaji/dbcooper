@@ -44,8 +44,9 @@ function inferMongoColumns(documents: Array<Record<string, unknown>>) {
 		}
 	}
 
-	return [...fields.entries()].slice(0, MAX_MONGO_FIELD_HINTS).map(
-		([name, field]) => ({
+	return [...fields.entries()]
+		.slice(0, MAX_MONGO_FIELD_HINTS)
+		.map(([name, field]) => ({
 			name,
 			type:
 				field.types.size === 0
@@ -54,8 +55,7 @@ function inferMongoColumns(documents: Array<Record<string, unknown>>) {
 						? [...field.types][0]
 						: "mixed",
 			nullable: field.nullable || field.presentCount < sample.length,
-		}),
-	);
+		}));
 }
 
 export function useMongoAiGeneration(
@@ -82,15 +82,27 @@ export function useMongoAiGeneration(
 			} catch {
 				const baselineEditor =
 					workbench.editor.type === "find"
-						? { type: "find" as const, filter: "{}", projection: "{}", sort: "{}" }
-						: { type: "aggregate" as const, pipeline: "[]" };
+						? {
+								type: "find" as const,
+								filter: "{}",
+								projection: "{}",
+								sort: "{}",
+								limit: 100,
+							}
+						: { type: "aggregate" as const, pipeline: "[]", limit: 100 };
 				existingQuery = serializeMongoQuerySpec(
 					buildMongoQuerySpec(baselineEditor, workbench.namespace),
 				);
 			}
 			let accumulated = "";
 			let completed = "";
-			let sampleDocuments = workbench.result?.documents ?? [];
+			const resultMatchesNamespace =
+				workbench.resultNamespace?.database === workbench.namespace.database &&
+				workbench.resultNamespace?.collection ===
+					workbench.namespace.collection;
+			let sampleDocuments = resultMatchesNamespace
+				? (workbench.result?.documents ?? [])
+				: [];
 			if (
 				sampleDocuments.length === 0 &&
 				workbench.namespace.database &&
@@ -110,25 +122,30 @@ export function useMongoAiGeneration(
 				}
 			}
 			const observedColumns = inferMongoColumns(sampleDocuments);
-			await generation.generateSQL(
+			await generation.generateQuery(
 				requestKey,
-				"mongodb",
 				state.instruction,
-				existingQuery,
-				workbench.catalog.flatMap((database) =>
-					database.collections.map((collection) => {
-						const selected =
-							database.name === workbench.namespace.database &&
-							collection.name === workbench.namespace.collection;
-						return {
-							schema: database.name,
-							name: collection.name,
-							...(selected && observedColumns.length > 0
-								? { columns: observedColumns }
-								: {}),
-						};
-					}),
-				),
+				{
+					kind: "mongo",
+					existingQuery,
+					collections: workbench.catalog.flatMap((database) =>
+						database.collections.flatMap((collection) => {
+							const selected =
+								database.name === workbench.namespace.database &&
+								collection.name === workbench.namespace.collection;
+							if (collection.is_system && !selected) return [];
+							return [
+								{
+									database: database.name,
+									name: collection.name,
+									...(selected && observedColumns.length > 0
+										? { fields: observedColumns }
+										: {}),
+								},
+							];
+						}),
+					),
+				},
 				(chunk) => {
 					accumulated += chunk;
 					dispatch({
