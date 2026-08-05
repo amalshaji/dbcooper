@@ -217,6 +217,38 @@ test("bounds the document editor so CodeMirror owns vertical scrolling", () => {
 	expect(markup).toContain('class="h-0 min-h-0 flex-1 rounded-none border-0"');
 });
 
+test("disables document write controls while a mutation is pending", () => {
+	const markup = renderToStaticMarkup(
+		<MongoDocumentBrowser
+			workbench={
+				{
+					namespace: { database: "app", collection: "users" },
+					result: { documents: [{ _id: 1 }] },
+					selectedDocument: { _id: 1 },
+					loading: false,
+					documentMutating: true,
+					canEditDocument: true,
+					canMutateSelectedDocument: true,
+					inspector: {
+						selectedIndex: 0,
+						documentText: '{\n  "_id": 1\n}',
+						isNew: false,
+					},
+					actions: {
+						beginDocument: () => undefined,
+						deleteDocument: async () => undefined,
+						saveDocument: async () => undefined,
+						selectDocument: () => undefined,
+						setDocumentText: () => undefined,
+					},
+				} as unknown as MongoWorkbenchController
+			}
+		/>,
+	);
+
+	expect(markup.match(/disabled=""/g) ?? []).toHaveLength(3);
+});
+
 test("places the run action with the MongoDB query editors", () => {
 	const markup = renderToStaticMarkup(
 		<MongoQueryEditor

@@ -536,6 +536,26 @@ pub async fn docker_control_connection(
         .map(|_| ())
 }
 
+fn saved_connection_string(connection: &Connection, engine: DockerDatabaseEngine) -> String {
+    if engine == DockerDatabaseEngine::Mongodb {
+        if let Some(uri) = connection
+            .connection_uri
+            .as_deref()
+            .filter(|uri| !uri.trim().is_empty())
+        {
+            return uri.to_string();
+        }
+    }
+    connection_string(
+        engine,
+        &connection.host,
+        &connection.username,
+        &connection.password,
+        connection.port,
+        &connection.database,
+    )
+}
+
 #[tauri::command]
 pub async fn docker_get_connection_string(
     pool: State<'_, SqlitePool>,
@@ -551,14 +571,7 @@ pub async fn docker_get_connection_string(
     store::get_link(pool.inner(), &uuid)
         .await?
         .ok_or_else(|| "Connection is not linked to Docker".to_string())?;
-    Ok(connection_string(
-        engine,
-        &connection.host,
-        &connection.username,
-        &connection.password,
-        connection.port,
-        &connection.database,
-    ))
+    Ok(saved_connection_string(&connection, engine))
 }
 
 pub async fn delete_saved_connection(
@@ -610,8 +623,36 @@ pub async fn stop_created_databases(pool: &SqlitePool) {
 
 #[cfg(test)]
 mod tests {
-    use super::mongodb_link_connection_uri;
+    use super::{mongodb_link_connection_uri, saved_connection_string};
+    use crate::db::models::Connection;
     use crate::docker::model::DockerDatabaseEngine;
+
+    fn mongodb_connection(connection_uri: Option<&str>) -> Connection {
+        Connection {
+            id: 1,
+            uuid: "connection-id".to_string(),
+            connection_type: "mongodb".to_string(),
+            name: "MongoDB".to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 27017,
+            database: "app".to_string(),
+            username: "dbcooper".to_string(),
+            password: "secret".to_string(),
+            ssl: 0,
+            db_type: "mongodb".to_string(),
+            file_path: None,
+            connection_uri: connection_uri.map(str::to_string),
+            ssh_enabled: 0,
+            ssh_host: String::new(),
+            ssh_port: 22,
+            ssh_user: String::new(),
+            ssh_password: String::new(),
+            ssh_key_path: String::new(),
+            ssh_use_key: 0,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
 
     #[test]
     fn blank_mongodb_link_uri_uses_the_generated_connection_string() {
@@ -648,5 +689,27 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("mongodb:// or mongodb+srv://"));
+    }
+
+    #[test]
+    fn saved_mongodb_uri_is_returned_without_reconstruction() {
+        let connection = mongodb_connection(Some(
+            "mongodb+srv://dbcooper:secret@cluster.example/app?retryWrites=true",
+        ));
+
+        assert_eq!(
+            saved_connection_string(&connection, DockerDatabaseEngine::Mongodb),
+            "mongodb+srv://dbcooper:secret@cluster.example/app?retryWrites=true"
+        );
+    }
+
+    #[test]
+    fn missing_mongodb_uri_falls_back_to_scalar_fields() {
+        let connection = mongodb_connection(None);
+
+        assert_eq!(
+            saved_connection_string(&connection, DockerDatabaseEngine::Mongodb),
+            "mongodb://dbcooper:secret@127.0.0.1:27017/app?authSource=admin&directConnection=true"
+        );
     }
 }

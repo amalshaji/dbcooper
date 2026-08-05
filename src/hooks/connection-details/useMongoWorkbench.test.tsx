@@ -13,6 +13,7 @@ const aggregateRequests: Array<Record<string, unknown>> = [];
 const historyRecords: Array<Record<string, unknown>> = [];
 const createdCollections: Array<{ database: string; collection: string }> = [];
 const replacedDocuments: Array<Record<string, unknown>> = [];
+const insertedDocuments: Array<Record<string, unknown>> = [];
 const defaultCatalog: MongoDatabaseInfo[] = [
 	{
 		name: "app",
@@ -26,6 +27,7 @@ let findHandler = async (): Promise<MongoDocumentPage> => ({
 	has_more: false,
 	execution_time_ms: 1,
 });
+let insertHandler = async (): Promise<void> => undefined;
 
 mock.module("../../lib/tauri", () => ({
 	api: {
@@ -48,6 +50,13 @@ mock.module("../../lib/tauri", () => ({
 				collection: string,
 			) => {
 				createdCollections.push({ database, collection });
+			},
+			insertOne: async (
+				_uuid: string,
+				request: Record<string, unknown>,
+			) => {
+				insertedDocuments.push(request);
+				await insertHandler();
 			},
 			replaceOne: async (
 				_uuid: string,
@@ -78,6 +87,7 @@ afterEach(() => {
 	historyRecords.length = 0;
 	createdCollections.length = 0;
 	replacedDocuments.length = 0;
+	insertedDocuments.length = 0;
 	catalogResponse = defaultCatalog;
 	findHandler = async () => ({
 		documents: [{ _id: 1, name: "Ada" }],
@@ -85,6 +95,7 @@ afterEach(() => {
 		has_more: false,
 		execution_time_ms: 1,
 	});
+	insertHandler = async () => undefined;
 });
 
 test("skips system namespaces when choosing the initial collection", async () => {
@@ -288,4 +299,31 @@ test("creates a bare collection name in the selected database", async () => {
 		database: "app",
 		collection: "logs",
 	});
+});
+
+test("allows only one document mutation while a save is pending", async () => {
+	let finishInsert: (() => void) | undefined;
+	insertHandler = () =>
+		new Promise<void>((resolve) => {
+			finishInsert = resolve;
+		});
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(result.current.result?.returned_count).toBe(1));
+	act(() => result.current.actions.beginDocument());
+
+	let firstSave: Promise<void> | undefined;
+	act(() => {
+		firstSave = result.current.actions.saveDocument();
+		void result.current.actions.saveDocument();
+	});
+
+	await waitFor(() => expect(insertedDocuments).toHaveLength(1));
+	expect(result.current.documentMutating).toBe(true);
+
+	await act(async () => {
+		finishInsert?.();
+		await firstSave;
+	});
+	expect(result.current.documentMutating).toBe(false);
 });

@@ -1,5 +1,6 @@
 use futures_util::TryStreamExt;
 use mongodb::bson::{doc, Bson, Document};
+use mongodb::Cursor;
 use serde_json::Value;
 use std::time::Instant;
 
@@ -8,6 +9,74 @@ use super::{
     ensure_read_only_pipeline, MongoAggregateRequest, MongoDeleteRequest, MongoDocumentMutation,
     MongoDocumentPage, MongoDriver, MongoFindRequest, MongoMutationResult, MongoReplaceRequest,
 };
+
+// Bound Extended JSON passed over Tauri IPC; a single document above this budget is rejected.
+const MAX_MONGO_PAGE_JSON_BYTES: usize = 32 * 1024 * 1024;
+
+struct MongoPageAccumulator {
+    documents: Vec<Value>,
+    json_bytes: usize,
+    row_limit: usize,
+    byte_limit: usize,
+}
+
+impl MongoPageAccumulator {
+    fn new(row_limit: usize, byte_limit: usize) -> Self {
+        Self {
+            documents: Vec::new(),
+            json_bytes: 2,
+            row_limit,
+            byte_limit,
+        }
+    }
+
+    fn try_push(&mut self, document: Value) -> Result<bool, String> {
+        if self.documents.len() >= self.row_limit {
+            return Ok(false);
+        }
+        let document_bytes = serde_json::to_vec(&document)
+            .map_err(|error| format!("Could not serialize MongoDB document: {error}"))?
+            .len();
+        let separator_bytes = usize::from(!self.documents.is_empty());
+        if self.json_bytes + separator_bytes + document_bytes > self.byte_limit {
+            if self.documents.is_empty() {
+                return Err(format!(
+                    "MongoDB document exceeds the {} MiB result page limit",
+                    self.byte_limit / (1024 * 1024)
+                ));
+            }
+            return Ok(false);
+        }
+        self.json_bytes += separator_bytes + document_bytes;
+        self.documents.push(document);
+        Ok(true)
+    }
+
+    fn into_documents(self) -> Vec<Value> {
+        self.documents
+    }
+}
+
+async fn collect_page(
+    mut cursor: Cursor<Document>,
+    limit: u32,
+    context: &str,
+    uri: &str,
+) -> Result<(Vec<Value>, bool), String> {
+    let mut page = MongoPageAccumulator::new(limit as usize, MAX_MONGO_PAGE_JSON_BYTES);
+    let mut has_more = false;
+    while let Some(document) = cursor
+        .try_next()
+        .await
+        .map_err(|error| safe_error(context, error, uri))?
+    {
+        if !page.try_push(bson_json(Bson::Document(document)))? {
+            has_more = true;
+            break;
+        }
+    }
+    Ok((page.into_documents(), has_more))
+}
 
 impl MongoDriver {
     pub async fn find(&self, request: MongoFindRequest) -> Result<MongoDocumentPage, String> {
@@ -31,16 +100,8 @@ impl MongoDriver {
         let cursor = operation
             .await
             .map_err(|error| safe_error("MongoDB find failed", error, &self.uri))?;
-        let mut documents: Vec<Document> = cursor
-            .try_collect()
-            .await
-            .map_err(|error| safe_error("MongoDB find failed", error, &self.uri))?;
-        let has_more = documents.len() > limit as usize;
-        documents.truncate(limit as usize);
-        let documents: Vec<Value> = documents
-            .into_iter()
-            .map(|document| bson_json(Bson::Document(document)))
-            .collect();
+        let (documents, has_more) =
+            collect_page(cursor, limit, "MongoDB find failed", &self.uri).await?;
         Ok(MongoDocumentPage {
             returned_count: documents.len(),
             documents,
@@ -69,16 +130,8 @@ impl MongoDriver {
             .aggregate(pipeline)
             .await
             .map_err(|error| safe_error("MongoDB aggregate failed", error, &self.uri))?;
-        let mut documents: Vec<Document> = cursor
-            .try_collect()
-            .await
-            .map_err(|error| safe_error("MongoDB aggregate failed", error, &self.uri))?;
-        let has_more = documents.len() > limit as usize;
-        documents.truncate(limit as usize);
-        let documents: Vec<Value> = documents
-            .into_iter()
-            .map(|document| bson_json(Bson::Document(document)))
-            .collect();
+        let (documents, has_more) =
+            collect_page(cursor, limit, "MongoDB aggregate failed", &self.uri).await?;
         Ok(MongoDocumentPage {
             returned_count: documents.len(),
             documents,
@@ -156,5 +209,31 @@ impl MongoDriver {
             acknowledged: true,
             id: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MongoPageAccumulator;
+    use serde_json::json;
+
+    #[test]
+    fn page_accumulator_stops_before_exceeding_the_json_byte_budget() {
+        let first = json!({ "name": "Amal" });
+        let first_size = serde_json::to_vec(&first).unwrap().len();
+        let mut page = MongoPageAccumulator::new(100, first_size + 3);
+
+        assert!(page.try_push(first).unwrap());
+        assert!(!page.try_push(json!({ "name": "Bruno" })).unwrap());
+        assert_eq!(page.into_documents().len(), 1);
+    }
+
+    #[test]
+    fn page_accumulator_stops_at_the_row_limit() {
+        let mut page = MongoPageAccumulator::new(1, 1024);
+
+        assert!(page.try_push(json!({ "name": "Amal" })).unwrap());
+        assert!(!page.try_push(json!({ "name": "Bruno" })).unwrap());
+        assert_eq!(page.into_documents().len(), 1);
     }
 }

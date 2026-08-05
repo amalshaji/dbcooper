@@ -83,6 +83,7 @@ export function useMongoWorkbench(uuid: string) {
 		isNew: false,
 	});
 	const [loading, setLoading] = useState(false);
+	const [documentMutating, setDocumentMutating] = useState(false);
 	const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
 	const [history, setHistory] = useState<QueryHistory[]>([]);
 	const [queryName, setQueryName] = useState("");
@@ -91,6 +92,7 @@ export function useMongoWorkbench(uuid: string) {
 	const initializedCatalog = useRef(false);
 	const suppressNextNamespaceRun = useRef(false);
 	const requests = useRef(new LatestRequestRegistry());
+	const documentMutationInFlight = useRef(false);
 
 	const namespaceReadOnly = catalog.some((database) =>
 		database.collections.some(
@@ -300,6 +302,9 @@ export function useMongoWorkbench(uuid: string) {
 	}, [namespace, namespaceReadOnly, refreshCatalog, uuid]);
 
 	const saveDocument = useCallback(async () => {
+		if (documentMutationInFlight.current) return;
+		documentMutationInFlight.current = true;
+		setDocumentMutating(true);
 		try {
 			if (!canEditDocument) {
 				throw new Error(
@@ -320,6 +325,9 @@ export function useMongoWorkbench(uuid: string) {
 			await run();
 		} catch (error) {
 			toast.error("Could not save document", { description: String(error) });
+		} finally {
+			documentMutationInFlight.current = false;
+			setDocumentMutating(false);
 		}
 	}, [
 		canEditDocument,
@@ -334,6 +342,9 @@ export function useMongoWorkbench(uuid: string) {
 	const deleteDocument = useCallback(async () => {
 		const id = selectedDocument?._id;
 		if (id === undefined) return;
+		if (documentMutationInFlight.current) return;
+		documentMutationInFlight.current = true;
+		setDocumentMutating(true);
 		try {
 			if (!canMutateSelectedDocument) {
 				throw new Error(
@@ -345,6 +356,9 @@ export function useMongoWorkbench(uuid: string) {
 			await run();
 		} catch (error) {
 			toast.error("Could not delete document", { description: String(error) });
+		} finally {
+			documentMutationInFlight.current = false;
+			setDocumentMutating(false);
 		}
 	}, [canMutateSelectedDocument, namespace, run, selectedDocument, uuid]);
 
@@ -358,6 +372,7 @@ export function useMongoWorkbench(uuid: string) {
 		inspector,
 		selectedDocument,
 		loading,
+		documentMutating,
 		savedQueries,
 		history,
 		queryName,

@@ -35,6 +35,8 @@ export function MongoDocumentBrowser({
 	const [inspectorWidth, setInspectorWidth] = useState(440);
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const listRef = useRef<HTMLDivElement>(null);
+	const documentMutationBusy =
+		workbench.documentMutating || workbench.loading;
 	// TanStack Virtual intentionally returns non-memoizable functions.
 	// eslint-disable-next-line react-hooks/incompatible-library
 	const virtualizer = useVirtualizer({
@@ -152,11 +154,10 @@ export function MongoDocumentBrowser({
 								<Button
 									className="ml-auto"
 									size="xs"
-									disabled={workbench.loading}
+									disabled={documentMutationBusy}
 									onClick={() => void workbench.actions.saveDocument()}
 								>
-									{workbench.loading && <Spinner />}
-									<FloppyDisk />
+									{documentMutationBusy ? <Spinner /> : <FloppyDisk />}
 									{workbench.inspector.isNew ? "Insert" : "Save"}
 								</Button>
 								{workbench.canMutateSelectedDocument && (
@@ -164,6 +165,7 @@ export function MongoDocumentBrowser({
 										size="icon-xs"
 										variant="ghost"
 										className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+										disabled={documentMutationBusy}
 										onClick={() => setDeleteDialogOpen(true)}
 										aria-label="Delete document"
 									>
@@ -196,10 +198,10 @@ export function MongoDocumentBrowser({
 						<AlertDialogCancel>Cancel</AlertDialogCancel>
 						<AlertDialogAction
 							variant="destructive"
-							disabled={workbench.loading}
+							disabled={documentMutationBusy}
 							onClick={() => void deleteDocument()}
 						>
-							{workbench.loading && <Spinner />} Delete document
+							{documentMutationBusy && <Spinner />} Delete document
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
