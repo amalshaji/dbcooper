@@ -1,6 +1,6 @@
 use crate::ai::prompts::harness_prompt;
 use crate::ai::settings::AiProvider;
-use crate::ai::{clean_generated_sql, emit_chunk, emit_done};
+use crate::ai::{clean_generated_query, emit_chunk, emit_done};
 use futures_util::future::join_all;
 use serde::Serialize;
 use std::{
@@ -225,7 +225,7 @@ async fn run_completion(provider: AiProvider, prompt: &str) -> Result<String, St
     run_command(provider, prompt, command_path).await
 }
 
-pub async fn generate_sql(
+pub async fn generate_query(
     app: AppHandle,
     session_id: String,
     provider: AiProvider,
@@ -234,7 +234,7 @@ pub async fn generate_sql(
 ) -> Result<(), String> {
     let prompt = harness_prompt(&system_prompt, &user_prompt);
     let response = run_completion(provider, &prompt).await?;
-    let cleaned = clean_generated_sql(&response);
+    let cleaned = clean_generated_query(&response);
     emit_chunk(&app, &session_id, cleaned.clone());
     emit_done(&app, session_id, cleaned);
     Ok(())

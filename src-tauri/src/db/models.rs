@@ -18,6 +18,7 @@ pub struct Connection {
     pub ssl: i64,
     pub db_type: String,
     pub file_path: Option<String>,
+    pub connection_uri: Option<String>,
     pub ssh_enabled: i64,
     pub ssh_host: String,
     pub ssh_port: i64,
@@ -40,10 +41,10 @@ pub struct ConnectionFormData {
     pub username: String,
     pub password: String,
     pub ssl: bool,
-    #[serde(default = "default_db_type")]
-    pub db_type: String,
     #[serde(default)]
     pub file_path: Option<String>,
+    #[serde(default)]
+    pub connection_uri: Option<String>,
     #[serde(default)]
     pub ssh_enabled: bool,
     #[serde(default)]
@@ -60,8 +61,10 @@ pub struct ConnectionFormData {
     pub ssh_use_key: bool,
 }
 
-fn default_db_type() -> String {
-    "postgres".to_string()
+impl ConnectionFormData {
+    pub fn db_type(&self) -> &str {
+        &self.connection_type
+    }
 }
 
 fn default_ssh_port() -> i64 {
@@ -74,6 +77,7 @@ pub struct SavedQuery {
     pub connection_uuid: String,
     pub name: String,
     pub query: String,
+    pub query_kind: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -82,6 +86,12 @@ pub struct SavedQuery {
 pub struct SavedQueryFormData {
     pub name: String,
     pub query: String,
+    #[serde(default = "default_query_kind")]
+    pub query_kind: String,
+}
+
+fn default_query_kind() -> String {
+    "sql".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -89,6 +99,7 @@ pub struct QueryHistory {
     pub id: i64,
     pub connection_uuid: String,
     pub query: String,
+    pub query_kind: String,
     pub status: String,
     pub time_taken_ms: Option<i64>,
     pub row_count: Option<i64>,

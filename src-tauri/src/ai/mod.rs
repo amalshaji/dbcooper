@@ -25,6 +25,30 @@ pub struct ColumnSchema {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct MongoCollectionSchema {
+    pub database: String,
+    pub name: String,
+    pub fields: Option<Vec<ColumnSchema>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum QueryGenerationContext {
+    Sql {
+        #[serde(rename = "dbType")]
+        db_type: String,
+        #[serde(rename = "existingSql")]
+        existing_sql: String,
+        tables: Vec<TableSchema>,
+    },
+    Mongo {
+        #[serde(rename = "existingQuery")]
+        existing_query: String,
+        collections: Vec<MongoCollectionSchema>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -112,14 +136,19 @@ pub fn emit_error(app: &AppHandle, session_id: String, error: String) {
     let _ = app.emit("ai-error", AiErrorPayload { session_id, error });
 }
 
-pub fn clean_generated_sql(response: &str) -> String {
+pub fn clean_generated_query(response: &str) -> String {
     let mut cleaned = response.trim();
 
     if let Some(without_fence) = cleaned.strip_prefix("```") {
         cleaned = without_fence.trim_start();
         if let Some(newline_pos) = cleaned.find('\n') {
             let first_line = cleaned[..newline_pos].trim();
-            if first_line.is_empty() || first_line.eq_ignore_ascii_case("sql") {
+            if first_line.is_empty()
+                || matches!(
+                    first_line.to_ascii_lowercase().as_str(),
+                    "sql" | "json" | "javascript" | "mongodb"
+                )
+            {
                 cleaned = &cleaned[newline_pos + 1..];
             }
         }
@@ -131,27 +160,30 @@ pub fn clean_generated_sql(response: &str) -> String {
     cleaned.trim().to_string()
 }
 
-pub async fn generate_sql(
+pub async fn generate_query(
     app: AppHandle,
     pool: &SqlitePool,
     session_id: String,
-    db_type: String,
     instruction: String,
-    existing_sql: String,
-    tables: Vec<TableSchema>,
+    context: QueryGenerationContext,
 ) -> Result<(), String> {
     let settings = settings::load(pool).await?;
-    let (system_prompt, user_prompt) =
-        prompts::sql_prompts(&db_type, &instruction, &existing_sql, &tables);
+    let (system_prompt, user_prompt) = prompts::query_prompts(&context, &instruction);
 
     match settings.provider {
         AiProvider::OpenAI => {
-            providers::openai::generate_sql(app, session_id, settings, system_prompt, user_prompt)
+            providers::openai::generate_query(app, session_id, settings, system_prompt, user_prompt)
                 .await
         }
         provider => {
-            providers::harness::generate_sql(app, session_id, provider, system_prompt, user_prompt)
-                .await
+            providers::harness::generate_query(
+                app,
+                session_id,
+                provider,
+                system_prompt,
+                user_prompt,
+            )
+            .await
         }
     }
 }
@@ -174,4 +206,18 @@ pub async fn get_status(pool: &SqlitePool) -> Result<AiStatus, String> {
         configured,
         error,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_generated_query;
+
+    #[test]
+    fn removes_sql_and_json_markdown_fences() {
+        assert_eq!(clean_generated_query("```sql\nSELECT 1\n```"), "SELECT 1");
+        assert_eq!(
+            clean_generated_query("```json\n{\"filter\":{}}\n```"),
+            "{\"filter\":{}}"
+        );
+    }
 }

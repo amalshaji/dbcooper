@@ -69,6 +69,7 @@ describe("startAiGenerationSession", () => {
 		let cleanupCount = 0;
 		const chunks: string[] = [];
 		let completed = "";
+		let invokedCommand = "";
 
 		const request = startAiGenerationSession({
 			sessionId: "current",
@@ -76,7 +77,8 @@ describe("startAiGenerationSession", () => {
 				handlers.set(eventName, handler as AiGenerationListener<unknown>);
 				return () => cleanupCount++;
 			},
-			invoke: async () => {
+			invoke: async (command) => {
+				invokedCommand = command;
 				handlers.get("ai-chunk")?.({
 					payload: { session_id: "other", chunk: "ignored" },
 				} as AiGenerationEvent<unknown>);
@@ -97,6 +99,7 @@ describe("startAiGenerationSession", () => {
 		await request.promise;
 		expect(chunks).toEqual(["SELECT 1"]);
 		expect(completed).toBe("SELECT 1");
+		expect(invokedCommand).toBe("generate_query");
 		expect(cleanupCount).toBe(3);
 	});
 

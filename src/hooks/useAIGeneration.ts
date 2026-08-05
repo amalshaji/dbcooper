@@ -14,6 +14,25 @@ interface TableSchema {
 	columns?: Array<{ name: string; type: string; nullable: boolean }>;
 }
 
+interface MongoCollectionSchema {
+	database: string;
+	name: string;
+	fields?: Array<{ name: string; type: string; nullable: boolean }>;
+}
+
+export type AiQueryContext =
+	| {
+			kind: "sql";
+			dbType: string;
+			existingSql: string;
+			tables: TableSchema[];
+	  }
+	| {
+			kind: "mongo";
+			existingQuery: string;
+			collections: MongoCollectionSchema[];
+	  };
+
 export function useAIGeneration() {
 	const [isConfigured, setIsConfigured] = useState<boolean | null>(null);
 	const activeRequestsRef = useRef(new AiGenerationSessionRegistry());
@@ -40,13 +59,11 @@ export function useAIGeneration() {
 		[],
 	);
 
-	const generateSQL = useCallback(
+	const generateQuery = useCallback(
 		async (
 			requestKey: string,
-			dbType: string,
 			instruction: string,
-			existingSQL: string,
-			tables: TableSchema[],
+			context: AiQueryContext,
 			onStream: (chunk: string) => void,
 			onComplete?: (sql: string) => void,
 		) => {
@@ -58,10 +75,8 @@ export function useAIGeneration() {
 				invoke: (command, args) => invoke(command, args),
 				invokeArgs: {
 					sessionId,
-					dbType,
 					instruction,
-					existingSql: existingSQL,
-					tables,
+					context,
 				},
 				onChunk: onStream,
 				onComplete: (sql) => onComplete?.(sql),
@@ -81,5 +96,5 @@ export function useAIGeneration() {
 		activeRequestsRef.current.cancel(requestKey);
 	}, []);
 
-	return { generateSQL, cancelGeneration, isConfigured };
+	return { generateQuery, cancelGeneration, isConfigured };
 }

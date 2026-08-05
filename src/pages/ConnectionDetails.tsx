@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { RedisConnectionHeader } from "@/components/connection-details/ConnectionHeaders";
+import { ConnectionWorkspaceHeader } from "@/components/connection-details/ConnectionHeaders";
 import {
 	ConnectionOpeningScreen,
 	DatabaseIcon,
@@ -7,10 +7,11 @@ import {
 import { DisconnectedScreen } from "@/components/connection-details/DisconnectedScreen";
 import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import { SqlConnectionWorkspace } from "@/components/connection-details/SqlConnectionWorkspace";
+import { MongoConnectionWorkspace } from "@/components/connection-details/MongoConnectionWorkspace";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
 import { useNativeCloseListener } from "@/hooks/connection-details/useNativeCloseListener";
-import { isSqlConnection } from "@/types/connection";
+import { isMongoConnection, isSqlConnection } from "@/types/connection";
 
 export function ConnectionDetails() {
 	const { uuid } = useParams<{ uuid: string }>();
@@ -61,9 +62,20 @@ export function ConnectionDetails() {
 		);
 	}
 
+	if (isMongoConnection(connection)) {
+		return (
+			<MongoConnectionWorkspace
+				connection={connection}
+				lifecycle={lifecycle}
+				onClose={closeConnection}
+				onOpenSettings={openSettings}
+			/>
+		);
+	}
+
 	return (
 		<div className="workspace-canvas flex h-screen flex-col">
-			<RedisConnectionHeader
+			<ConnectionWorkspaceHeader
 				connection={connection}
 				onClose={closeConnection}
 				connectionStatus={lifecycle.connection.status}

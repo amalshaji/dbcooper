@@ -7,11 +7,13 @@ import { MysqlIcon } from "@/components/icons/mysql";
 import { PostgresqlIcon } from "@/components/icons/postgres";
 import { RedisIcon } from "@/components/icons/redis";
 import { SqliteIcon } from "@/components/icons/sqlite";
+import { MongodbIcon } from "@/components/icons/mongodb";
 import { DuckDbHelperProgress } from "@/components/DuckDbHelperProgress";
 import { Spinner } from "@/components/ui/spinner";
 import type { DuckDbHelperProgress as DuckDbHelperProgressValue } from "@/lib/duckdbHelper";
 import type { Connection } from "@/lib/tauri";
 import type { LoadingPhase } from "@/lib/connection-details/connectionLifecycleState";
+import { loadsRelationalSchema } from "@/lib/databaseCapabilities";
 
 export function DatabaseIcon({
 	connection,
@@ -37,6 +39,8 @@ export function DatabaseIcon({
 			return <ClickhouseIcon className="size-8" />;
 		case "d1":
 			return <CloudflareIcon className="h-4 w-8" />;
+		case "mongodb":
+			return <MongodbIcon className="size-8" />;
 		default:
 			return <Database className="size-8" />;
 	}
@@ -65,7 +69,7 @@ export function ConnectionOpeningScreen({
 					},
 				]
 			: []),
-		...(connection?.ssh_enabled
+		...(connection && connection.type !== "mongodb" && connection.ssh_enabled
 			? [
 					{
 						phase: "establishing-ssh" as LoadingPhase,
@@ -78,7 +82,7 @@ export function ConnectionOpeningScreen({
 						label: "Establishing connection",
 					},
 				]),
-		...(connection?.type !== "redis"
+		...(connection && loadsRelationalSchema(connection.type)
 			? [
 					{
 						phase: "loading-schema" as LoadingPhase,

@@ -9,9 +9,9 @@ async fn insert_connection(
 ) -> Result<Connection, String> {
     sqlx::query_as::<_, Connection>(
         r#"INSERT INTO connections
-        (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path,
+        (uuid, type, name, host, port, database, username, password, ssl, db_type, file_path, connection_uri,
          ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_password, ssh_key_path, ssh_use_key)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, 0, '', 22, '', '', '', 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, 0, '', 22, '', '', '', 0)
         RETURNING *"#,
     )
     .bind(uuid)
@@ -22,7 +22,8 @@ async fn insert_connection(
     .bind(&data.database)
     .bind(&data.username)
     .bind(&data.password)
-    .bind(&data.db_type)
+    .bind(data.db_type())
+    .bind(&data.connection_uri)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|error| error.to_string())
@@ -111,18 +112,24 @@ pub(crate) async fn update_runtime_identity(
     .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn update_connection_port(
+pub(crate) async fn update_connection_endpoint(
     pool: &SqlitePool,
     uuid: &str,
     port: i64,
+    connection_uri: Option<&str>,
 ) -> Result<(), String> {
-    sqlx::query("UPDATE connections SET port = ?, updated_at = datetime('now') WHERE uuid = ?")
-        .bind(port)
-        .bind(uuid)
-        .execute(pool)
-        .await
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    sqlx::query(
+        "UPDATE connections
+         SET port = ?, connection_uri = COALESCE(?, connection_uri), updated_at = datetime('now')
+         WHERE uuid = ?",
+    )
+    .bind(port)
+    .bind(connection_uri)
+    .bind(uuid)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) async fn delete_connection_with_link(
@@ -209,7 +216,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_unsupported_engine_values() {
+    async fn stores_engine_identifiers_without_a_database_allowlist() {
         let pool = test_pool().await;
         let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Postgres);
         let data = plan.connection_data("Local Postgres", 55432);
@@ -219,13 +226,44 @@ mod tests {
             .await
             .unwrap();
 
-        let result = sqlx::query(
+        sqlx::query(
             "UPDATE docker_connections SET engine = 'unsupported' WHERE connection_uuid = ?",
         )
         .bind(&plan.uuid)
         .execute(&pool)
-        .await;
+        .await
+        .unwrap();
 
-        assert!(result.is_err());
+        let stored: String =
+            sqlx::query_scalar("SELECT engine FROM docker_connections WHERE connection_uuid = ?")
+                .bind(&plan.uuid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, "unsupported");
+    }
+
+    #[tokio::test]
+    async fn updates_runtime_port_and_uri_together() {
+        let pool = test_pool().await;
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Mongodb);
+        let data = plan.connection_data("Local MongoDB", 27017);
+        let link = plan.link("desktop-linux".to_string(), "container".to_string());
+        insert_connection_with_link(&pool, &plan.uuid, &data, &link)
+            .await
+            .unwrap();
+
+        let uri = "mongodb://127.0.0.1:27018/dbcooper";
+        update_connection_endpoint(&pool, &plan.uuid, 27018, Some(uri))
+            .await
+            .unwrap();
+
+        let endpoint: (i64, Option<String>) =
+            sqlx::query_as("SELECT port, connection_uri FROM connections WHERE uuid = ?")
+                .bind(&plan.uuid)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(endpoint, (27018, Some(uri.to_string())));
     }
 }

@@ -42,6 +42,7 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
             ssl INTEGER NOT NULL DEFAULT 0,
             db_type TEXT NOT NULL DEFAULT 'postgres',
             file_path TEXT,
+            connection_uri TEXT,
             ssh_enabled INTEGER NOT NULL DEFAULT 0,
             ssh_host TEXT NOT NULL DEFAULT '',
             ssh_port INTEGER NOT NULL DEFAULT 22,
@@ -65,6 +66,7 @@ async fn create_test_pool() -> (sqlx::SqlitePool, NamedTempFile) {
             connection_uuid TEXT NOT NULL,
             name TEXT NOT NULL,
             query TEXT NOT NULL,
+            query_kind TEXT NOT NULL DEFAULT 'sql',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -314,6 +316,7 @@ async fn test_create_saved_query() {
     assert_eq!(result.name, "My Query");
     assert_eq!(result.query, "SELECT * FROM users");
     assert_eq!(result.connection_uuid, connection_uuid);
+    assert_eq!(result.query_kind, "sql");
 }
 
 #[tokio::test]
@@ -783,6 +786,33 @@ async fn test_redis_connection_round_trip_preserves_username() {
     assert_eq!(imported.username, "app-user");
     assert_eq!(imported.password, "secret");
     assert_eq!(imported.ssl, 1);
+}
+
+#[tokio::test]
+async fn test_mongodb_connection_round_trip_preserves_uri() {
+    let (pool, _temp_file) = create_test_pool().await;
+    let uuid = uuid::Uuid::new_v4().to_string();
+    let uri = "mongodb+srv://user:secret@cluster.example.com/app";
+
+    sqlx::query(
+        r#"INSERT INTO connections
+        (uuid, type, name, host, port, database, username, password, ssl, db_type, connection_uri)
+        VALUES (?, 'mongodb', 'Documents', '', 27017, '', '', '', 1, 'mongodb', ?)"#,
+    )
+    .bind(&uuid)
+    .bind(uri)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let connection: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(&uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(connection.connection_type, "mongodb");
+    assert_eq!(connection.connection_uri.as_deref(), Some(uri));
+    assert_eq!(connection.ssh_enabled, 0);
 }
 
 #[tokio::test]

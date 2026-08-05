@@ -32,6 +32,7 @@ async fn sqlite_pool() -> sqlx::SqlitePool {
             ssl INTEGER NOT NULL DEFAULT 0,
             db_type TEXT NOT NULL,
             file_path TEXT,
+            connection_uri TEXT,
             ssh_enabled INTEGER NOT NULL DEFAULT 0,
             ssh_host TEXT NOT NULL DEFAULT '',
             ssh_port INTEGER NOT NULL DEFAULT 22,

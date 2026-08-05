@@ -117,6 +117,58 @@ pub fn tool_definitions() -> Vec<Tool> {
                 .destructive(false)
                 .idempotent(false),
         ),
+        Tool::new(
+            "mongo_list_namespaces",
+            "List databases and collections in a connected MongoDB instance",
+            object(connection_uuid_schema("UUID of the connected MongoDB database")),
+        )
+        .with_annotations(read_only_annotations()),
+        Tool::new(
+            "mongo_describe_collection",
+            "Describe a MongoDB collection and confirm its namespace",
+            object(object_schema(
+                json!({
+                    "connection_uuid": { "type": "string" },
+                    "database": { "type": "string" },
+                    "collection": { "type": "string" }
+                }),
+                json!(["connection_uuid", "database", "collection"]),
+            )),
+        )
+        .with_annotations(read_only_annotations()),
+        Tool::new(
+            "mongo_find",
+            "Run a read-only MongoDB find operation (maximum 1000 documents)",
+            object(object_schema(
+                json!({
+                    "connection_uuid": { "type": "string" },
+                    "database": { "type": "string" },
+                    "collection": { "type": "string" },
+                    "filter": { "type": "object", "default": {} },
+                    "projection": { "type": "object" },
+                    "sort": { "type": "object" },
+                    "skip": { "type": "integer", "minimum": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+                }),
+                json!(["connection_uuid", "database", "collection"]),
+            )),
+        )
+        .with_annotations(read_only_annotations()),
+        Tool::new(
+            "mongo_aggregate",
+            "Run a read-only MongoDB aggregation; $out and $merge are rejected",
+            object(object_schema(
+                json!({
+                    "connection_uuid": { "type": "string" },
+                    "database": { "type": "string" },
+                    "collection": { "type": "string" },
+                    "pipeline": { "type": "array", "items": { "type": "object" } },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 1000 }
+                }),
+                json!(["connection_uuid", "database", "collection", "pipeline"]),
+            )),
+        )
+        .with_annotations(read_only_annotations()),
     ]
 }
 
@@ -166,8 +218,152 @@ pub async fn dispatch_tool(
             let query = get_str_param(&request.arguments, "query")?;
             execute_query(server, uuid, query).await
         }
+        "mongo_list_namespaces" => {
+            let uuid = get_str_param(&request.arguments, "connection_uuid")?;
+            mongo_list_namespaces(server, uuid).await
+        }
+        "mongo_describe_collection" => {
+            let uuid = get_str_param(&request.arguments, "connection_uuid")?;
+            let database = get_str_param(&request.arguments, "database")?;
+            let collection = get_str_param(&request.arguments, "collection")?;
+            mongo_describe_collection(server, uuid, database, collection).await
+        }
+        "mongo_find" => mongo_find(server, &request.arguments).await,
+        "mongo_aggregate" => mongo_aggregate(server, &request.arguments).await,
         _ => Err(McpError::method_not_found::<CallToolRequestMethod>()),
     }
+}
+
+async fn mongo_driver(
+    server: &McpServer,
+    uuid: &str,
+) -> Result<std::sync::Arc<crate::database::mongodb::MongoDriver>, McpError> {
+    server.ensure_connected(uuid).await?;
+    server
+        .pool_manager
+        .get_mongo_driver(uuid)
+        .await
+        .map_err(|error| McpError::invalid_params(error, None))
+}
+
+async fn mongo_list_namespaces(server: &McpServer, uuid: &str) -> Result<CallToolResult, McpError> {
+    let driver = mongo_driver(server, uuid).await?;
+    let catalog = driver
+        .catalog()
+        .await
+        .map_err(|error| McpError::internal_error(error, None))?;
+    Ok(CallToolResult::success(vec![Content::text(
+        serde_json::to_string_pretty(&catalog).unwrap_or_else(|_| "[]".to_string()),
+    )]))
+}
+
+async fn mongo_describe_collection(
+    server: &McpServer,
+    uuid: &str,
+    database: &str,
+    collection: &str,
+) -> Result<CallToolResult, McpError> {
+    let driver = mongo_driver(server, uuid).await?;
+    let catalog = driver
+        .catalog()
+        .await
+        .map_err(|error| McpError::internal_error(error, None))?;
+    let exists = catalog.iter().any(|item| {
+        item.name == database
+            && item
+                .collections
+                .iter()
+                .any(|entry| entry.name == collection)
+    });
+    if !exists {
+        return Ok(CallToolResult::error(vec![Content::text(
+            "MongoDB collection was not found",
+        )]));
+    }
+    let (indexes, validator) = tokio::try_join!(
+        driver.list_indexes(database, collection),
+        driver.get_validator(database, collection),
+    )
+    .map_err(|error| McpError::internal_error(error, None))?;
+    Ok(CallToolResult::success(vec![Content::text(
+        serde_json::to_string_pretty(&json!({
+            "database": database,
+            "collection": collection,
+            "indexes": indexes,
+            "validation": validator,
+        }))
+        .unwrap_or_else(|_| "{}".to_string()),
+    )]))
+}
+
+async fn mongo_find(
+    server: &McpServer,
+    arguments: &Option<serde_json::Map<String, Value>>,
+) -> Result<CallToolResult, McpError> {
+    let args = arguments
+        .as_ref()
+        .ok_or_else(|| McpError::invalid_params("Missing arguments", None))?;
+    let uuid = get_str_param(arguments, "connection_uuid")?;
+    let request = crate::database::mongodb::MongoFindRequest {
+        database: get_str_param(arguments, "database")?.to_string(),
+        collection: get_str_param(arguments, "collection")?.to_string(),
+        filter: args.get("filter").cloned().unwrap_or_else(|| json!({})),
+        projection: args.get("projection").cloned(),
+        sort: args.get("sort").cloned(),
+        skip: args.get("skip").and_then(Value::as_u64),
+        limit: Some(
+            args.get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(MAX_ROWS as u64)
+                .min(MAX_ROWS as u64) as u32,
+        ),
+    };
+    let result = tokio::time::timeout(
+        QUERY_TIMEOUT,
+        mongo_driver(server, uuid).await?.find(request),
+    )
+    .await
+    .map_err(|_| McpError::internal_error("MongoDB query timed out after 30 seconds", None))?
+    .map_err(|error| McpError::invalid_params(error, None))?;
+    Ok(CallToolResult::success(vec![Content::text(
+        serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
+    )]))
+}
+
+async fn mongo_aggregate(
+    server: &McpServer,
+    arguments: &Option<serde_json::Map<String, Value>>,
+) -> Result<CallToolResult, McpError> {
+    let args = arguments
+        .as_ref()
+        .ok_or_else(|| McpError::invalid_params("Missing arguments", None))?;
+    let uuid = get_str_param(arguments, "connection_uuid")?;
+    let pipeline = args
+        .get("pipeline")
+        .and_then(Value::as_array)
+        .cloned()
+        .ok_or_else(|| McpError::invalid_params("pipeline must be an array", None))?;
+    let request = crate::database::mongodb::MongoAggregateRequest {
+        database: get_str_param(arguments, "database")?.to_string(),
+        collection: get_str_param(arguments, "collection")?.to_string(),
+        pipeline,
+        limit: Some(
+            args.get("limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(MAX_ROWS as u64)
+                .min(MAX_ROWS as u64) as u32,
+        ),
+    };
+    let result = tokio::time::timeout(
+        QUERY_TIMEOUT,
+        mongo_driver(server, uuid).await?.aggregate(request),
+    )
+    .await
+    .map_err(|_| McpError::internal_error("MongoDB query timed out after 30 seconds", None))?
+    .map_err(|error| McpError::invalid_params(error, None))?;
+    Ok(CallToolResult::success(vec![Content::text(
+        serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
+    )]))
 }
 
 async fn list_connections(server: &McpServer) -> Result<CallToolResult, McpError> {

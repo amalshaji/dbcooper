@@ -14,6 +14,7 @@ const savedQuery: SavedQuery = {
 	connection_uuid: "connection-1",
 	name: "Users",
 	query: "SELECT * FROM users",
+	query_kind: "sql",
 	created_at: "2026-07-27 00:00:00",
 	updated_at: "2026-07-27 00:00:00",
 };
@@ -22,6 +23,7 @@ const historyEntry = {
 	id: 2,
 	connection_uuid: "connection-1",
 	query: "SELECT 1",
+	query_kind: "sql" as const,
 	status: "success" as const,
 	time_taken_ms: 1,
 	row_count: 1,

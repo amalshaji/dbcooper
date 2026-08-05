@@ -17,7 +17,7 @@ export function useContextualSqlGeneration({
 	tableColumns,
 	schemaOverview,
 }: UseContextualSqlGenerationOptions) {
-	const { generateSQL, cancelGeneration, isConfigured } = useAIGeneration();
+	const { generateQuery, cancelGeneration, isConfigured } = useAIGeneration();
 
 	const generateDraft = useCallback(
 		async (
@@ -48,16 +48,19 @@ export function useContextualSqlGeneration({
 
 			let accumulatedSQL = "";
 			let completedSQL = "";
-			await generateSQL(
+			await generateQuery(
 				requestKey,
-				dbType || "postgres",
 				instruction,
-				existingSQL,
-				selectedTables.map((table) => ({
-					schema: table.schema,
-					name: table.name,
-					columns: table.columns ?? [],
-				})),
+				{
+					kind: "sql",
+					dbType: dbType || "postgres",
+					existingSql: existingSQL,
+					tables: selectedTables.map((table) => ({
+						schema: table.schema,
+						name: table.name,
+						columns: table.columns ?? [],
+					})),
+				},
 				(chunk) => {
 					accumulatedSQL += chunk;
 					onPreview(accumulatedSQL);
@@ -70,7 +73,7 @@ export function useContextualSqlGeneration({
 
 			return completedSQL || accumulatedSQL;
 		},
-		[dbType, generateSQL, schemaOverview, tableColumns, tables],
+		[dbType, generateQuery, schemaOverview, tableColumns, tables],
 	);
 
 	return { generateDraft, cancelGeneration, isConfigured };

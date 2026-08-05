@@ -21,6 +21,7 @@ pub struct DriverConfig {
     pub password: Option<String>,
     pub ssl: Option<bool>,
     pub file_path: Option<String>,
+    pub connection_uri: Option<String>,
     pub ssh_enabled: bool,
     pub ssh_host: Option<String>,
     pub ssh_port: Option<i64>,
@@ -38,6 +39,9 @@ impl DriverConfig {
 
 pub fn create_driver(config: &DriverConfig) -> Result<Box<dyn DatabaseDriver>, String> {
     let engine = config.engine()?;
+    if engine == DatabaseType::Mongo {
+        return Err("MongoDB uses the document driver, not the SQL driver factory".to_string());
+    }
     let host = config.host.clone().unwrap_or_else(|| {
         if engine == DatabaseType::Clickhouse {
             "localhost".to_string()
@@ -55,6 +59,9 @@ pub async fn create_driver_with_ssh(
     let engine = config.engine()?;
     if engine == DatabaseType::D1 && config.ssh_enabled {
         return Err("SSH tunnels are not supported for Cloudflare D1".to_string());
+    }
+    if engine == DatabaseType::Mongo {
+        return Err("SSH tunnels are not supported for MongoDB".to_string());
     }
     let ssh_enabled =
         config.ssh_enabled && !matches!(engine, DatabaseType::Sqlite | DatabaseType::DuckDb);
@@ -164,6 +171,7 @@ fn build_driver(
             database_id: config.database.clone().unwrap_or_default(),
             api_token: config.password.clone().unwrap_or_default(),
         }))),
+        DatabaseType::Mongo => Err("MongoDB uses the document driver".to_string()),
     }
 }
 
@@ -181,6 +189,7 @@ mod tests {
             password: None,
             ssl: None,
             file_path: Some("database.db".to_string()),
+            connection_uri: None,
             ssh_enabled: false,
             ssh_host: None,
             ssh_port: None,

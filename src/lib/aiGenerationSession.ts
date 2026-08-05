@@ -155,7 +155,7 @@ export function startAiGenerationSession({
 		}),
 	])
 		.then(() => {
-			if (!settled) return invoke("generate_sql", invokeArgs);
+			if (!settled) return invoke("generate_query", invokeArgs);
 		})
 		.catch((error) =>
 			finish(error instanceof Error ? error : new Error(String(error))),

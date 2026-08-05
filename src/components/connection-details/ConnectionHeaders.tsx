@@ -4,9 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import type { Connection } from "@/lib/tauri";
+import { getConnectionDisplayEndpoint } from "@/lib/connectionCapabilities";
+import type { SqlConnection } from "@/types/connection";
 
-interface ConnectionHeaderProps {
-	connection: Connection;
+interface ConnectionHeaderProps<TConnection extends Connection = Connection> {
+	connection: TConnection;
 	connectionStatus: "connected" | "disconnected";
 	onClose: () => void;
 	onReconnect: () => Promise<void>;
@@ -21,7 +23,7 @@ export function ConnectionHeader({
 	onReconnect,
 	onStatusChange,
 	onOpenSettings,
-}: ConnectionHeaderProps) {
+}: ConnectionHeaderProps<SqlConnection>) {
 	const { state } = useSidebar();
 	const isCollapsed = state === "collapsed";
 
@@ -69,7 +71,7 @@ export function ConnectionHeader({
 	);
 }
 
-export function RedisConnectionHeader({
+export function ConnectionWorkspaceHeader({
 	connection,
 	connectionStatus,
 	onClose,
@@ -89,7 +91,7 @@ export function RedisConnectionHeader({
 				</Button>
 				<span className="text-sm font-semibold">{connection.name}</span>
 				<span className="text-xs text-muted-foreground">
-					{connection.host}:{connection.port}
+					{getConnectionDisplayEndpoint(connection)}
 				</span>
 			</div>
 			<div className="flex items-center gap-2">

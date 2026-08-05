@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { ConnectionType } from "@/types/connection";
+import type { ConnectionType, StandardConnection } from "@/types/connection";
 import { api, type Connection, type ConnectionFormData } from "@/lib/tauri";
 import {
 	AlertDialog,
@@ -13,28 +13,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-	Select,
-	SelectContent,
-	SelectGroup,
-	SelectItem,
-	SelectTrigger,
-} from "@/components/ui/select";
-import { PostgresqlIcon } from "@/components/icons/postgres";
-import { RedisIcon } from "@/components/icons/redis";
-import { ClickhouseIcon } from "@/components/icons/clickhouse";
-import { MariadbIcon } from "@/components/icons/mariadb";
-import { MysqlIcon } from "@/components/icons/mysql";
-import { SqliteIcon } from "@/components/icons/sqlite";
-import { DuckdbIcon } from "@/components/icons/duckdb";
-import { CloudflareIcon } from "@/components/icons/cloudflare";
 import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
-import { mergeD1ConnectionFields } from "@/lib/connectionFormState";
+import { ConnectionTypeSelect } from "@/components/connections/ConnectionTypeSelect";
+import { MongoConnectionFields } from "@/components/connections/MongoConnectionFields";
+import {
+	connectionToFormData,
+	DEFAULT_CONNECTION_FORM_DATA,
+	mergeD1ConnectionFields,
+} from "@/lib/connectionFormState";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Eye, EyeSlash } from "@phosphor-icons/react";
-import { isFileDatabase } from "@/lib/databaseCapabilities";
+import { getConnectionCapabilities } from "@/lib/connectionCapabilities";
 import {
 	prepareDuckDbRuntime,
 	type DuckDbHelperProgress as DuckDbHelperProgressValue,
@@ -48,92 +39,36 @@ interface ConnectionFormProps {
 	initialData?: Connection | null;
 }
 
-const databaseTypes: {
-	value: ConnectionType;
-	label: string;
-	disabled: boolean;
-	icon: React.ReactNode;
-}[] = [
-	{
-		value: "postgres",
-		label: "PostgreSQL",
-		disabled: false,
-		icon: <PostgresqlIcon className="w-4 h-4" />,
-	},
-	{
-		value: "mysql",
-		label: "MySQL",
-		disabled: false,
-		icon: <MysqlIcon className="w-4 h-4" />,
-	},
-	{
-		value: "mariadb",
-		label: "MariaDB",
-		disabled: false,
-		icon: <MariadbIcon className="w-4 h-4" />,
-	},
-	{
-		value: "sqlite",
-		label: "SQLite",
-		disabled: false,
-		icon: <SqliteIcon className="w-4 h-4" />,
-	},
-	{
-		value: "duckdb",
-		label: "DuckDB",
-		disabled: false,
-		icon: <DuckdbIcon className="w-4 h-4" />,
-	},
-	{
-		value: "redis",
-		label: "Redis",
-		disabled: false,
-		icon: <RedisIcon className="w-4 h-4" />,
-	},
-	{
-		value: "clickhouse",
-		label: "ClickHouse",
-		disabled: false,
-		icon: <ClickhouseIcon className="w-4 h-4" />,
-	},
-	{
-		value: "d1",
-		label: "Cloudflare D1",
-		disabled: false,
-		icon: <CloudflareIcon className="h-3.5 w-5" />,
-	},
-];
+function connectionForTest(data: ConnectionFormData): StandardConnection {
+	if (data.type === "mongodb") {
+		throw new Error("MongoDB connections use URI-based testing");
+	}
 
-const defaultPorts: Record<ConnectionType, number> = {
-	postgres: 5432,
-	mysql: 3306,
-	mariadb: 3306,
-	sqlite: 0,
-	duckdb: 0,
-	redis: 6379,
-	clickhouse: 9000,
-	d1: 443,
-};
-
-const defaultFormData: ConnectionFormData = {
-	type: "postgres",
-	name: "",
-	host: "localhost",
-	port: 5432,
-	database: "",
-	username: "",
-	password: "",
-	ssl: false,
-	db_type: "postgres",
-	file_path: undefined,
-	ssh_enabled: false,
-	ssh_host: "",
-	ssh_port: 22,
-	ssh_user: "",
-	ssh_password: "",
-	ssh_key_path: "",
-	ssh_use_key: false,
-};
+	return {
+		id: 0,
+		uuid: "",
+		type: data.type,
+		name: data.name,
+		host: data.host,
+		port: data.port,
+		database: data.database,
+		username: data.username,
+		password: data.password,
+		ssl: data.ssl ? 1 : 0,
+		db_type: data.type,
+		file_path: data.file_path || null,
+		connection_uri: null,
+		ssh_enabled: data.ssh_enabled ? 1 : 0,
+		ssh_host: data.ssh_host || "",
+		ssh_port: data.ssh_port || 22,
+		ssh_user: data.ssh_user || "",
+		ssh_password: data.ssh_password || "",
+		ssh_key_path: data.ssh_key_path || "",
+		ssh_use_key: data.ssh_use_key ? 1 : 0,
+		created_at: "",
+		updated_at: "",
+	};
+}
 
 export function ConnectionForm({
 	onSubmit,
@@ -141,7 +76,9 @@ export function ConnectionForm({
 	isOpen,
 	initialData,
 }: ConnectionFormProps) {
-	const [formData, setFormData] = useState<ConnectionFormData>(defaultFormData);
+	const [formData, setFormData] = useState<ConnectionFormData>(
+		DEFAULT_CONNECTION_FORM_DATA,
+	);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isTesting, setIsTesting] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
@@ -150,43 +87,27 @@ export function ConnectionForm({
 		useState<DuckDbHelperProgressValue | null>(null);
 
 	const isEditMode = !!initialData;
-	const usesFile = isFileDatabase(formData.type);
+	const capabilities = getConnectionCapabilities(formData.type);
+	const usesFile = capabilities.fileDatabase;
+	const usesServerFields = capabilities.form === "server";
 	const isBusy = isSubmitting || isTesting;
 
 	useEffect(() => {
 		if (initialData) {
-			setFormData({
-				type: initialData.type || "postgres",
-				name: initialData.name,
-				host: initialData.host,
-				port: initialData.port,
-				database: initialData.database,
-				username: initialData.username,
-				password: initialData.password,
-				ssl: initialData.ssl === 1,
-				db_type: initialData.db_type || "postgres",
-				file_path: initialData.file_path || undefined,
-				ssh_enabled: initialData.ssh_enabled === 1,
-				ssh_host: initialData.ssh_host || "",
-				ssh_port: initialData.ssh_port || 22,
-				ssh_user: initialData.ssh_user || "",
-				ssh_password: initialData.ssh_password || "",
-				ssh_key_path: initialData.ssh_key_path || "",
-				ssh_use_key: initialData.ssh_use_key === 1,
-			});
+			setFormData(connectionToFormData(initialData));
 		} else {
-			setFormData(defaultFormData);
+			setFormData(DEFAULT_CONNECTION_FORM_DATA);
 		}
 		setDuckDbHelperProgress(null);
 	}, [initialData, isOpen]);
 
 	const handleTypeChange = (type: ConnectionType) => {
+		const nextCapabilities = getConnectionCapabilities(type);
 		setDuckDbHelperProgress(null);
 		setFormData({
 			...formData,
 			type,
-			db_type: type,
-			port: defaultPorts[type],
+			port: nextCapabilities.defaultPort,
 			host:
 				type === "d1"
 					? "api.cloudflare.com"
@@ -194,7 +115,8 @@ export function ConnectionForm({
 						? "localhost"
 						: formData.host,
 			ssl: type === "d1" ? true : formData.type === "d1" ? false : formData.ssl,
-			ssh_enabled: type === "d1" ? false : formData.ssh_enabled,
+			ssh_enabled:
+				nextCapabilities.form === "server" ? formData.ssh_enabled : false,
 		});
 	};
 
@@ -204,51 +126,25 @@ export function ConnectionForm({
 			await prepareDuckDbRuntime(formData.type, setDuckDbHelperProgress);
 			// Use unified test connection for non-Postgres engines; keep the legacy Postgres command.
 			const result =
-				formData.type === "redis" ||
-				formData.type === "mysql" ||
-				formData.type === "mariadb" ||
-				formData.type === "sqlite" ||
-				formData.type === "duckdb" ||
-				formData.type === "clickhouse" ||
-				formData.type === "d1"
-					? await api.database.testConnection({
-							id: 0,
-							uuid: "",
-							type: formData.type,
-							name: formData.name,
-							host: formData.host,
-							port: formData.port,
-							database: formData.database,
-							username: formData.username,
-							password: formData.password,
-							ssl: formData.ssl ? 1 : 0,
-							db_type: formData.db_type,
-							file_path: formData.file_path || null,
-							ssh_enabled: formData.ssh_enabled ? 1 : 0,
-							ssh_host: formData.ssh_host || "",
-							ssh_port: formData.ssh_port || 22,
-							ssh_user: formData.ssh_user || "",
-							ssh_password: formData.ssh_password || "",
-							ssh_key_path: formData.ssh_key_path || "",
-							ssh_use_key: formData.ssh_use_key ? 1 : 0,
-							created_at: "",
-							updated_at: "",
-						})
-					: await api.postgres.testConnection({
-							host: formData.host,
-							port: formData.port,
-							database: formData.database,
-							username: formData.username,
-							password: formData.password,
-							ssl: formData.ssl,
-							ssh_enabled: formData.ssh_enabled,
-							ssh_host: formData.ssh_host,
-							ssh_port: formData.ssh_port,
-							ssh_user: formData.ssh_user,
-							ssh_password: formData.ssh_password,
-							ssh_key_path: formData.ssh_key_path,
-							ssh_use_key: formData.ssh_use_key,
-						});
+				capabilities.testStrategy === "mongo"
+					? await api.mongo.testConnection(formData.connection_uri || "")
+					: capabilities.testStrategy === "unified"
+						? await api.database.testConnection(connectionForTest(formData))
+						: await api.postgres.testConnection({
+								host: formData.host,
+								port: formData.port,
+								database: formData.database,
+								username: formData.username,
+								password: formData.password,
+								ssl: formData.ssl,
+								ssh_enabled: formData.ssh_enabled,
+								ssh_host: formData.ssh_host,
+								ssh_port: formData.ssh_port,
+								ssh_user: formData.ssh_user,
+								ssh_password: formData.ssh_password,
+								ssh_key_path: formData.ssh_key_path,
+								ssh_use_key: formData.ssh_use_key,
+							});
 
 			if (result.success) {
 				toast.success(result.message || "Connection successful!");
@@ -279,7 +175,7 @@ export function ConnectionForm({
 		try {
 			await onSubmit(formData);
 			if (!isEditMode) {
-				setFormData(defaultFormData);
+				setFormData(DEFAULT_CONNECTION_FORM_DATA);
 			}
 		} finally {
 			setIsSubmitting(false);
@@ -307,44 +203,10 @@ export function ConnectionForm({
 					<FieldGroup>
 						<Field>
 							<FieldLabel htmlFor="connection-type">Database Type</FieldLabel>
-							<Select
-								items={databaseTypes}
+							<ConnectionTypeSelect
 								value={formData.type}
-								onValueChange={(value) =>
-									handleTypeChange(value as ConnectionType)
-								}
-							>
-								<SelectTrigger id="connection-type">
-									<div className="flex items-center gap-2">
-										{
-											databaseTypes.find((db) => db.value === formData.type)
-												?.icon
-										}
-										<span>
-											{
-												databaseTypes.find((db) => db.value === formData.type)
-													?.label
-											}
-										</span>
-									</div>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectGroup>
-										{databaseTypes.map((item) => (
-											<SelectItem
-												key={item.value}
-												value={item.value}
-												disabled={item.disabled}
-											>
-												<div className="flex items-center gap-2">
-													{item.icon}
-													<span>{item.label}</span>
-												</div>
-											</SelectItem>
-										))}
-									</SelectGroup>
-								</SelectContent>
-							</Select>
+								onValueChange={handleTypeChange}
+							/>
 						</Field>
 
 						<Field>
@@ -451,8 +313,17 @@ export function ConnectionForm({
 							/>
 						)}
 
+						{formData.type === "mongodb" && (
+							<MongoConnectionFields
+								connectionUri={formData.connection_uri || ""}
+								onChange={(connectionUri) =>
+									setFormData({ ...formData, connection_uri: connectionUri })
+								}
+							/>
+						)}
+
 						{/* Postgres/Server-based connection fields */}
-						{!usesFile && formData.type !== "d1" && (
+						{usesServerFields && (
 							<>
 								<div className="grid grid-cols-2 gap-4">
 									<Field>
@@ -538,7 +409,8 @@ export function ConnectionForm({
 										placeholder={
 											formData.type === "redis"
 												? "default"
-												: formData.type === "mysql" || formData.type === "mariadb"
+												: formData.type === "mysql" ||
+														formData.type === "mariadb"
 													? "root"
 													: "postgres"
 										}

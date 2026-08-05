@@ -82,9 +82,27 @@ services:
       timeout: 5s
       retries: 5
 
+  mongodb:
+    image: mongo:8.0
+    container_name: dbindex-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: dbcooper
+      MONGO_INITDB_ROOT_PASSWORD: dbcooper
+      MONGO_INITDB_DATABASE: testdb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: [ "CMD", "mongosh", "--quiet", "--username", "dbcooper", "--password", "dbcooper", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({ping:1})" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
   clickhouse_data:
   mysql_data:
   mariadb_data:
+  mongodb_data:

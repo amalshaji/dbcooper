@@ -1,7 +1,7 @@
 import type { TableColumn } from "@/types/tabTypes";
 import type { ConnectionType } from "@/types/connection";
 
-export type DbType = Exclude<ConnectionType, "redis">;
+export type DbType = Exclude<ConnectionType, "redis" | "mongodb">;
 
 export interface FieldInputProps {
 	column: TableColumn;

@@ -1,11 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/databaseCatalog";
+import type { QueryKind } from "@/lib/mongo/querySpec";
+import { mongoApi } from "@/lib/tauri/mongo";
+import type { TestConnectionResult } from "@/lib/tauri/shared";
 import type {
 	FilterColumnKind,
 	FilterExpression,
 	TableFilter,
 } from "@/lib/resultFilters";
-import type { Connection, ConnectionFormData } from "@/types/connection";
+import type {
+	Connection,
+	ConnectionFormData,
+	SqlConnection,
+	StandardConnection,
+} from "@/types/connection";
 import type {
 	DeleteConnectionResult,
 	DockerConnectionDraft,
@@ -26,6 +34,21 @@ export type {
 	DockerDatabaseEngine,
 } from "@/types/docker";
 export type { Connection, ConnectionFormData } from "@/types/connection";
+export type {
+	CreateMongoIndexRequest,
+	MongoAggregateRequest,
+	MongoCollectionInfo,
+	MongoDatabaseInfo,
+	MongoDeleteRequest,
+	MongoDocumentMutation,
+	MongoDocumentPage,
+	MongoFindRequest,
+	MongoIndexInfo,
+	MongoMutationResult,
+	MongoReplaceRequest,
+	MongoValidatorSettings,
+} from "@/lib/tauri/mongo";
+export type { TestConnectionResult } from "@/lib/tauri/shared";
 
 export interface TableInfo {
 	schema: string;
@@ -131,11 +154,6 @@ export interface QueryResult {
 	time_taken_ms?: number;
 }
 
-export interface TestConnectionResult {
-	success: boolean;
-	message: string;
-}
-
 export interface D1Database {
 	uuid: string;
 	name: string;
@@ -153,6 +171,7 @@ export interface SavedQuery {
 	connection_uuid: string;
 	name: string;
 	query: string;
+	query_kind: QueryKind;
 	created_at: string;
 	updated_at: string;
 }
@@ -160,6 +179,7 @@ export interface SavedQuery {
 export interface SavedQueryFormData {
 	name: string;
 	query: string;
+	query_kind: QueryKind;
 }
 
 export interface SavedViewStateV1 {
@@ -200,6 +220,7 @@ export interface QueryHistory {
 	id: number;
 	connection_uuid: string;
 	query: string;
+	query_kind: QueryKind;
 	status: "success" | "error";
 	time_taken_ms: number | null;
 	row_count: number | null;
@@ -275,6 +296,7 @@ export interface ExportedConnection {
 	ssl: boolean;
 	db_type: string;
 	file_path: string | null;
+	connection_uri: string | null;
 	ssh_enabled: boolean;
 	ssh_host: string;
 	ssh_port: number;
@@ -337,6 +359,7 @@ export const api = {
 			database: string;
 			username: string;
 			password: string;
+			connection_uri?: string | null;
 		}) => invoke<Connection>("docker_link_connection", { request }),
 		states: () => invoke<DockerConnectionState[]>("docker_connection_states"),
 		control: (uuid: string, action: "start" | "stop" | "restart") =>
@@ -344,6 +367,8 @@ export const api = {
 		connectionString: (uuid: string) =>
 			invoke<string>("docker_get_connection_string", { uuid }),
 	},
+
+	mongo: mongoApi,
 
 	d1: {
 		listDatabases: (accountId: string, apiToken: string, page = 1) =>
@@ -371,7 +396,7 @@ export const api = {
 			ssh_use_key?: boolean;
 		}) => invoke<TestConnectionResult>("test_connection", params),
 
-		listTables: (connection: Connection) =>
+		listTables: (connection: StandardConnection) =>
 			invoke<TableInfo[]>("list_tables", {
 				host: connection.host,
 				port: connection.port,
@@ -382,7 +407,7 @@ export const api = {
 			}),
 
 		getTableData: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 			page: number,
@@ -404,7 +429,7 @@ export const api = {
 			}),
 
 		getTableStructure: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 		) =>
@@ -419,7 +444,7 @@ export const api = {
 				table,
 			}),
 
-		executeQuery: (connection: Connection, query: string) =>
+		executeQuery: (connection: StandardConnection, query: string) =>
 			invoke<QueryResult>("execute_query", {
 				host: connection.host,
 				port: connection.port,
@@ -433,7 +458,7 @@ export const api = {
 
 	// Unified database API that works with both Postgres and SQLite
 	database: {
-		testConnection: (connection: Connection) =>
+		testConnection: (connection: StandardConnection) =>
 			invoke<TestConnectionResult>("unified_test_connection", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
@@ -452,7 +477,7 @@ export const api = {
 				sshUseKey: connection.ssh_use_key === 1,
 			}),
 
-		listTables: (connection: Connection) =>
+		listTables: (connection: StandardConnection) =>
 			invoke<TableInfo[]>("unified_list_tables", {
 				db_type: connection.db_type || "postgres",
 				host: connection.host,
@@ -472,7 +497,7 @@ export const api = {
 			}),
 
 		getTableData: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 			page: number,
@@ -498,7 +523,7 @@ export const api = {
 			}),
 
 		getTableStructure: (
-			connection: Connection,
+			connection: StandardConnection,
 			schema: string,
 			table: string,
 		) =>
@@ -515,7 +540,7 @@ export const api = {
 				table,
 			}),
 
-		executeQuery: (connection: Connection, query: string) =>
+		executeQuery: (connection: StandardConnection, query: string) =>
 			invoke<QueryResult>("unified_execute_query", {
 				dbType: connection.db_type || "postgres",
 				host: connection.host,
@@ -529,7 +554,7 @@ export const api = {
 			}),
 
 		updateTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			primaryKeyColumns: string[],
@@ -593,7 +618,7 @@ export const api = {
 		},
 
 		deleteTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			primaryKeyColumns: string[],
@@ -615,7 +640,7 @@ export const api = {
 			}),
 
 		insertTableRow: (
-			connection: Connection,
+			connection: SqlConnection,
 			schema: string,
 			table: string,
 			values: Array<{ column: string; value: unknown; isRawSql: boolean }>,
@@ -769,6 +794,7 @@ export const api = {
 		recordHistory: (args: {
 			connectionUuid: string;
 			query: string;
+			queryKind?: "sql" | "mongo_find" | "mongo_aggregate";
 			status: "success" | "error";
 			timeTakenMs?: number | null;
 			rowCount?: number | null;

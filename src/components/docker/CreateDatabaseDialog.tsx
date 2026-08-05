@@ -1,5 +1,16 @@
-import { useEffect, useState } from "react";
+import {
+	type ComponentType,
+	type SVGProps,
+	useEffect,
+	useState,
+} from "react";
 import { toast } from "sonner";
+import { ClickhouseIcon } from "@/components/icons/clickhouse";
+import { MariadbIcon } from "@/components/icons/mariadb";
+import { MongodbIcon } from "@/components/icons/mongodb";
+import { MysqlIcon } from "@/components/icons/mysql";
+import { PostgresqlIcon } from "@/components/icons/postgres";
+import { RedisIcon } from "@/components/icons/redis";
 import {
 	Dialog,
 	DialogContent,
@@ -23,7 +34,34 @@ import {
 	api,
 	DOCKER_DATABASE_ENGINES,
 	type Connection,
+	type DockerDatabaseEngine,
 } from "@/lib/tauri";
+
+const DATABASE_ENGINE_ICONS = {
+	postgres: PostgresqlIcon,
+	mysql: MysqlIcon,
+	mariadb: MariadbIcon,
+	redis: RedisIcon,
+	clickhouse: ClickhouseIcon,
+	mongodb: MongodbIcon,
+} satisfies Record<
+	DockerDatabaseEngine,
+	ComponentType<SVGProps<SVGSVGElement>>
+>;
+
+function DatabaseEngineIcon({ engine }: { engine: DockerDatabaseEngine }) {
+	const Icon = DATABASE_ENGINE_ICONS[engine];
+	return (
+		<Icon
+			aria-hidden="true"
+			className={
+				engine === "mongodb"
+					? "size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+					: "size-4 shrink-0"
+			}
+		/>
+	);
+}
 
 interface CreateDatabaseDialogProps {
 	open: boolean;
@@ -93,11 +131,15 @@ export function CreateDatabaseDialog({
 							}}
 						>
 							<SelectTrigger id="docker-engine" className="w-full">
-								<SelectValue>{engine.label}</SelectValue>
+								<SelectValue>
+									<DatabaseEngineIcon engine={engine.value} />
+									{engine.label}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{DOCKER_DATABASE_ENGINES.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
+										<DatabaseEngineIcon engine={option.value} />
 										{option.label}
 									</SelectItem>
 								))}

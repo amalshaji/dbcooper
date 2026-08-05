@@ -1,31 +1,18 @@
-use crate::ai::{self, AiHarnessStatus, AiStatus, TableSchema};
+use crate::ai::{self, AiHarnessStatus, AiStatus, QueryGenerationContext};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub async fn generate_sql(
+pub async fn generate_query(
     app: AppHandle,
     pool: State<'_, SqlitePool>,
     session_id: String,
-    db_type: String,
     instruction: String,
-    existing_sql: String,
-    tables: Vec<TableSchema>,
+    context: QueryGenerationContext,
 ) -> Result<(), String> {
-    println!("[AI] Starting SQL generation for session: {}", session_id);
-    println!("[AI] DB type: {}", db_type);
-    println!("[AI] Tables count: {}", tables.len());
+    println!("[AI] Starting query generation for session: {}", session_id);
 
-    ai::generate_sql(
-        app,
-        pool.inner(),
-        session_id,
-        db_type,
-        instruction,
-        existing_sql,
-        tables,
-    )
-    .await
+    ai::generate_query(app, pool.inner(), session_id, instruction, context).await
 }
 
 #[tauri::command]

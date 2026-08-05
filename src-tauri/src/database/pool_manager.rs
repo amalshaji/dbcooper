@@ -17,6 +17,7 @@ const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 use super::driver_factory::create_driver_with_ssh;
 pub use super::driver_factory::DriverConfig as ConnectionConfig;
+use super::mongodb::MongoDriver;
 use super::mutation::MutationPlan;
 use super::{DatabaseDriver, DatabaseType};
 use crate::db::models::{
@@ -36,7 +37,7 @@ pub enum ConnectionStatus {
 
 /// Entry in the connection pool
 struct PoolEntry {
-    driver: Arc<Box<dyn DatabaseDriver>>,
+    connection: PooledConnection,
     config: ConnectionConfig,
     status: ConnectionStatus,
     /// Interior-mutable so it can be refreshed on each cache hit (read lock) and
@@ -47,8 +48,53 @@ struct PoolEntry {
     ssh_tunnel: Option<SshTunnel>,
 }
 
+#[derive(Clone)]
+pub enum PooledConnection {
+    Tabular(Arc<Box<dyn DatabaseDriver>>),
+    Mongo(Arc<MongoDriver>),
+    #[cfg(test)]
+    Test {
+        activity: Arc<()>,
+        shutdowns: Arc<std::sync::atomic::AtomicUsize>,
+    },
+}
+
+impl PooledConnection {
+    async fn test_connection(&self) -> Result<TestConnectionResult, String> {
+        match self {
+            Self::Tabular(driver) => driver.test_connection().await,
+            Self::Mongo(driver) => driver.ping().await,
+            #[cfg(test)]
+            Self::Test { .. } => Ok(TestConnectionResult {
+                success: true,
+                message: "Connected successfully".to_string(),
+            }),
+        }
+    }
+
+    async fn shutdown(&self) {
+        match self {
+            Self::Mongo(driver) => driver.shutdown().await,
+            #[cfg(test)]
+            Self::Test { shutdowns, .. } => {
+                shutdowns.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            Self::Tabular(_) => {}
+        }
+    }
+
+    fn strong_count(&self) -> usize {
+        match self {
+            Self::Tabular(driver) => Arc::strong_count(driver),
+            Self::Mongo(driver) => Arc::strong_count(driver),
+            #[cfg(test)]
+            Self::Test { activity, .. } => Arc::strong_count(activity),
+        }
+    }
+}
+
 fn should_keep_entry(entry: &PoolEntry) -> bool {
-    if Arc::strong_count(&entry.driver) > 1 {
+    if entry.connection.strong_count() > 1 {
         if let Ok(mut last_used) = entry.last_used.lock() {
             *last_used = Instant::now();
         }
@@ -60,6 +106,34 @@ fn should_keep_entry(entry: &PoolEntry) -> bool {
         .lock()
         .map(|last_used| last_used.elapsed() < IDLE_TIMEOUT)
         .unwrap_or(true)
+}
+
+fn take_idle_entries(pools: &mut HashMap<String, PoolEntry>) -> Vec<(String, PoolEntry)> {
+    let expired = pools
+        .iter()
+        .filter_map(|(uuid, entry)| (!should_keep_entry(entry)).then_some(uuid.clone()))
+        .collect::<Vec<_>>();
+    expired
+        .into_iter()
+        .filter_map(|uuid| pools.remove(&uuid).map(|entry| (uuid, entry)))
+        .collect()
+}
+
+async fn shutdown_entries(entries: impl IntoIterator<Item = PoolEntry>) {
+    for entry in entries {
+        entry.connection.shutdown().await;
+    }
+}
+
+async fn replace_pool_entry(
+    pools: &RwLock<HashMap<String, PoolEntry>>,
+    uuid: &str,
+    entry: PoolEntry,
+) {
+    let replaced = pools.write().await.insert(uuid.to_string(), entry);
+    if let Some(replaced) = replaced {
+        replaced.connection.shutdown().await;
+    }
 }
 
 /// Connection pool manager
@@ -92,14 +166,14 @@ impl PoolManager {
             let mut ticker = tokio::time::interval(IDLE_CHECK_INTERVAL);
             loop {
                 ticker.tick().await;
-                let mut pools = pools.write().await;
-                pools.retain(|uuid, entry| {
-                    let keep = should_keep_entry(entry);
-                    if !keep {
-                        println!("[Pool] Evicting idle connection {}", uuid);
-                    }
-                    keep
-                });
+                let expired = {
+                    let mut pools = pools.write().await;
+                    take_idle_entries(&mut pools)
+                };
+                for (uuid, _) in &expired {
+                    println!("[Pool] Evicting idle connection {}", uuid);
+                }
+                shutdown_entries(expired.into_iter().map(|(_, entry)| entry)).await;
             }
         });
     }
@@ -144,11 +218,7 @@ impl PoolManager {
     }
 
     /// Explicitly connect (or reconnect) a connection
-    pub async fn connect(
-        &self,
-        uuid: &str,
-        config: ConnectionConfig,
-    ) -> Result<Arc<Box<dyn DatabaseDriver>>, String> {
+    pub async fn connect(&self, uuid: &str, config: ConnectionConfig) -> Result<(), String> {
         // Update status to reconnecting if entry exists
         {
             let mut pools = self.pools.write().await;
@@ -157,12 +227,27 @@ impl PoolManager {
             }
         }
 
-        // Create new driver (with optional SSH tunnel)
-        let (driver, ssh_tunnel) = create_driver_with_ssh(&config).await?;
-        let driver = Arc::new(driver);
+        let engine = DatabaseType::try_from(config.db_type.as_str())?;
+        let (connection, ssh_tunnel) = if engine == DatabaseType::Mongo {
+            if config.ssh_enabled {
+                return Err("SSH tunnels are not supported for MongoDB".to_string());
+            }
+            let uri = config
+                .connection_uri
+                .clone()
+                .filter(|uri| !uri.trim().is_empty())
+                .ok_or_else(|| "MongoDB connection URI is required".to_string())?;
+            (
+                PooledConnection::Mongo(Arc::new(MongoDriver::connect(uri).await?)),
+                None,
+            )
+        } else {
+            let (driver, tunnel) = create_driver_with_ssh(&config).await?;
+            (PooledConnection::Tabular(Arc::new(driver)), tunnel)
+        };
 
         // Test the connection
-        let test_result = driver.test_connection().await?;
+        let test_result = connection.test_connection().await?;
 
         let status = if test_result.success {
             ConnectionStatus::Connected
@@ -171,7 +256,7 @@ impl PoolManager {
         };
 
         let entry = PoolEntry {
-            driver: driver.clone(),
+            connection,
             config,
             status: status.clone(),
             last_used: std::sync::Mutex::new(Instant::now()),
@@ -183,14 +268,10 @@ impl PoolManager {
             ssh_tunnel,
         };
 
-        // Store in pool
-        {
-            let mut pools = self.pools.write().await;
-            pools.insert(uuid.to_string(), entry);
-        }
+        replace_pool_entry(&self.pools, uuid, entry).await;
 
         if status == ConnectionStatus::Connected {
-            Ok(driver)
+            Ok(())
         } else {
             Err(test_result.message)
         }
@@ -204,8 +285,10 @@ impl PoolManager {
     }
 
     pub(crate) async fn disconnect_locked(&self, uuid: &str) {
-        let mut pools = self.pools.write().await;
-        pools.remove(uuid);
+        let removed = self.pools.write().await.remove(uuid);
+        if let Some(entry) = removed {
+            entry.connection.shutdown().await;
+        }
     }
 
     /// Get the current status of a connection
@@ -225,14 +308,14 @@ impl PoolManager {
 
     /// Perform a health check on a connection
     pub async fn health_check(&self, uuid: &str) -> Result<TestConnectionResult, String> {
-        let driver = {
+        let connection = {
             let pools = self.pools.read().await;
-            pools.get(uuid).map(|e| e.driver.clone())
+            pools.get(uuid).map(|e| e.connection.clone())
         };
 
-        match driver {
-            Some(driver) => {
-                let result = driver.test_connection().await?;
+        match connection {
+            Some(connection) => {
+                let result = connection.test_connection().await?;
 
                 // Update status based on result
                 {
@@ -260,17 +343,44 @@ impl PoolManager {
         }
     }
 
-    /// Get a cached driver if it exists (without creating new connection).
+    /// Get a cached connection if it exists (without creating a new connection).
     /// Refreshes the entry's last-used time so the idle reaper keeps connections
     /// that are actively in use.
-    pub async fn get_cached(&self, uuid: &str) -> Option<Arc<Box<dyn DatabaseDriver>>> {
+    pub async fn get_cached(&self, uuid: &str) -> Option<PooledConnection> {
         let pools = self.pools.read().await;
         pools.get(uuid).map(|e| {
             if let Ok(mut t) = e.last_used.lock() {
                 *t = Instant::now();
             }
-            e.driver.clone()
+            e.connection.clone()
         })
+    }
+
+    pub async fn get_database_driver(
+        &self,
+        uuid: &str,
+    ) -> Result<Arc<Box<dyn DatabaseDriver>>, String> {
+        match self.get_cached(uuid).await {
+            Some(PooledConnection::Tabular(driver)) => Ok(driver),
+            Some(PooledConnection::Mongo(_)) => {
+                Err("This operation is not supported for MongoDB connections".to_string())
+            }
+            #[cfg(test)]
+            Some(PooledConnection::Test { .. }) => Err("Test connection has no driver".to_string()),
+            None => Err("Connection not found. Please connect first.".to_string()),
+        }
+    }
+
+    pub async fn get_mongo_driver(&self, uuid: &str) -> Result<Arc<MongoDriver>, String> {
+        match self.get_cached(uuid).await {
+            Some(PooledConnection::Mongo(driver)) => Ok(driver),
+            Some(PooledConnection::Tabular(_)) => {
+                Err("This operation requires a MongoDB connection".to_string())
+            }
+            #[cfg(test)]
+            Some(PooledConnection::Test { .. }) => Err("Test connection has no driver".to_string()),
+            None => Err("Connection not found. Please connect first.".to_string()),
+        }
     }
 
     /// Get config for a cached connection
@@ -288,10 +398,7 @@ impl PoolManager {
 
     /// List tables using the pooled connection
     pub async fn list_tables(&self, uuid: &str) -> Result<Vec<TableInfo>, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.list_tables().await
     }
 
@@ -300,10 +407,7 @@ impl PoolManager {
         uuid: &str,
         request: &CreateTableRequest,
     ) -> Result<String, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.preview_create_table(request)
     }
 
@@ -312,10 +416,7 @@ impl PoolManager {
         uuid: &str,
         request: &CreateTableRequest,
     ) -> Result<TableInfo, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.create_table(request).await
     }
 
@@ -331,10 +432,7 @@ impl PoolManager {
         sort_column: Option<String>,
         sort_direction: Option<String>,
     ) -> Result<TableDataResponse, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver
             .get_table_data(
                 schema,
@@ -355,19 +453,13 @@ impl PoolManager {
         schema: &str,
         table: &str,
     ) -> Result<TableStructure, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.get_table_structure(schema, table).await
     }
 
     /// Execute query using the pooled connection
     pub async fn execute_query(&self, uuid: &str, query: &str) -> Result<QueryResult, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.execute_query(query).await
     }
 
@@ -376,10 +468,7 @@ impl PoolManager {
         uuid: &str,
         mutation: &MutationPlan,
     ) -> Result<QueryResult, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.execute_mutation(mutation).await
     }
 
@@ -389,10 +478,7 @@ impl PoolManager {
         uuid: &str,
         query: &str,
     ) -> Result<QueryResult, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
         driver.execute_query_read_only(query).await
     }
 
@@ -401,10 +487,7 @@ impl PoolManager {
         &self,
         uuid: &str,
     ) -> Result<crate::db::models::SchemaOverview, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
 
         driver.get_schema_overview().await
     }
@@ -417,10 +500,7 @@ impl PoolManager {
         name: &str,
         identity_args: &str,
     ) -> Result<FunctionDefinition, String> {
-        let driver = self
-            .get_cached(uuid)
-            .await
-            .ok_or_else(|| "Connection not found. Please connect first.".to_string())?;
+        let driver = self.get_database_driver(uuid).await?;
 
         driver
             .get_function_definition(schema, name, identity_args)
@@ -446,7 +526,7 @@ mod tests {
             })));
 
         PoolEntry {
-            driver,
+            connection: PooledConnection::Tabular(driver),
             config: ConnectionConfig {
                 db_type: "redis".to_string(),
                 host: Some("localhost".to_string()),
@@ -456,6 +536,7 @@ mod tests {
                 password: None,
                 ssl: Some(false),
                 file_path: None,
+                connection_uri: None,
                 ssh_enabled: false,
                 ssh_host: None,
                 ssh_port: None,
@@ -481,10 +562,43 @@ mod tests {
     #[test]
     fn retains_an_expired_entry_while_an_operation_holds_the_driver() {
         let entry = expired_entry();
-        let _active_driver = Arc::clone(&entry.driver);
+        let _active_connection = entry.connection.clone();
 
         assert!(should_keep_entry(&entry));
         assert!(entry.last_used.lock().unwrap().elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn idle_eviction_runs_connection_shutdown_after_removal() {
+        let shutdowns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut entry = expired_entry();
+        entry.connection = PooledConnection::Test {
+            activity: Arc::new(()),
+            shutdowns: shutdowns.clone(),
+        };
+        let mut pools = HashMap::from([("connection-1".to_string(), entry)]);
+
+        let expired = take_idle_entries(&mut pools);
+        assert!(pools.is_empty());
+        shutdown_entries(expired.into_iter().map(|(_, entry)| entry)).await;
+
+        assert_eq!(shutdowns.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn reconnect_shuts_down_the_replaced_connection() {
+        let shutdowns = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut previous = expired_entry();
+        previous.connection = PooledConnection::Test {
+            activity: Arc::new(()),
+            shutdowns: shutdowns.clone(),
+        };
+        let pools = RwLock::new(HashMap::from([("connection-1".to_string(), previous)]));
+
+        replace_pool_entry(&pools, "connection-1", expired_entry()).await;
+
+        assert_eq!(shutdowns.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(pools.read().await.contains_key("connection-1"));
     }
 
     #[tokio::test]
