@@ -9,8 +9,10 @@ import type {
 if (!globalThis.document) GlobalRegistrator.register();
 
 const findRequests: MongoFindRequest[] = [];
+const aggregateRequests: Array<Record<string, unknown>> = [];
 const historyRecords: Array<Record<string, unknown>> = [];
 const createdCollections: Array<{ database: string; collection: string }> = [];
+const replacedDocuments: Array<Record<string, unknown>> = [];
 const defaultCatalog: MongoDatabaseInfo[] = [
 	{
 		name: "app",
@@ -33,8 +35,12 @@ mock.module("../../lib/tauri", () => ({
 				findRequests.push(request);
 				return findHandler();
 			},
-			aggregate: async () => {
-				throw new Error("not used");
+			aggregate: async (
+				_uuid: string,
+				request: Record<string, unknown>,
+			) => {
+				aggregateRequests.push(request);
+				return findHandler();
 			},
 			createCollection: async (
 				_uuid: string,
@@ -42,6 +48,12 @@ mock.module("../../lib/tauri", () => ({
 				collection: string,
 			) => {
 				createdCollections.push({ database, collection });
+			},
+			replaceOne: async (
+				_uuid: string,
+				request: Record<string, unknown>,
+			) => {
+				replacedDocuments.push(request);
 			},
 		},
 		queries: {
@@ -62,8 +74,10 @@ const { useMongoWorkbench } = await import("./useMongoWorkbench");
 afterEach(() => {
 	cleanup();
 	findRequests.length = 0;
+	aggregateRequests.length = 0;
 	historyRecords.length = 0;
 	createdCollections.length = 0;
+	replacedDocuments.length = 0;
 	catalogResponse = defaultCatalog;
 	findHandler = async () => ({
 		documents: [{ _id: 1, name: "Ada" }],
@@ -167,6 +181,46 @@ test("loads the first namespace and records the exact query specification it run
 	expect(JSON.parse(String(historyRecords[0].query))).toMatchObject(
 		findRequests[0],
 	);
+});
+
+test("keeps projected query results read-only so saving cannot replace a partial document", async () => {
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(result.current.result?.returned_count).toBe(1));
+	act(() => {
+		result.current.actions.setEditor({
+			type: "find",
+			filter: "{}",
+			projection: '{"name": 1}',
+			sort: "{}",
+			limit: 100,
+		});
+	});
+	await act(async () => result.current.actions.run());
+
+	expect(result.current.canMutateSelectedDocument).toBe(false);
+	await act(async () => result.current.actions.saveDocument());
+	expect(replacedDocuments).toHaveLength(0);
+});
+
+test("keeps aggregation results read-only even when they contain an _id", async () => {
+	const { result } = renderHook(() => useMongoWorkbench("connection-1"));
+
+	await waitFor(() => expect(result.current.result?.returned_count).toBe(1));
+	act(() => {
+		result.current.actions.setEditor({
+			type: "aggregate",
+			pipeline: '[]',
+			limit: 100,
+		});
+		result.current.actions.setMode("aggregate");
+	});
+	await act(async () => result.current.actions.run());
+
+	expect(aggregateRequests).toHaveLength(1);
+	expect(result.current.canMutateSelectedDocument).toBe(false);
+	await act(async () => result.current.actions.saveDocument());
+	expect(replacedDocuments).toHaveLength(0);
 });
 
 test("restores a history query without executing or recording it again", async () => {

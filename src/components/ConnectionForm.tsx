@@ -16,7 +16,11 @@ import { Input } from "@/components/ui/input";
 import { D1ConnectionFields } from "@/components/connections/D1ConnectionFields";
 import { ConnectionTypeSelect } from "@/components/connections/ConnectionTypeSelect";
 import { MongoConnectionFields } from "@/components/connections/MongoConnectionFields";
-import { mergeD1ConnectionFields } from "@/lib/connectionFormState";
+import {
+	connectionToFormData,
+	DEFAULT_CONNECTION_FORM_DATA,
+	mergeD1ConnectionFields,
+} from "@/lib/connectionFormState";
 import { toast } from "sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
@@ -34,26 +38,6 @@ interface ConnectionFormProps {
 	isOpen: boolean;
 	initialData?: Connection | null;
 }
-
-const defaultFormData: ConnectionFormData = {
-	type: "postgres",
-	name: "",
-	host: "localhost",
-	port: 5432,
-	database: "",
-	username: "",
-	password: "",
-	ssl: false,
-	file_path: undefined,
-	connection_uri: "mongodb://localhost:27017/dbcooper",
-	ssh_enabled: false,
-	ssh_host: "",
-	ssh_port: 22,
-	ssh_user: "",
-	ssh_password: "",
-	ssh_key_path: "",
-	ssh_use_key: false,
-};
 
 function connectionForTest(data: ConnectionFormData): StandardConnection {
 	if (data.type === "mongodb") {
@@ -92,7 +76,9 @@ export function ConnectionForm({
 	isOpen,
 	initialData,
 }: ConnectionFormProps) {
-	const [formData, setFormData] = useState<ConnectionFormData>(defaultFormData);
+	const [formData, setFormData] = useState<ConnectionFormData>(
+		DEFAULT_CONNECTION_FORM_DATA,
+	);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isTesting, setIsTesting] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
@@ -108,35 +94,9 @@ export function ConnectionForm({
 
 	useEffect(() => {
 		if (initialData) {
-			setFormData(
-				initialData.type === "mongodb"
-					? {
-							...defaultFormData,
-							type: "mongodb",
-							name: initialData.name,
-							connection_uri: initialData.connection_uri,
-						}
-					: {
-							type: initialData.type || "postgres",
-							name: initialData.name,
-							host: initialData.host,
-							port: initialData.port,
-							database: initialData.database,
-							username: initialData.username,
-							password: initialData.password,
-							ssl: initialData.ssl === 1,
-							file_path: initialData.file_path || undefined,
-							ssh_enabled: initialData.ssh_enabled === 1,
-							ssh_host: initialData.ssh_host || "",
-							ssh_port: initialData.ssh_port || 22,
-							ssh_user: initialData.ssh_user || "",
-							ssh_password: initialData.ssh_password || "",
-							ssh_key_path: initialData.ssh_key_path || "",
-							ssh_use_key: initialData.ssh_use_key === 1,
-						},
-			);
+			setFormData(connectionToFormData(initialData));
 		} else {
-			setFormData(defaultFormData);
+			setFormData(DEFAULT_CONNECTION_FORM_DATA);
 		}
 		setDuckDbHelperProgress(null);
 	}, [initialData, isOpen]);
@@ -215,7 +175,7 @@ export function ConnectionForm({
 		try {
 			await onSubmit(formData);
 			if (!isEditMode) {
-				setFormData(defaultFormData);
+				setFormData(DEFAULT_CONNECTION_FORM_DATA);
 			}
 		} finally {
 			setIsSubmitting(false);

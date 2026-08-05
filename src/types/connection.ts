@@ -17,20 +17,14 @@ interface ConnectionBase {
 	updated_at: string;
 }
 
-export type StandardConnectionType = Exclude<ConnectionType, "mongodb">;
-export type SqlConnectionType = Exclude<StandardConnectionType, "redis">;
-
-export interface StandardConnection extends ConnectionBase {
-	type: StandardConnectionType;
+interface PersistedConnectionFields {
 	host: string;
 	port: number;
 	database: string;
 	username: string;
 	password: string;
 	ssl: number;
-	db_type: StandardConnectionType;
 	file_path: string | null;
-	connection_uri?: null;
 	ssh_enabled: number;
 	ssh_host: string;
 	ssh_port: number;
@@ -40,7 +34,20 @@ export interface StandardConnection extends ConnectionBase {
 	ssh_use_key: number;
 }
 
-export interface MongoConnection extends ConnectionBase {
+export type StandardConnectionType = Exclude<ConnectionType, "mongodb">;
+export type SqlConnectionType = Exclude<StandardConnectionType, "redis">;
+
+export interface StandardConnection
+	extends ConnectionBase,
+		PersistedConnectionFields {
+	type: StandardConnectionType;
+	db_type: StandardConnectionType;
+	connection_uri?: null;
+}
+
+export interface MongoConnection
+	extends ConnectionBase,
+		PersistedConnectionFields {
 	type: "mongodb";
 	db_type: "mongodb";
 	connection_uri: string;

@@ -147,8 +147,7 @@ export function MongoDocumentBrowser({
 						: workbench.selectedDocument
 							? "Document"
 							: "Inspector"}
-					{!workbench.namespaceReadOnly &&
-						(workbench.inspector.isNew || workbench.selectedDocument) && (
+					{workbench.canEditDocument && (
 							<>
 								<Button
 									className="ml-auto"
@@ -160,7 +159,7 @@ export function MongoDocumentBrowser({
 									<FloppyDisk />
 									{workbench.inspector.isNew ? "Insert" : "Save"}
 								</Button>
-								{workbench.selectedDocument && (
+								{workbench.canMutateSelectedDocument && (
 									<Button
 										size="icon-xs"
 										variant="ghost"
@@ -179,10 +178,7 @@ export function MongoDocumentBrowser({
 					value={workbench.inspector.documentText}
 					height="100%"
 					onChange={workbench.actions.setDocumentText}
-					editable={
-						!workbench.namespaceReadOnly &&
-						(workbench.inspector.isNew || Boolean(workbench.selectedDocument))
-					}
+					editable={workbench.canEditDocument}
 					ariaLabel="MongoDB document"
 				/>
 			</aside>

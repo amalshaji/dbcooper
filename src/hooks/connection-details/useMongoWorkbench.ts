@@ -47,6 +47,12 @@ interface InspectorState {
 	isNew: boolean;
 }
 
+interface QueryResultState {
+	page: MongoDocumentPage;
+	namespace: MongoNamespace;
+	allowsDocumentMutations: boolean;
+}
+
 function parseDocument(value: string): JsonObject {
 	const parsed: unknown = JSON.parse(value);
 	if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
@@ -68,10 +74,9 @@ export function useMongoWorkbench(uuid: string) {
 		aggregate: DEFAULT_AGGREGATE_EDITOR,
 	});
 	const editor = editorSession[editorSession.mode];
-	const [result, setResult] = useState<MongoDocumentPage | null>(null);
-	const [resultNamespace, setResultNamespace] = useState<MongoNamespace | null>(
-		null,
-	);
+	const [queryResult, setQueryResult] = useState<QueryResultState | null>(null);
+	const result = queryResult?.page ?? null;
+	const resultNamespace = queryResult?.namespace ?? null;
 	const [inspector, setInspector] = useState<InspectorState>({
 		selectedIndex: null,
 		documentText: "{}",
@@ -100,6 +105,12 @@ export function useMongoWorkbench(uuid: string) {
 		inspector.selectedIndex === null
 			? null
 			: (result?.documents[inspector.selectedIndex] ?? null);
+	const canMutateSelectedDocument =
+		!namespaceReadOnly &&
+		Boolean(selectedDocument) &&
+		Boolean(queryResult?.allowsDocumentMutations);
+	const canEditDocument =
+		!namespaceReadOnly && (inspector.isNew || canMutateSelectedDocument);
 
 	useEffect(() => {
 		if (selectedDocument && !inspector.isNew) {
@@ -175,8 +186,12 @@ export function useMongoWorkbench(uuid: string) {
 				rowCount: next.returned_count,
 			});
 			if (!requests.current.isLatest(request)) return;
-			setResult(next);
-			setResultNamespace(namespace);
+			setQueryResult({
+				page: next,
+				namespace,
+				allowsDocumentMutations:
+					spec.type === "find" && Object.keys(spec.projection).length === 0,
+			});
 			setInspector((current) => ({
 				...current,
 				selectedIndex: next.documents.length > 0 ? 0 : null,
@@ -235,8 +250,7 @@ export function useMongoWorkbench(uuid: string) {
 				[nextEditor.type]: nextEditor,
 			}));
 			setEditorLoadRevision((current) => current + 1);
-			setResult(null);
-			setResultNamespace(null);
+			setQueryResult(null);
 			setLoading(false);
 			setInspector({
 				selectedIndex: null,
@@ -261,8 +275,7 @@ export function useMongoWorkbench(uuid: string) {
 			await refreshCatalog();
 			requests.current.invalidate("query");
 			setLoading(false);
-			setResult(null);
-			setResultNamespace(null);
+			setQueryResult(null);
 			setExpanded((current) => new Set(current).add(database));
 			setEditorSession((current) => ({ ...current, mode: "find" }));
 			setNamespace({ database, collection });
@@ -282,15 +295,18 @@ export function useMongoWorkbench(uuid: string) {
 		requests.current.invalidate("query");
 		setLoading(false);
 		setNamespace((current) => ({ ...current, collection: "" }));
-		setResult(null);
-		setResultNamespace(null);
+		setQueryResult(null);
 		await refreshCatalog();
 	}, [namespace, namespaceReadOnly, refreshCatalog, uuid]);
 
 	const saveDocument = useCallback(async () => {
 		try {
-			if (namespaceReadOnly) {
-				throw new Error("MongoDB system collections are read-only in DBcooper");
+			if (!canEditDocument) {
+				throw new Error(
+					namespaceReadOnly
+						? "MongoDB system collections are read-only in DBcooper"
+						: "Only complete documents from unprojected find results can be replaced",
+				);
 			}
 			const document = parseDocument(inspector.documentText);
 			if (inspector.isNew) {
@@ -305,14 +321,24 @@ export function useMongoWorkbench(uuid: string) {
 		} catch (error) {
 			toast.error("Could not save document", { description: String(error) });
 		}
-	}, [inspector, namespace, namespaceReadOnly, run, selectedDocument, uuid]);
+	}, [
+		canEditDocument,
+		inspector,
+		namespace,
+		namespaceReadOnly,
+		run,
+		selectedDocument,
+		uuid,
+	]);
 
 	const deleteDocument = useCallback(async () => {
 		const id = selectedDocument?._id;
 		if (id === undefined) return;
 		try {
-			if (namespaceReadOnly) {
-				throw new Error("MongoDB system collections are read-only in DBcooper");
+			if (!canMutateSelectedDocument) {
+				throw new Error(
+					"Only documents from unprojected find results can be deleted",
+				);
 			}
 			await api.mongo.deleteOne(uuid, { ...namespace, id });
 			toast.success("Document deleted");
@@ -320,7 +346,7 @@ export function useMongoWorkbench(uuid: string) {
 		} catch (error) {
 			toast.error("Could not delete document", { description: String(error) });
 		}
-	}, [namespace, namespaceReadOnly, run, selectedDocument, uuid]);
+	}, [canMutateSelectedDocument, namespace, run, selectedDocument, uuid]);
 
 	return {
 		catalog,
@@ -338,6 +364,8 @@ export function useMongoWorkbench(uuid: string) {
 		editorLoadRevision,
 		showSystemCollections,
 		namespaceReadOnly,
+		canMutateSelectedDocument,
+		canEditDocument,
 		actions: {
 			setEditor: (nextEditor: MongoQueryEditor) =>
 				setEditorSession((current) => ({
@@ -364,8 +392,7 @@ export function useMongoWorkbench(uuid: string) {
 			selectCollection: (database: string, collection: string) => {
 				requests.current.invalidate("query");
 				setLoading(false);
-				setResult(null);
-				setResultNamespace(null);
+				setQueryResult(null);
 				setInspector({
 					selectedIndex: null,
 					documentText: "{}",
