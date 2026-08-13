@@ -17,17 +17,12 @@ A database client for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, ClickHo
 brew install --cask --force amalshaji/taps/dbcooper
 ```
 
-Homebrew clears the Gatekeeper quarantine automatically, so the app opens right away.
-
 ### Direct download
 
 Download the latest `.dmg` from [Releases](https://github.com/amalshaji/dbcooper/releases).
 
-**macOS users:** After installing (**before opening the app the first time**), bypass Gatekeeper since the app isn't notarized:
-```bash
-xattr -cr /Applications/DBcooper.app
-```
-Then you can open the app normally.
+Stable macOS releases are signed and notarized by Apple, so they can be installed
+and opened normally without bypassing Gatekeeper.
 
 ## Features
 
@@ -129,18 +124,22 @@ The AI receives your instruction, existing editor SQL, and selected table/column
 The app is configured to build for macOS ARM (Apple Silicon). The build process:
 
 1. Creates optimized production bundles
-2. Signs the app with your signing key
-3. Generates updater artifacts
+2. Signs the app with a Developer ID certificate and submits it to Apple for notarization
+3. Staples the notarization ticket to the app bundle
+4. Generates signed updater artifacts
 
 ## Releases
 
 Releases are automated via GitHub Actions. To publish a new version:
 
 1. Update `version` in `src-tauri/tauri.conf.json`
-2. Open a PR and add the `release` label
-3. Merge the PR into `main`
-4. GitHub Actions will create and push the tag (e.g., `v0.0.42`), then build a draft release
-5. Review and publish the release
+2. Prepare the release notes in `RELEASE_NOTES.md`
+3. Open a focused PR, add the `release` label, and wait for all checks to pass
+4. Merge the PR into `main`
+5. Confirm GitHub Actions created the version tag at the release merge commit and built a draft release
+6. Replace the draft's generic body with `RELEASE_NOTES.md`
+7. Validate the DMG, updater archive, signature, and `latest.json`, then smoke-test installation and the in-app update from the previous stable version on a clean supported Mac
+8. Publish the draft and verify the Homebrew cask update and a fresh installation or upgrade
 
 ### Canary releases
 
@@ -157,8 +156,13 @@ the next newer stable release instead of downgrading.
 
 Set these in your GitHub repository settings:
 
-- `TAURI_SIGNING_PRIVATE_KEY` - Contents of your signing key file
-- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Password (if set)
+- `APPLE_CERTIFICATE` - Base64-encoded Developer ID Application certificate (`.p12`)
+- `APPLE_CERTIFICATE_PASSWORD` - Password for the certificate archive
+- `APPLE_ID` - Apple ID used to submit the app for notarization
+- `APPLE_PASSWORD` - App-specific password for the Apple ID
+- `APPLE_TEAM_ID` - Apple Developer team identifier
+- `TAURI_SIGNING_PRIVATE_KEY` - Contents of the Tauri updater signing key file
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Password for the updater signing key
 
 ## License
 
