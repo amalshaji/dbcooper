@@ -606,26 +606,32 @@ async fn cleanup_linked_resources(pool: &SqlitePool, link: &DockerLink) -> Resul
     }
 }
 
-pub async fn stop_created_databases(pool: &SqlitePool) {
-    let Ok(links) = store::get_created_links(pool).await else {
-        return;
-    };
-    let Ok(context) = cli::current_context().await else {
-        return;
-    };
+pub async fn stop_created_databases(pool: &SqlitePool) -> Result<(), String> {
+    let links = store::get_created_links(pool)
+        .await
+        .map_err(|error| format!("Failed to load managed databases: {error}"))?;
+    if links.is_empty() {
+        return Ok(());
+    }
+    let context = cli::current_context()
+        .await
+        .map_err(|error| format!("Failed to read the Docker context: {error}"))?;
     let container_ids = links
         .into_iter()
         .filter(|link| link.docker_context.is_empty() || link.docker_context == context)
         .map(|link| link.container_id)
         .collect::<Vec<_>>();
-    let _ = cli::stop_containers(&container_ids).await;
+    cli::stop_containers(&container_ids)
+        .await
+        .map_err(|error| format!("Failed to stop managed databases: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{mongodb_link_connection_uri, saved_connection_string};
+    use super::{mongodb_link_connection_uri, saved_connection_string, stop_created_databases};
     use crate::db::models::Connection;
     use crate::docker::model::DockerDatabaseEngine;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     fn mongodb_connection(connection_uri: Option<&str>) -> Connection {
         Connection {
@@ -711,5 +717,18 @@ mod tests {
             saved_connection_string(&connection, DockerDatabaseEngine::Mongodb),
             "mongodb://dbcooper:secret@127.0.0.1:27017/app?authSource=admin&directConnection=true"
         );
+    }
+
+    #[tokio::test]
+    async fn managed_database_stop_reports_store_errors() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        let error = stop_created_databases(&pool).await.unwrap_err();
+
+        assert!(error.contains("docker_connections"));
     }
 }

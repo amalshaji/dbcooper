@@ -60,6 +60,10 @@ const NEW_WINDOW_MENU_ID: &str = "new_window";
 const CLOSE_TAB_MENU_ID: &str = "close_tab";
 const CLOSE_WINDOW_MENU_ID: &str = "close_window";
 
+fn should_stop_created_databases(event: &tauri::RunEvent) -> bool {
+    matches!(event, tauri::RunEvent::Exit)
+}
+
 fn create_new_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
     let label = format!("window-{}", uuid::Uuid::new_v4());
 
@@ -342,9 +346,23 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
-        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+        if should_stop_created_databases(&event) {
             let pool = app_handle.state::<sqlx::SqlitePool>().inner().clone();
-            tauri::async_runtime::block_on(docker::stop_created_databases(&pool));
+            if let Err(error) =
+                tauri::async_runtime::block_on(docker::stop_created_databases(&pool))
+            {
+                eprintln!("Failed to stop DBcooper-managed databases: {error}");
+            }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_stop_created_databases;
+
+    #[test]
+    fn stops_managed_databases_when_event_loop_exits() {
+        assert!(should_stop_created_databases(&tauri::RunEvent::Exit));
+    }
 }
