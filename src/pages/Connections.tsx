@@ -354,7 +354,7 @@ export function Connections() {
 							<EmptyState
 								title="No connections yet"
 								icon={<Database />}
-								description="Create a local workspace for PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
+								description="Create a local workspace for PostgreSQL, MySQL, MariaDB, MongoDB, SQLite, DuckDB, Redis, or ClickHouse. Credentials stay on this Mac."
 								actions={[
 									{
 										label: "Create database",

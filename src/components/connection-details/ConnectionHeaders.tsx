@@ -4,7 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import type { Connection } from "@/lib/tauri";
-import { getConnectionDisplayEndpoint } from "@/lib/connectionCapabilities";
+import {
+	getConnectionCapabilities,
+	getConnectionDisplayEndpoint,
+} from "@/lib/connectionCapabilities";
 import type { SqlConnection } from "@/types/connection";
 
 interface ConnectionHeaderProps<TConnection extends Connection = Connection> {
@@ -48,8 +51,8 @@ export function ConnectionHeader({
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-					{connection.type}
+				<Badge variant="secondary" className="h-5 px-2 text-[10px]">
+					{getConnectionCapabilities(connection.type).label}
 				</Badge>
 				<Badge
 					variant={connection.ssl ? "default" : "secondary"}
@@ -101,8 +104,8 @@ export function ConnectionWorkspaceHeader({
 					onReconnect={onReconnect}
 					onStatusChange={onStatusChange}
 				/>
-				<Badge variant="secondary" className="h-5 px-2 text-[10px] capitalize">
-					{connection.type}
+				<Badge variant="secondary" className="h-5 px-2 text-[10px]">
+					{getConnectionCapabilities(connection.type).label}
 				</Badge>
 				<Button
 					variant="ghost"
