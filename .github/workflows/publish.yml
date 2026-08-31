@@ -105,3 +105,29 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: '--target aarch64-apple-darwin'
+
+      - name: Notarize and staple DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          dmg_path="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/DBcooper_${version}_aarch64.dmg"
+
+          if [ ! -f "$dmg_path" ]; then
+            echo "Error: expected DMG at $dmg_path"
+            exit 1
+          fi
+
+          xcrun notarytool submit "$dmg_path" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$dmg_path"
+          xcrun stapler validate "$dmg_path"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg_path"
+          gh release upload "$RELEASE_TAG" "$dmg_path" --clobber
