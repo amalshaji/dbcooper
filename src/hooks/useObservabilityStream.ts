@@ -97,6 +97,19 @@ export function useObservabilityStream({
 		let pendingFrame: number | null = null;
 		let pendingDeliveries: PendingDelivery[] = [];
 		const onEvent = new Channel<unknown>();
+		const applyDeliveries = (
+			currentEntries: LogEntry[],
+			deliveries: PendingDelivery[],
+		) => {
+			let entries = currentEntries;
+			for (const delivery of deliveries) {
+				entries =
+					delivery.behavior === "replace"
+						? appendToLogBuffer([], delivery.entries)
+						: appendToLogBuffer(entries, delivery.entries);
+			}
+			return entries;
+		};
 		const flushEntries = () => {
 			pendingFrame = null;
 			if (
@@ -109,21 +122,15 @@ export function useObservabilityStream({
 			}
 			const deliveries = pendingDeliveries;
 			pendingDeliveries = [];
-			setStreamState((current) => {
-				let entries = current.key === streamKey ? current.entries : [];
-				for (const delivery of deliveries) {
-					entries =
-						delivery.behavior === "replace"
-							? appendToLogBuffer([], delivery.entries)
-							: appendToLogBuffer(entries, delivery.entries);
-				}
-				return {
-					key: streamKey,
-					entries,
-					status: "streaming",
-					error: current.key === streamKey ? current.error : null,
-				};
-			});
+			setStreamState((current) => ({
+				key: streamKey,
+				entries: applyDeliveries(
+					current.key === streamKey ? current.entries : [],
+					deliveries,
+				),
+				status: "streaming",
+				error: current.key === streamKey ? current.error : null,
+			}));
 		};
 		const queueEntries = (
 			entries: LogEntry[],
@@ -134,10 +141,15 @@ export function useObservabilityStream({
 				pendingFrame = requestAnimationFrame(flushEntries);
 			}
 		};
-		const cancelPendingEntries = () => {
+		const takePendingDeliveries = () => {
 			if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
 			pendingFrame = null;
+			const deliveries = pendingDeliveries;
 			pendingDeliveries = [];
+			return deliveries;
+		};
+		const cancelPendingEntries = () => {
+			takePendingDeliveries();
 		};
 		cancelPendingRef.current = cancelPendingEntries;
 
@@ -153,24 +165,32 @@ export function useObservabilityStream({
 					);
 					break;
 				case "error": {
+					const deliveries = event.recoverable
+						? []
+						: takePendingDeliveries();
 					if (!event.recoverable) {
 						terminalEventReceived = true;
-						cancelPendingEntries();
 					}
 					setStreamState((current) => ({
 						key: streamKey,
-						entries: current.key === streamKey ? current.entries : [],
+						entries: applyDeliveries(
+							current.key === streamKey ? current.entries : [],
+							deliveries,
+						),
 						status: event.recoverable ? "streaming" : "error",
 						error: event.message,
 					}));
 					break;
 				}
-				case "stopped":
+				case "stopped": {
+					const deliveries = takePendingDeliveries();
 					terminalEventReceived = true;
-					cancelPendingEntries();
 					setStreamState((current) => ({
 						key: streamKey,
-						entries: current.key === streamKey ? current.entries : [],
+						entries: applyDeliveries(
+							current.key === streamKey ? current.entries : [],
+							deliveries,
+						),
 						status: "stopped",
 						error:
 							event.reason === "disconnected"
@@ -180,6 +200,7 @@ export function useObservabilityStream({
 									: null,
 					}));
 					break;
+				}
 			}
 		};
 

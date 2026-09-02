@@ -124,6 +124,47 @@ describe("useObservabilityStream terminal event ownership", () => {
 		]);
 	});
 
+	test("keeps a queued diagnostic snapshot when terminal events arrive in the same tick", () => {
+		const { result } = renderHook(() => useObservabilityStream(options));
+		const channel = channels[0];
+
+		act(() => {
+			channel.onmessage({
+				type: "snapshot",
+				streamId: "stream-1",
+				entries: [
+					{
+						id: "final-diagnostic-line",
+						kind: "line",
+						raw: "ERROR source failed",
+						timestamp: null,
+						level: "error",
+						message: "source failed",
+						context: null,
+					},
+				],
+			});
+			channel.onmessage({
+				type: "error",
+				streamId: "stream-1",
+				code: "SOURCE_FAILED",
+				message: "Source failed",
+				recoverable: false,
+			});
+			channel.onmessage({
+				type: "stopped",
+				streamId: "stream-1",
+				reason: "source-ended",
+			});
+		});
+
+		expect(result.current.status).toBe("stopped");
+		expect(result.current.error).toBe("Source failed");
+		expect(result.current.entries.map((entry) => entry.id)).toEqual([
+			"final-diagnostic-line",
+		]);
+	});
+
 	test("stops a stream that resolves after the hook unmounts", async () => {
 		const { unmount } = renderHook(() => useObservabilityStream(options));
 		unmount();
