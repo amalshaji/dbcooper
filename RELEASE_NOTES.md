@@ -1,19 +1,19 @@
-# DBcooper v0.0.68
+# DBcooper v0.0.69
 
-This is the first signed and notarized stable DBcooper release for Apple Silicon, and it adds a native MongoDB workbench.
+DBcooper 0.0.69 adds a live observability workspace for database logs and current server activity, and strengthens macOS release verification.
 
-## What's changed since v0.0.66
+## What's changed since v0.0.68
 
-### MongoDB
+### Live logs and activity
 
-- Connect with standard MongoDB URIs and browse databases, collections, and documents.
-- Run find and aggregation queries, edit documents, and manage collections, indexes, and validators.
-- Save and replay queries, inspect query history, and load previous work without unintentionally running it again.
-- Generate streamed MongoDB query drafts with AI; drafts are validated and remain read-only until you review and run them.
-- Create DBcooper-managed MongoDB 7 containers and use MongoDB with import, export, and read-only MCP tools.
+- Open Logs from a connected database workspace to view current database output without persisting it in DBcooper.
+- Stream logs from DBcooper-linked Docker containers and use engine-native log sources when the server exposes them.
+- Inspect current database activity separately from logs, with capability-aware sources for supported engines.
+- Search visible entries, filter by severity, pause automatic following, copy individual or visible lines, and clear the in-memory buffer.
+- Parse common PostgreSQL, ClickHouse, and Redis log formats while preserving the original text.
+- Keep activity rows stable between refreshes and retain final diagnostic entries when a stream stops.
 
 ### macOS distribution
 
-- Stable and canary macOS builds are signed with a Developer ID certificate and notarized by Apple.
-- The stable DMG can be installed and launched normally without bypassing Gatekeeper.
-- Stable updater artifacts remain signed for verification by existing DBcooper installations.
+- Submit, staple, validate, and Gatekeeper-check the final DMG before publishing it.
+- Continue signing updater artifacts and the bundled app for verified stable updates.
