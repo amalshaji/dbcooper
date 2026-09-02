@@ -82,6 +82,48 @@ describe("useObservabilityStream terminal event ownership", () => {
 		expect(result.current.error).toBe("Source failed");
 	});
 
+	test("keeps buffered entries when the current stream stops", async () => {
+		const { result } = renderHook(() => useObservabilityStream(options));
+		const channel = channels[0];
+
+		act(() => {
+			channel.onmessage({
+				type: "snapshot",
+				streamId: "stream-1",
+				entries: [
+					{
+						id: "diagnostic-line",
+						kind: "line",
+						raw: "ERROR source failed",
+						timestamp: null,
+						level: "error",
+						message: "source failed",
+						context: null,
+					},
+				],
+			});
+		});
+		await act(
+			() =>
+				new Promise<void>((resolve) => {
+					requestAnimationFrame(() => resolve());
+				}),
+		);
+
+		act(() => {
+			channel.onmessage({
+				type: "stopped",
+				streamId: "stream-1",
+				reason: "source-ended",
+			});
+		});
+
+		expect(result.current.status).toBe("stopped");
+		expect(result.current.entries.map((entry) => entry.id)).toEqual([
+			"diagnostic-line",
+		]);
+	});
+
 	test("stops a stream that resolves after the hook unmounts", async () => {
 		const { unmount } = renderHook(() => useObservabilityStream(options));
 		unmount();

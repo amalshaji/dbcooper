@@ -170,7 +170,7 @@ export function useObservabilityStream({
 					cancelPendingEntries();
 					setStreamState((current) => ({
 						key: streamKey,
-						entries: [],
+						entries: current.key === streamKey ? current.entries : [],
 						status: "stopped",
 						error:
 							event.reason === "disconnected"
