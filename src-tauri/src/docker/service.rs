@@ -369,6 +369,34 @@ async fn resolve_container(
     resolve_container_in_context(pool, link, &context).await
 }
 
+pub(crate) async fn resolve_linked_container_id(
+    pool: &SqlitePool,
+    uuid: &str,
+) -> Result<Option<String>, String> {
+    let Some(link) = store::get_link(pool, uuid).await? else {
+        return Ok(None);
+    };
+    resolve_container(pool, &link)
+        .await
+        .map(|container| Some(container.id))
+}
+
+pub(crate) async fn linked_container_is_available(
+    pool: &SqlitePool,
+    uuid: &str,
+) -> Result<bool, String> {
+    let Some(link) = store::get_link(pool, uuid).await? else {
+        return Ok(false);
+    };
+    let context = cli::current_context().await?;
+    if !link.docker_context.is_empty() && link.docker_context != context {
+        return Err("The linked container belongs to a different Docker context".to_string());
+    }
+    Ok(cli::inspect(&link.container_id)
+        .await
+        .is_ok_and(|inspect| inspect.state.running))
+}
+
 async fn resolve_container_in_context(
     pool: &SqlitePool,
     link: &DockerLink,

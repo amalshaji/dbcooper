@@ -1,5 +1,7 @@
+use crate::database::pool_manager::PoolManager;
 use crate::db::models::{Connection, ConnectionFormData};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tauri::State;
 use uuid::Uuid;
 
@@ -114,11 +116,45 @@ pub async fn update_connection(
 #[tauri::command]
 pub async fn delete_connection(
     pool: State<'_, SqlitePool>,
+    pool_manager: State<'_, Arc<PoolManager>>,
+    observability_manager: State<'_, Arc<crate::observability::ObservabilityManager>>,
     id: i64,
     delete_docker_data: Option<bool>,
 ) -> Result<crate::docker::DeleteConnectionResult, String> {
-    crate::docker::delete_saved_connection(pool.inner(), id, delete_docker_data.unwrap_or(false))
-        .await
+    let connection_uuid =
+        sqlx::query_scalar::<_, String>("SELECT uuid FROM connections WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|error| error.to_string())?;
+    let connection_lock = match &connection_uuid {
+        Some(uuid) => Some(pool_manager.get_connect_lock(uuid).await),
+        None => None,
+    };
+    let _connection_guard = match connection_lock.as_ref() {
+        Some(lock) => Some(lock.lock().await),
+        None => None,
+    };
+    let result = crate::docker::delete_saved_connection(
+        pool.inner(),
+        id,
+        delete_docker_data.unwrap_or(false),
+    )
+    .await?;
+    if let Some(uuid) = &connection_uuid {
+        finalize_deleted_connection(pool_manager.inner(), observability_manager.inner(), uuid)
+            .await;
+    }
+    Ok(result)
+}
+
+async fn finalize_deleted_connection(
+    pool_manager: &PoolManager,
+    observability_manager: &crate::observability::ObservabilityManager,
+    connection_uuid: &str,
+) {
+    observability_manager.stop_connection(connection_uuid).await;
+    pool_manager.disconnect_locked(connection_uuid).await;
 }
 
 /// Exported connection data (without id, uuid, timestamps)
@@ -326,7 +362,11 @@ fn connection_uri_for(data: &ConnectionFormData) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_connection_fields;
+    use super::{finalize_deleted_connection, validate_connection_fields};
+    use crate::database::pool_manager::{ConnectionStatus, PoolManager};
+    use crate::observability::ObservabilityManager;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[test]
     fn validates_form_and_import_driver_identity_through_one_boundary() {
@@ -344,5 +384,33 @@ mod tests {
             Some("mongodb://localhost:27017/app"),
         )
         .is_err());
+    }
+
+    #[tokio::test]
+    async fn successful_delete_finalization_stops_streams_and_removes_pool() {
+        let pool_manager = PoolManager::new();
+        let observability_manager = ObservabilityManager::new();
+        let shutdowns = Arc::new(AtomicUsize::new(0));
+        pool_manager
+            .insert_test_connection("connection-1", shutdowns.clone())
+            .await;
+        let registration = observability_manager
+            .register("connection-1")
+            .await
+            .unwrap();
+        let cancellation = registration.cancellation.clone();
+        let worker = tokio::spawn(async move {
+            cancellation.cancelled().await;
+        });
+        let _supervisor = observability_manager.supervise_worker(&registration, worker);
+
+        finalize_deleted_connection(&pool_manager, &observability_manager, "connection-1").await;
+
+        assert!(registration.cancellation.is_cancelled());
+        assert_eq!(
+            pool_manager.get_status("connection-1").await,
+            ConnectionStatus::Disconnected
+        );
+        assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
     }
 }

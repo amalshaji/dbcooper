@@ -80,4 +80,42 @@ impl MongoDriver {
         }
         Ok(result)
     }
+
+    pub(crate) async fn recent_log_events(&self) -> Result<Vec<serde_json::Value>, String> {
+        let result = self
+            .client
+            .database("admin")
+            .run_command(doc! { "getLog": "global" })
+            .await
+            .map_err(|error| safe_error("MongoDB logs are unavailable", error, &self.uri))?;
+        let events = result.get_array("log").map_err(|_| {
+            "MongoDB logs are unavailable with the current server configuration".to_string()
+        })?;
+        Ok(events
+            .iter()
+            .rev()
+            .take(200)
+            .rev()
+            .cloned()
+            .map(codec::bson_json)
+            .collect())
+    }
+
+    pub(crate) async fn current_activity(&self) -> Result<Vec<serde_json::Value>, String> {
+        let result = self
+            .client
+            .database("admin")
+            .run_command(doc! { "currentOp": 1, "$all": false, "active": true })
+            .await
+            .map_err(|error| safe_error("MongoDB activity is unavailable", error, &self.uri))?;
+        let operations = result.get_array("inprog").map_err(|_| {
+            "MongoDB activity is unavailable with the current privileges".to_string()
+        })?;
+        Ok(operations
+            .iter()
+            .take(200)
+            .cloned()
+            .map(codec::bson_json)
+            .collect())
+    }
 }

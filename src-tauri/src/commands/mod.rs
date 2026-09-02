@@ -3,6 +3,7 @@ pub mod connections;
 pub mod database;
 pub mod mcp;
 pub mod mongodb;
+pub mod observability;
 pub mod pool;
 pub mod postgres;
 pub mod queries;

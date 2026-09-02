@@ -3,6 +3,7 @@ mod model;
 mod service;
 mod store;
 
+pub(crate) use cli::{logs_args, logs_command};
 pub use model::{
     DockerConnectionDraft, DockerConnectionState, DockerConnectionStatus, DockerContainerSummary,
     DockerDatabaseEngine, DockerOperation, DockerOwnership,
@@ -14,3 +15,4 @@ pub use service::{
     stop_created_databases, CreateDockerDatabaseRequest, DeleteConnectionResult,
     LinkDockerDatabaseRequest,
 };
+pub(crate) use service::{linked_container_is_available, resolve_linked_container_id};

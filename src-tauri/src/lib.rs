@@ -5,6 +5,7 @@ pub mod db;
 pub mod docker;
 pub mod duckdb_helper;
 pub mod mcp;
+pub mod observability;
 mod ssh_tunnel;
 
 use commands::ai::{detect_ai_harnesses, generate_query, get_ai_status};
@@ -25,6 +26,9 @@ use commands::mongodb::{
     mongo_drop_collection, mongo_drop_index, mongo_find, mongo_get_validator, mongo_insert_one,
     mongo_list_catalog, mongo_list_indexes, mongo_replace_one, mongo_set_validator,
     mongo_test_connection,
+};
+use commands::observability::{
+    get_observability_capabilities, start_observability_stream, stop_observability_stream,
 };
 use commands::pool::{
     pool_connect, pool_create_table, pool_delete_table_row, pool_disconnect, pool_execute_query,
@@ -52,6 +56,7 @@ use docker::{
     docker_prepare_connection,
 };
 use duckdb_helper::ensure_duckdb_helper;
+use observability::ObservabilityManager;
 use std::sync::Arc;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WebviewUrl};
@@ -232,6 +237,9 @@ pub fn run() {
             pool_manager.spawn_idle_reaper();
             app.manage(pool_manager.clone());
 
+            let observability_manager = Arc::new(ObservabilityManager::new());
+            app.manage(observability_manager);
+
             // The embedded MCP server is opt-in and token-authenticated.
             let mcp_control = Arc::new(mcp::control::McpControl::new(pool, pool_manager));
             app.manage(mcp_control.clone());
@@ -341,12 +349,17 @@ pub fn run() {
             docker_connection_states,
             docker_control_connection,
             docker_get_connection_string,
+            get_observability_capabilities,
+            start_observability_stream,
+            stop_observability_stream,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
         if should_stop_created_databases(&event) {
+            let observability_manager = app_handle.state::<Arc<ObservabilityManager>>();
+            tauri::async_runtime::block_on(observability_manager.stop_all());
             let pool = app_handle.state::<sqlx::SqlitePool>().inner().clone();
             if let Err(error) =
                 tauri::async_runtime::block_on(docker::stop_created_databases(&pool))

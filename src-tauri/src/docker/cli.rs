@@ -5,6 +5,7 @@ use super::model::{
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
 
@@ -171,6 +172,33 @@ fn docker_path() -> Result<PathBuf, String> {
         .into_iter()
         .find(|path| path.is_file())
         .ok_or_else(|| "Docker CLI was not found. Install Docker Desktop or OrbStack.".to_string())
+}
+
+pub(crate) fn logs_args(container_id: &str) -> Result<Vec<String>, String> {
+    if container_id.trim().is_empty() {
+        return Err("Docker container is missing. Relink this connection.".to_string());
+    }
+    Ok([
+        "logs",
+        "--tail",
+        "200",
+        "--follow",
+        "--timestamps",
+        container_id,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect())
+}
+
+pub(crate) fn logs_command(container_id: &str) -> Result<Command, String> {
+    let mut command = Command::new(docker_path()?);
+    command
+        .args(logs_args(container_id)?)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    Ok(command)
 }
 
 pub(crate) async fn command(args: &[String], timeout: Duration) -> Result<String, String> {

@@ -157,6 +157,45 @@ impl PoolManager {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) async fn insert_test_connection(
+        &self,
+        uuid: &str,
+        shutdowns: Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        self.pools.write().await.insert(
+            uuid.to_string(),
+            PoolEntry {
+                connection: PooledConnection::Test {
+                    activity: Arc::new(()),
+                    shutdowns,
+                },
+                config: ConnectionConfig {
+                    db_type: "redis".to_string(),
+                    host: Some("localhost".to_string()),
+                    port: Some(6379),
+                    database: None,
+                    username: None,
+                    password: None,
+                    ssl: Some(false),
+                    file_path: None,
+                    connection_uri: None,
+                    ssh_enabled: false,
+                    ssh_host: None,
+                    ssh_port: None,
+                    ssh_user: None,
+                    ssh_password: None,
+                    ssh_key_path: None,
+                    ssh_use_key: false,
+                },
+                status: ConnectionStatus::Connected,
+                last_used: std::sync::Mutex::new(Instant::now()),
+                last_error: None,
+                ssh_tunnel: None,
+            },
+        );
+    }
+
     /// Spawn the background idle reaper. Call once from a context with a running
     /// async runtime (e.g. Tauri's `setup` hook). Evicts connections that have
     /// been idle longer than `IDLE_TIMEOUT`, dropping their SSH tunnels.
@@ -206,6 +245,14 @@ impl PoolManager {
         let lock = self.get_connect_lock(uuid).await;
         let _guard = lock.lock().await;
 
+        self.ensure_connected_locked(sqlite_pool, uuid).await
+    }
+
+    pub(crate) async fn ensure_connected_locked(
+        &self,
+        sqlite_pool: &sqlx::SqlitePool,
+        uuid: &str,
+    ) -> Result<(), String> {
         // Re-check under the lock; another caller may have just connected.
         if self.get_cached(uuid).await.is_some() {
             return Ok(());

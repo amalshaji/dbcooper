@@ -30,6 +30,7 @@ pub fn is_read_only_redis_command(query: &str) -> bool {
             subcommand.as_str(),
             "ENCODING" | "REFCOUNT" | "IDLETIME" | "FREQ" | "HELP"
         ),
+        "SLOWLOG" => matches!(subcommand.as_str(), "GET" | "LEN" | "HELP"),
         // All XINFO subcommands are read-only.
         "XINFO" => true,
         // Plain read-only commands.
@@ -87,6 +88,7 @@ mod tests {
         // Read-only variants of commands that can otherwise write via STORE.
         assert!(is_read_only_redis_command("SORT_RO mylist"));
         assert!(is_read_only_redis_command("BITCOUNT mykey"));
+        assert!(is_read_only_redis_command("SLOWLOG GET 200"));
     }
 
     #[test]

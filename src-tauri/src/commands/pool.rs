@@ -13,6 +13,7 @@ use crate::database::DatabaseType;
 use crate::db::models::{
     Connection, CreateTableRequest, QueryResult, TableInfo, TestConnectionResult,
 };
+use crate::observability::ObservabilityManager;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::State;
@@ -54,9 +55,13 @@ pub async fn pool_connect(
 #[tauri::command]
 pub async fn pool_disconnect(
     pool_manager: State<'_, Arc<PoolManager>>,
+    observability_manager: State<'_, Arc<ObservabilityManager>>,
     uuid: String,
 ) -> Result<(), String> {
-    pool_manager.disconnect(&uuid).await;
+    let lock = pool_manager.get_connect_lock(&uuid).await;
+    let _guard = lock.lock().await;
+    observability_manager.stop_connection(&uuid).await;
+    pool_manager.disconnect_locked(&uuid).await;
     Ok(())
 }
 
