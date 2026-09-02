@@ -27,8 +27,12 @@ mock.module("@/components/ui/context-menu", () => ({
 }));
 mock.module("@/components/ui/dropdown-menu", () => ({
 	DropdownMenu: Passthrough,
+	DropdownMenuCheckboxItem: Passthrough,
 	DropdownMenuContent: Passthrough,
+	DropdownMenuGroup: Passthrough,
 	DropdownMenuItem: Passthrough,
+	DropdownMenuLabel: Passthrough,
+	DropdownMenuSeparator: Passthrough,
 	DropdownMenuTrigger: Passthrough,
 }));
 mock.module("@/components/ui/input", () => ({

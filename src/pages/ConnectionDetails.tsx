@@ -8,6 +8,7 @@ import { DisconnectedScreen } from "@/components/connection-details/Disconnected
 import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import { SqlConnectionWorkspace } from "@/components/connection-details/SqlConnectionWorkspace";
 import { MongoConnectionWorkspace } from "@/components/connection-details/MongoConnectionWorkspace";
+import { WorkspaceLogsNavigation } from "@/components/logs/WorkspaceLogsNavigation";
 import { useSettings } from "@/contexts/SettingsContext";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
 import { useNativeCloseListener } from "@/hooks/connection-details/useNativeCloseListener";
@@ -83,9 +84,14 @@ export function ConnectionDetails() {
 				onStatusChange={lifecycle.commands.recordConnectionStatus}
 				onOpenSettings={openSettings}
 			/>
-			<div className="min-w-0 flex-1 overflow-auto p-3">
-				<RedisWorkspace connection={connection} />
-			</div>
+			<WorkspaceLogsNavigation
+				connection={connection}
+				workspaceLabel="Keys"
+			>
+				<div className="h-full min-w-0 overflow-auto p-3">
+					<RedisWorkspace connection={connection} />
+				</div>
+			</WorkspaceLogsNavigation>
 		</div>
 	);
 }

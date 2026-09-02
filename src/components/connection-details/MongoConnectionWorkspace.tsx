@@ -7,6 +7,7 @@ import { MongoCatalogSidebar } from "@/components/connection-details/MongoCatalo
 import { MongoCollectionAdmin } from "@/components/connection-details/MongoCollectionAdmin";
 import { MongoDocumentBrowser } from "@/components/connection-details/MongoDocumentBrowser";
 import { MongoQueryEditor } from "@/components/connection-details/MongoQueryEditor";
+import { WorkspaceLogsNavigation } from "@/components/logs/WorkspaceLogsNavigation";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -99,7 +100,11 @@ export function MongoConnectionWorkspace({
 				onStatusChange={lifecycle.commands.recordConnectionStatus}
 				onOpenSettings={onOpenSettings}
 			/>
-			<div className="flex min-h-0 flex-1">
+			<WorkspaceLogsNavigation
+				connection={connection}
+				workspaceLabel="Documents"
+			>
+				<div className="flex h-full min-h-0">
 				<MongoCatalogSidebar
 					workbench={workbench}
 					onCreateCollection={() => setCreateDialogOpen(true)}
@@ -211,7 +216,8 @@ export function MongoConnectionWorkspace({
 						/>
 					)}
 				</main>
-			</div>
+				</div>
+			</WorkspaceLogsNavigation>
 
 			<Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
 				<DialogContent className="max-w-sm">

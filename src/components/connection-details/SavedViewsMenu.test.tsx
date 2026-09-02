@@ -50,7 +50,13 @@ mock.module("@/components/ui/dropdown-menu", () => ({
 	DropdownMenu: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
+	DropdownMenuCheckboxItem: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
 	DropdownMenuContent: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
+	DropdownMenuGroup: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
 	DropdownMenuItem: ({

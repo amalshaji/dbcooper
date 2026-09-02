@@ -52,6 +52,15 @@ function createQueryTab(): QueryTab {
 }
 
 describe("TabBar query generation status", () => {
+	test("keeps connection-level Logs out of the SQL tab bar", () => {
+		const markup = renderToStaticMarkup(
+			<TabBar tabs={[]} activeTabId={null} {...handlers} />,
+		);
+
+		expect(markup).not.toContain("Logs");
+		expect(markup).toContain("New query");
+	});
+
 	test("shows the close button for an idle query tab", () => {
 		const tab = createQueryTab();
 		const markup = renderToStaticMarkup(

@@ -49,10 +49,17 @@ mock.module("@/components/ui/spinner", () => ({
 }));
 mock.module("@/components/ui/dropdown-menu", () => ({
 	DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
+	DropdownMenuCheckboxItem: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
 	DropdownMenuContent: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
+	DropdownMenuGroup: ({ children }: { children: ReactNode }) => <>{children}</>,
 	DropdownMenuItem: ({ children }: { children: ReactNode }) => (
+		<div>{children}</div>
+	),
+	DropdownMenuLabel: ({ children }: { children: ReactNode }) => (
 		<div>{children}</div>
 	),
 	DropdownMenuSeparator: () => <hr />,
