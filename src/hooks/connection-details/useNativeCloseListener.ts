@@ -2,8 +2,9 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useEffectEvent } from "react";
 
-type NativeCloseTarget =
+export type NativeCloseTarget =
 	| { kind: "window" }
+	| { kind: "action"; close: () => void }
 	| {
 			kind: "tabs";
 			activeTabId: string | null;
@@ -15,7 +16,9 @@ export function useNativeCloseListener(
 	enabled: boolean = true,
 ) {
 	const handleNativeCloseTab = useEffectEvent(() => {
-		if (target.kind === "window" || target.activeTabId === null) {
+		if (target.kind === "action") {
+			target.close();
+		} else if (target.kind === "window" || target.activeTabId === null) {
 			void getCurrentWindow().close();
 		} else {
 			target.closeTab(target.activeTabId);

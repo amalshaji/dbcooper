@@ -121,7 +121,30 @@ test("closes the window for routes without tab ownership", async () => {
 	unmount();
 });
 
-test("does not double-register when the SQL workspace owns native close", () => {
+test("routes the native close event to an explicit view action", async () => {
+	let actionCalls = 0;
+	const { unmount } = renderHook(() =>
+		useNativeCloseListener({
+			kind: "action",
+			close: () => {
+				actionCalls += 1;
+			},
+		}),
+	);
+	listenerRegistration.resolve(() => {
+		cleanupCalls += 1;
+	});
+	await listenerRegistration.promise;
+	await waitFor(() => expect(registeredListener).toBeDefined());
+
+	act(() => registeredListener?.());
+
+	expect(actionCalls).toBe(1);
+	expect(windowCloseCalls).toBe(0);
+	unmount();
+});
+
+test("does not register when another view owns native close", () => {
 	renderHook(() => useNativeCloseListener({ kind: "window" }, false));
 	expect(registeredListener).toBeUndefined();
 });

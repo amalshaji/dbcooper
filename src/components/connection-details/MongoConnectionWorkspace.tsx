@@ -103,6 +103,7 @@ export function MongoConnectionWorkspace({
 			<WorkspaceLogsNavigation
 				connection={connection}
 				workspaceLabel="Documents"
+				workspaceCloseTarget={{ kind: "window" }}
 			>
 				<div className="flex h-full min-h-0">
 				<MongoCatalogSidebar

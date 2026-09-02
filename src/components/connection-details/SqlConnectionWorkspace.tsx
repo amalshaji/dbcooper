@@ -400,6 +400,11 @@ export function SqlConnectionWorkspace({
 				<WorkspaceLogsNavigation
 					connection={connection}
 					workspaceLabel="Workspace"
+					workspaceCloseTarget={{
+						kind: "tabs",
+						activeTabId,
+						closeTab: tabActions.handleCloseTab,
+					}}
 				>
 					<TabBar
 						tabs={tabs}

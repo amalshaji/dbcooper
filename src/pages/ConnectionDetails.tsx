@@ -26,9 +26,10 @@ export function ConnectionDetails() {
 		ready &&
 		lifecycle.connection.status === "disconnected" &&
 		!lifecycle.connection.hasEverConnected;
-	const rendersSqlWorkspace =
-		ready && !initiallyDisconnected && isSqlConnection(connection);
-	useNativeCloseListener({ kind: "window" }, !rendersSqlWorkspace);
+	useNativeCloseListener(
+		{ kind: "window" },
+		!ready || Boolean(initiallyDisconnected),
+	);
 
 	if (!ready) {
 		return (
@@ -87,6 +88,7 @@ export function ConnectionDetails() {
 			<WorkspaceLogsNavigation
 				connection={connection}
 				workspaceLabel="Keys"
+				workspaceCloseTarget={{ kind: "window" }}
 			>
 				<div className="h-full min-w-0 overflow-auto p-3">
 					<RedisWorkspace connection={connection} />

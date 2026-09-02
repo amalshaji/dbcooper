@@ -1,6 +1,10 @@
 import { Pulse, X } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+	type NativeCloseTarget,
+	useNativeCloseListener,
+} from "@/hooks/connection-details/useNativeCloseListener";
 import { cn } from "@/lib/utils";
 import type { Connection } from "@/types/connection";
 import { LogsWorkspace } from "./LogsWorkspace";
@@ -8,22 +12,29 @@ import { LogsWorkspace } from "./LogsWorkspace";
 interface WorkspaceLogsNavigationProps {
 	connection: Connection;
 	workspaceLabel: string;
+	workspaceCloseTarget: NativeCloseTarget;
 	children: ReactNode;
 }
 
 export function WorkspaceLogsNavigation({
 	connection,
 	workspaceLabel,
+	workspaceCloseTarget,
 	children,
 }: WorkspaceLogsNavigationProps) {
 	const [logsOpen, setLogsOpen] = useState(false);
 	const [activeView, setActiveView] = useState<"workspace" | "logs">(
 		"workspace",
 	);
-	const closeLogs = () => {
+	const closeLogs = useCallback(() => {
 		setLogsOpen(false);
 		setActiveView("workspace");
-	};
+	}, []);
+	useNativeCloseListener(
+		activeView === "logs"
+			? { kind: "action", close: closeLogs }
+			: workspaceCloseTarget,
+	);
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
