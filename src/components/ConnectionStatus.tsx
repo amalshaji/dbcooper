@@ -147,7 +147,7 @@ export function ConnectionStatus({
 					title="Reconnect"
 				>
 					<ArrowsClockwise
-						className={`w-3.5 h-3.5 ${isReconnecting ? "animate-spin" : ""}`}
+						className={`w-3.5 h-3.5 ${isReconnecting ? "animate-spin-path" : ""}`}
 					/>
 				</Button>
 			)}

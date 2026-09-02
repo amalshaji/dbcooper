@@ -23,7 +23,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           <XCircle className="size-4" />
         ),
         loading: (
-          <CircleNotch className="size-4 animate-spin" />
+          <CircleNotch className="size-4 animate-spin-path" />
         ),
       }}
       style={

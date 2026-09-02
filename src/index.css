@@ -214,6 +214,14 @@
   background: transparent;
 }
 
+@utility animate-spin-path {
+  & > path {
+    animation: var(--animate-spin);
+    transform-box: view-box;
+    transform-origin: center;
+  }
+}
+
 @keyframes duckdb-progress-indeterminate {
   from {
     transform: translateX(-100%);

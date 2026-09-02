@@ -11,7 +11,7 @@ function Spinner({
 			role="status"
 			aria-label="Loading"
 			weight={weight}
-			className={cn("size-4 animate-spin bg-none text-current", className)}
+			className={cn("size-4 animate-spin-path bg-none text-current", className)}
 			{...props}
 		/>
 	);
