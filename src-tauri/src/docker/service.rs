@@ -392,9 +392,9 @@ pub(crate) async fn linked_container_is_available(
     if !link.docker_context.is_empty() && link.docker_context != context {
         return Err("The linked container belongs to a different Docker context".to_string());
     }
-    Ok(cli::inspect(&link.container_id)
+    resolve_container_in_context(pool, &link, &context)
         .await
-        .is_ok_and(|inspect| inspect.state.running))
+        .map(|container| container.inspect.state.running)
 }
 
 async fn resolve_container_in_context(
@@ -656,10 +656,24 @@ pub async fn stop_created_databases(pool: &SqlitePool) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{mongodb_link_connection_uri, saved_connection_string, stop_created_databases};
+    use super::{
+        linked_container_is_available, mongodb_link_connection_uri, saved_connection_string,
+        stop_created_databases,
+    };
     use crate::db::models::Connection;
-    use crate::docker::model::DockerDatabaseEngine;
+    use crate::docker::model::{DockerDatabaseEngine, DockerOwnership, ManagedDatabasePlan};
+    use crate::docker::{cli, store};
     use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn test_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        pool
+    }
 
     fn mongodb_connection(connection_uri: Option<&str>) -> Connection {
         Connection {
@@ -758,5 +772,54 @@ mod tests {
         let error = stop_created_databases(&pool).await.unwrap_err();
 
         assert!(error.contains("docker_connections"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stale_linked_container_id_resolves_recreated_compose_container() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let pool = test_pool().await;
+        let plan = ManagedDatabasePlan::new(DockerDatabaseEngine::Postgres);
+        let data = plan.connection_data("Linked Postgres", 5432);
+        let mut link = plan.link("desktop-linux".to_string(), "stale-id".to_string());
+        link.ownership = DockerOwnership::Linked.as_str().to_string();
+        link.compose_project = Some("project".to_string());
+        link.compose_service = Some("database".to_string());
+        store::insert_connection_with_link(&pool, &plan.uuid, &data, &link)
+            .await
+            .unwrap();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let docker = temp_dir.path().join("docker");
+        std::fs::write(
+            &docker,
+            r#"#!/bin/sh
+case "$1:$2" in
+  context:show) printf 'desktop-linux\n' ;;
+  inspect:stale-id) exit 1 ;;
+  ps:-aq) printf 'fresh-id\n' ;;
+  inspect:fresh-id) printf '%s\n' '[{"Id":"fresh-id","Name":"/database","Config":{"Labels":{"com.docker.compose.project":"project","com.docker.compose.service":"database"}},"State":{"Running":true}}]' ;;
+  *) exit 1 ;;
+esac
+"#,
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&docker).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&docker, permissions).unwrap();
+        let _docker_path = cli::override_docker_path(docker);
+
+        assert!(linked_container_is_available(&pool, &plan.uuid)
+            .await
+            .unwrap());
+        let stored_id: String = sqlx::query_scalar(
+            "SELECT container_id FROM docker_connections WHERE connection_uuid = ?",
+        )
+        .bind(&plan.uuid)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_id, "fresh-id");
     }
 }

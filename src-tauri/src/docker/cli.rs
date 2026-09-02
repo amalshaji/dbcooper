@@ -12,6 +12,31 @@ use tokio::process::Command;
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const CREATE_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
 
+#[cfg(test)]
+static TEST_DOCKER_PATH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) struct DockerPathOverride;
+
+#[cfg(test)]
+impl Drop for DockerPathOverride {
+    fn drop(&mut self) {
+        *TEST_DOCKER_PATH
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn override_docker_path(path: PathBuf) -> DockerPathOverride {
+    let mut current = TEST_DOCKER_PATH
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(current.is_none());
+    *current = Some(path);
+    DockerPathOverride
+}
+
 #[derive(Debug, Deserialize)]
 struct ContainerListRow {
     #[serde(rename = "ID")]
@@ -150,6 +175,15 @@ fn host_port_from(bindings: &HashMap<String, Option<Vec<PortBinding>>>, key: &st
 }
 
 fn docker_path() -> Result<PathBuf, String> {
+    #[cfg(test)]
+    if let Some(path) = TEST_DOCKER_PATH
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+    {
+        return Ok(path);
+    }
+
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os("PATH") {
         candidates.extend(std::env::split_paths(&path).map(|path| path.join("docker")));
