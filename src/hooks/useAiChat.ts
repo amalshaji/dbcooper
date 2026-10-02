@@ -11,12 +11,14 @@ import {
 	type AiConversation,
 } from "@/lib/tauri/aiChat";
 
+export type PendingPhase = "thinking" | "writing" | "rejecting";
+
 export interface PendingAiChat {
 	sessionId: string;
 	text: string | null;
 	steps: AiChatStep[];
-	/** False while an approved write runs: it cannot be interrupted. */
-	cancellable: boolean;
+	/** Only `thinking` can be stopped; a started write cannot be interrupted. */
+	phase: PendingPhase;
 }
 
 export function upsertStep(steps: AiChatStep[], step: AiChatStep) {
@@ -133,12 +135,12 @@ export function useAiChat(connectionUuid: string) {
 		async <T,>(
 			text: string | null,
 			call: (sessionId: string) => Promise<T>,
-			cancellable = true,
+			phase: PendingPhase = "thinking",
 		): Promise<T | null> => {
 			if (pendingSessionRef.current) return null;
 			const sessionId = crypto.randomUUID();
 			pendingSessionRef.current = sessionId;
-			setPending({ sessionId, text, steps: [], cancellable });
+			setPending({ sessionId, text, steps: [], phase });
 
 			const unlisteners: Array<() => void> = [];
 			try {
@@ -160,7 +162,7 @@ export function useAiChat(connectionUuid: string) {
 							if (event.payload.session_id !== sessionId) return;
 							setPending((current) =>
 								current?.sessionId === sessionId
-									? { ...current, cancellable: true }
+									? { ...current, phase: "thinking" }
 									: current,
 							);
 						},
@@ -218,7 +220,7 @@ export function useAiChat(connectionUuid: string) {
 			const resolution = await runSession(
 				null,
 				(sessionId) => api.aiChat.resolveWrite({ sessionId, messageId, approve }),
-				false,
+				approve ? "writing" : "rejecting",
 			);
 			if (!resolution) return;
 			setMessages((items) => {

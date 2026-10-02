@@ -308,16 +308,46 @@ test("an approved write cannot be stopped until it finishes", async () => {
 		resolving = result.current.resolveWrite(11, true);
 	});
 	await waitFor(() => expect(resolveCalls).toHaveLength(1));
-	expect(result.current.pending?.cancellable).toBe(false);
+	expect(result.current.pending?.phase).toBe("writing");
 
 	act(() => {
 		emitTo("ai-chat-write-finished", { session_id: resolveCalls[0].sessionId });
 	});
-	expect(result.current.pending?.cancellable).toBe(true);
+	expect(result.current.pending?.phase).toBe("thinking");
 
 	await act(async () => {
 		release();
 		await resolving;
 	});
 	expect(result.current.pending).toBeNull();
+});
+
+test("rejecting a write is labelled as a rejection, not a run", async () => {
+	sendImpl = async (args) => {
+		const result = exchange(args.message);
+		return {
+			...result,
+			assistant_message: { ...result.assistant_message, write: pendingWrite },
+		};
+	};
+	const { result } = renderHook(() => useAiChat("c1"));
+	await act(async () => {
+		await result.current.send("create a notes table");
+	});
+
+	let release: () => void = () => undefined;
+	resolveGate = new Promise((resolve) => {
+		release = resolve;
+	});
+	let resolving: Promise<void> = Promise.resolve();
+	act(() => {
+		resolving = result.current.resolveWrite(11, false);
+	});
+	await waitFor(() => expect(resolveCalls).toHaveLength(1));
+	expect(result.current.pending?.phase).toBe("rejecting");
+
+	await act(async () => {
+		release();
+		await resolving;
+	});
 });

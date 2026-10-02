@@ -94,10 +94,26 @@ const TABLE_LIST_END: [&str; 21] = [
 #[derive(Debug, PartialEq)]
 enum Token {
     Word(String),
+    /// A `"double"` or `` `backtick` `` quoted identifier, unescaped. Quoted
+    /// names can still be called (`` `mongodb`(...) ``), so function checks
+    /// treat them like words; keyword checks do not.
+    Quoted(String),
+    /// A string or dollar-quoted literal; its contents are data.
+    Literal,
     Symbol(char),
 }
 
-/// Words and symbols outside comments and string/quoted literals.
+impl Token {
+    /// The name this token would call if followed by `(`.
+    fn callable(&self) -> Option<String> {
+        match self {
+            Token::Word(name) | Token::Quoted(name) => Some(name.to_ascii_lowercase()),
+            _ => None,
+        }
+    }
+}
+
+/// Tokens outside comments, with literals collapsed.
 fn tokens(sql: &str) -> Vec<Token> {
     let chars: Vec<char> = sql.chars().collect();
     let mut tokens = Vec::new();
@@ -119,21 +135,30 @@ fn tokens(sql: &str) -> Vec<Token> {
             i += 2;
         } else if ch == '\'' || ch == '"' || ch == '`' {
             i += 1;
+            let mut content = String::new();
             while i < chars.len() {
                 if chars[i] == ch {
                     if chars.get(i + 1) == Some(&ch) {
+                        content.push(ch);
                         i += 2;
                         continue;
                     }
                     break;
                 }
-                if chars[i] == '\\' && ch == '\'' {
+                if chars[i] == '\\' && ch != '"' {
                     i += 1;
+                }
+                if let Some(&escaped) = chars.get(i) {
+                    content.push(escaped);
                 }
                 i += 1;
             }
             i += 1;
-            tokens.push(Token::Word(String::new()));
+            tokens.push(if ch == '\'' {
+                Token::Literal
+            } else {
+                Token::Quoted(content)
+            });
         } else if ch == '$' {
             // Postgres dollar quoting: $tag$ ... $tag$
             let start = i;
@@ -151,7 +176,7 @@ fn tokens(sql: &str) -> Vec<Token> {
                     }
                     None => chars.len(),
                 };
-                tokens.push(Token::Word(String::new()));
+                tokens.push(Token::Literal);
             } else {
                 i += 1;
             }
@@ -181,20 +206,26 @@ fn check_clickhouse_table_functions(tokens: &[Token]) -> Result<(), String> {
                     in_table_list.pop();
                 }
             }
-            Token::Word(word) if !word.is_empty() => {
-                let upper = word.to_ascii_uppercase();
+            Token::Word(_) | Token::Quoted(_) => {
                 let current = in_table_list
                     .last_mut()
                     .expect("depth stack is never empty");
-                if upper == "FROM" || upper == "JOIN" {
-                    *current = true;
-                } else if TABLE_LIST_END.contains(&upper.as_str()) {
-                    *current = false;
-                } else if *current && matches!(tokens.get(index + 1), Some(Token::Symbol('('))) {
-                    let lower = word.to_ascii_lowercase();
-                    if !CLICKHOUSE_SAFE_TABLE_FUNCTIONS.contains(&lower.as_str()) {
+                if let Token::Word(word) = token {
+                    let upper = word.to_ascii_uppercase();
+                    if upper == "FROM" || upper == "JOIN" {
+                        *current = true;
+                        continue;
+                    }
+                    if TABLE_LIST_END.contains(&upper.as_str()) {
+                        *current = false;
+                        continue;
+                    }
+                }
+                let is_call = matches!(tokens.get(index + 1), Some(Token::Symbol('(')));
+                if let Some(name) = token.callable().filter(|_| *current && is_call) {
+                    if !CLICKHOUSE_SAFE_TABLE_FUNCTIONS.contains(&name.as_str()) {
                         return Err(format!(
-                            "The {lower}() table function is not allowed in Ask AI queries"
+                            "The {name}() table function is not allowed in Ask AI queries"
                         ));
                     }
                 }
@@ -212,9 +243,9 @@ pub fn check_agent_sql(sql: &str, db_type: &str) -> Result<(), String> {
     }
 
     let first = tokens.iter().find_map(|token| match token {
-        Token::Word(word) if !word.is_empty() => Some(word.to_ascii_uppercase()),
         Token::Symbol('(') => None,
-        _ => None,
+        Token::Word(word) => Some(word.to_ascii_uppercase()),
+        _ => Some(String::new()),
     });
     if !first
         .as_deref()
@@ -229,21 +260,23 @@ pub fn check_agent_sql(sql: &str, db_type: &str) -> Result<(), String> {
     for (index, token) in tokens.iter().enumerate() {
         match token {
             Token::Symbol(';') => ended = true,
-            Token::Word(word) if !word.is_empty() => {
-                if ended {
-                    return Err("Run one statement at a time".to_string());
+            Token::Symbol(_) => {}
+            _ if ended => return Err("Run one statement at a time".to_string()),
+            Token::Literal => {}
+            Token::Word(_) | Token::Quoted(_) => {
+                if let Token::Word(word) = token {
+                    let upper = word.to_ascii_uppercase();
+                    if FORBIDDEN_KEYWORDS.contains(&upper.as_str()) {
+                        return Err(format!("{upper} is not allowed in Ask AI queries"));
+                    }
                 }
-                let upper = word.to_ascii_uppercase();
-                if FORBIDDEN_KEYWORDS.contains(&upper.as_str()) {
-                    return Err(format!("{upper} is not allowed in Ask AI queries"));
-                }
-                let lower = word.to_ascii_lowercase();
                 let is_call = matches!(tokens.get(index + 1), Some(Token::Symbol('(')));
-                if is_call && FORBIDDEN_FUNCTIONS.contains(&lower.as_str()) {
-                    return Err(format!("{lower}() is not allowed in Ask AI queries"));
+                if let Some(name) = token.callable().filter(|_| is_call) {
+                    if FORBIDDEN_FUNCTIONS.contains(&name.as_str()) {
+                        return Err(format!("{name}() is not allowed in Ask AI queries"));
+                    }
                 }
             }
-            _ => {}
         }
     }
     Ok(())
@@ -276,6 +309,7 @@ mod tests {
             "WITH x AS (SELECT 1) SELECT * FROM x; COPY users TO '/tmp/u'",
             "SELECT pg_read_file('/etc/passwd')",
             "SELECT pg_catalog.pg_terminate_backend(42)",
+            "SELECT pg_catalog.\"pg_read_file\"('/etc/passwd')",
             "SELECT * FROM dblink('host=evil', 'select 1') AS t(a int)",
             "SELECT * INTO OUTFILE '/tmp/x' FROM users",
             "SELECT LOAD_FILE('/etc/hosts')",
@@ -299,6 +333,9 @@ mod tests {
             "SELECT count() FROM (SELECT * FROM cluster('default', system.one))",
             "SELECT * FROM t, remoteSecure('evil:9440', db.t)",
             "SELECT * FROM t WHERE id IN (SELECT id FROM postgresql('h', 'd', 't', 'u', 'p'))",
+            "SELECT * FROM `mongodb`('host:27017', 'db', 'users', 'u', 'p', 'name String')",
+            "SELECT * FROM \"sqlite\"('/tmp/x.db', 'users')",
+            "SELECT * FROM `url` ('https://evil.example', CSV)",
         ] {
             assert!(check_agent_sql(sql, "clickhouse").is_err(), "{sql}");
         }
@@ -311,6 +348,7 @@ mod tests {
             "SELECT toStartOfDay(ts) AS day, count() FROM events WHERE x IN (1, 2) GROUP BY day ORDER BY day",
             "SELECT * FROM events AS e JOIN users AS u ON e.user_id = u.id WHERE lower(u.name) = 'ada'",
             "SELECT * FROM system.tables LIMIT 5",
+            "SELECT `copy`, \"file\" FROM `events` WHERE `url` = 'x'",
             "SELECT * FROM events SETTINGS max_threads = 2",
         ] {
             assert!(check_agent_sql(sql, "clickhouse").is_ok(), "{sql}");

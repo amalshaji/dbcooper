@@ -218,7 +218,7 @@ export function AiChatPanel({
 			<AiChatComposer
 				disabled={chat.configured !== true}
 				pending={busy}
-				cancellable={chat.pending?.cancellable ?? false}
+				cancellable={chat.pending?.phase === "thinking"}
 				placeholder={
 					chat.configured === false
 						? "Configure AI in Settings to ask questions"

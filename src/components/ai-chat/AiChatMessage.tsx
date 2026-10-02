@@ -2,13 +2,19 @@ import { WarningCircle } from "@phosphor-icons/react";
 import { lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { PendingAiChat } from "@/hooks/useAiChat";
+import type { PendingAiChat, PendingPhase } from "@/hooks/useAiChat";
 import type { AiChatMessage as AiChatMessageData } from "@/lib/tauri/aiChat";
 import { AiChatResult } from "./AiChatResult";
 import { AiChatSteps } from "./AiChatSteps";
 import { AiChatWriteCard } from "./AiChatWriteCard";
 
 const STOPPED = "Stopped";
+
+const PENDING_LABEL: Record<PendingPhase, string> = {
+	thinking: "Thinking…",
+	writing: "Running the approved change…",
+	rejecting: "Rejecting the change…",
+};
 
 const MessageResponse = lazy(() => import("./MessageResponse"));
 
@@ -87,9 +93,9 @@ export function PendingAiChatMessage({
 				<div className="flex items-center gap-2 text-xs text-muted-foreground">
 					<Spinner className="size-3.5" />
 					<span className="ai-shimmer">
-						{pending.cancellable ? "Thinking…" : "Running the approved change…"}
+						{PENDING_LABEL[pending.phase]}
 					</span>
-					{pending.cancellable ? (
+					{pending.phase === "thinking" ? (
 						<Button
 							variant="ghost"
 							size="xs"
