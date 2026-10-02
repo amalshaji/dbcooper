@@ -448,6 +448,61 @@ async fn resolve_container_in_context(
     })
 }
 
+const LINKED_REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "0.0.0.0")
+}
+
+/// Point a loopback MongoDB URI at the container's new host port.
+fn rewrite_loopback_uri_port(uri: &str, old_port: i64, new_port: i64) -> Option<String> {
+    ["127.0.0.1", "localhost"].iter().find_map(|host| {
+        let needle = format!("{host}:{old_port}");
+        let start = uri.find(&needle)?;
+        let end = start + needle.len();
+        if uri[end..].starts_with(|ch: char| ch.is_ascii_digit()) {
+            return None;
+        }
+        Some(format!("{}{host}:{new_port}{}", &uri[..start], &uri[end..]))
+    })
+}
+
+/// Linked containers are not ours to start, but Docker assigns a new random
+/// host port when they restart, so follow the published port while running.
+async fn refresh_linked_endpoint(
+    pool: &SqlitePool,
+    uuid: &str,
+    link: &DockerLink,
+) -> Result<(), String> {
+    let Ok(container) = resolve_container(pool, link).await else {
+        return Ok(());
+    };
+    if !container.inspect.state.running {
+        return Ok(());
+    }
+    let Some(port) = container.inspect.host_port(link.internal_port) else {
+        return Ok(());
+    };
+    let connection: Connection = sqlx::query_as("SELECT * FROM connections WHERE uuid = ?")
+        .bind(uuid)
+        .fetch_one(pool)
+        .await
+        .map_err(|error| error.to_string())?;
+    if port == connection.port || !is_loopback_host(&connection.host) {
+        return Ok(());
+    }
+    let connection_uri = match connection.connection_uri.as_deref() {
+        Some(uri) => match rewrite_loopback_uri_port(uri, connection.port, port) {
+            Some(rewritten) => Some(rewritten),
+            // URI-based engines connect through the URI; updating only the
+            // port would hide the mismatch without fixing it.
+            None => return Ok(()),
+        },
+        None => None,
+    };
+    store::update_connection_endpoint(pool, uuid, port, connection_uri.as_deref()).await
+}
+
 pub async fn ensure_created_connection_running(
     pool: &SqlitePool,
     uuid: &str,
@@ -456,7 +511,13 @@ pub async fn ensure_created_connection_running(
         return Ok(());
     };
     if link.ownership()? != DockerOwnership::Created {
-        return Ok(());
+        // Best effort: a slow or unavailable Docker must not block connecting.
+        return tokio::time::timeout(
+            LINKED_REFRESH_TIMEOUT,
+            refresh_linked_endpoint(pool, uuid, &link),
+        )
+        .await
+        .unwrap_or(Ok(()));
     }
     let mut container = resolve_container(pool, &link).await?;
     if !container.inspect.state.running {
@@ -657,8 +718,8 @@ pub async fn stop_created_databases(pool: &SqlitePool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        linked_container_is_available, mongodb_link_connection_uri, saved_connection_string,
-        stop_created_databases,
+        is_loopback_host, linked_container_is_available, mongodb_link_connection_uri,
+        rewrite_loopback_uri_port, saved_connection_string, stop_created_databases,
     };
     use crate::db::models::Connection;
     use crate::docker::model::{DockerDatabaseEngine, DockerOwnership, ManagedDatabasePlan};
@@ -821,5 +882,32 @@ esac
         .await
         .unwrap();
         assert_eq!(stored_id, "fresh-id");
+    }
+
+    #[test]
+    fn rewrites_only_the_loopback_port_of_a_linked_uri() {
+        assert_eq!(
+            rewrite_loopback_uri_port(
+                "mongodb://u:p@127.0.0.1:32768/app?authSource=admin",
+                32768,
+                32770
+            )
+            .as_deref(),
+            Some("mongodb://u:p@127.0.0.1:32770/app?authSource=admin")
+        );
+        assert_eq!(
+            rewrite_loopback_uri_port("mongodb://localhost:32768", 32768, 32770).as_deref(),
+            Some("mongodb://localhost:32770")
+        );
+        assert_eq!(
+            rewrite_loopback_uri_port("mongodb://127.0.0.1:327689/app", 32768, 1),
+            None
+        );
+        assert_eq!(
+            rewrite_loopback_uri_port("mongodb://db.example.com:32768/app", 32768, 1),
+            None
+        );
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(!is_loopback_host("db.example.com"));
     }
 }
