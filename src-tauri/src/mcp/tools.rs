@@ -252,7 +252,7 @@ async fn mongo_list_namespaces(server: &McpServer, uuid: &str) -> Result<CallToo
         .catalog()
         .await
         .map_err(|error| McpError::internal_error(error, None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         serde_json::to_string_pretty(&catalog).unwrap_or_else(|_| "[]".to_string()),
     )]))
 }
@@ -276,7 +276,7 @@ async fn mongo_describe_collection(
                 .any(|entry| entry.name == collection)
     });
     if !exists {
-        return Ok(CallToolResult::error(vec![Content::text(
+        return Ok(CallToolResult::error(vec![ContentBlock::text(
             "MongoDB collection was not found",
         )]));
     }
@@ -285,7 +285,7 @@ async fn mongo_describe_collection(
         driver.get_validator(database, collection),
     )
     .map_err(|error| McpError::internal_error(error, None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         serde_json::to_string_pretty(&json!({
             "database": database,
             "collection": collection,
@@ -325,7 +325,7 @@ async fn mongo_find(
     .await
     .map_err(|_| McpError::internal_error("MongoDB query timed out after 30 seconds", None))?
     .map_err(|error| McpError::invalid_params(error, None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
     )]))
 }
@@ -361,7 +361,7 @@ async fn mongo_aggregate(
     .await
     .map_err(|_| McpError::internal_error("MongoDB query timed out after 30 seconds", None))?
     .map_err(|error| McpError::invalid_params(error, None))?;
-    Ok(CallToolResult::success(vec![Content::text(
+    Ok(CallToolResult::success(vec![ContentBlock::text(
         serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
     )]))
 }
@@ -390,16 +390,16 @@ async fn list_connections(server: &McpServer) -> Result<CallToolResult, McpError
         .collect();
 
     let text = serde_json::to_string_pretty(&safe).unwrap_or_else(|_| "[]".to_string());
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 async fn connect(server: &McpServer, uuid: &str) -> Result<CallToolResult, McpError> {
     match server.ensure_connected(uuid).await {
-        Ok(()) => Ok(CallToolResult::success(vec![Content::text(format!(
+        Ok(()) => Ok(CallToolResult::success(vec![ContentBlock::text(format!(
             "Connected to {} successfully.",
             uuid
         ))])),
-        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Failed to connect: {}",
             e
         ))])),
@@ -408,7 +408,7 @@ async fn connect(server: &McpServer, uuid: &str) -> Result<CallToolResult, McpEr
 
 async fn disconnect(server: &McpServer, uuid: &str) -> Result<CallToolResult, McpError> {
     server.pool_manager.disconnect(uuid).await;
-    Ok(CallToolResult::success(vec![Content::text(format!(
+    Ok(CallToolResult::success(vec![ContentBlock::text(format!(
         "Disconnected from {}.",
         uuid
     ))]))
@@ -420,9 +420,9 @@ async fn list_tables(server: &McpServer, uuid: &str) -> Result<CallToolResult, M
     match server.pool_manager.list_tables(uuid).await {
         Ok(tables) => {
             let json = serde_json::to_string_pretty(&tables).unwrap_or_else(|_| "[]".to_string());
-            Ok(CallToolResult::success(vec![Content::text(json)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         }
-        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Failed to list tables: {}",
             e
         ))])),
@@ -445,9 +445,9 @@ async fn describe_table(
         Ok(structure) => {
             let json =
                 serde_json::to_string_pretty(&structure).unwrap_or_else(|_| "{}".to_string());
-            Ok(CallToolResult::success(vec![Content::text(json)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         }
-        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Failed to describe table: {}",
             e
         ))])),
@@ -460,9 +460,9 @@ async fn get_schema_overview(server: &McpServer, uuid: &str) -> Result<CallToolR
     match server.pool_manager.get_schema_overview(uuid).await {
         Ok(overview) => {
             let json = serde_json::to_string_pretty(&overview).unwrap_or_else(|_| "{}".to_string());
-            Ok(CallToolResult::success(vec![Content::text(json)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         }
-        Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Failed to get schema overview: {}",
             e
         ))])),
@@ -489,7 +489,7 @@ async fn execute_query(
             // Engine-level rejections (e.g. a write in read-only mode) come back
             // as an error on the result; surface them as a tool error.
             if let Some(err) = result.error.take() {
-                return Ok(CallToolResult::error(vec![Content::text(err)]));
+                return Ok(CallToolResult::error(vec![ContentBlock::text(err)]));
             }
 
             let truncated = result.truncated || result.data.len() > MAX_ROWS;
@@ -506,13 +506,13 @@ async fn execute_query(
                 output.push_str(&format!("\n\n(Results truncated to {} rows)", MAX_ROWS));
             }
 
-            Ok(CallToolResult::success(vec![Content::text(output)]))
+            Ok(CallToolResult::success(vec![ContentBlock::text(output)]))
         }
-        Ok(Err(e)) => Ok(CallToolResult::error(vec![Content::text(format!(
+        Ok(Err(e)) => Ok(CallToolResult::error(vec![ContentBlock::text(format!(
             "Query failed: {}",
             e
         ))])),
-        Err(_) => Ok(CallToolResult::error(vec![Content::text(
+        Err(_) => Ok(CallToolResult::error(vec![ContentBlock::text(
             "Query timed out after 30 seconds",
         )])),
     }
