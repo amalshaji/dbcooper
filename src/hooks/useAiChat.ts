@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/tauri";
 import {
 	AI_CHAT_STEP_EVENT,
+	AI_CHAT_WRITE_FINISHED_EVENT,
 	type AiChatMessage,
 	type AiChatStep,
 	type AiChatStepEvent,
@@ -14,6 +15,8 @@ export interface PendingAiChat {
 	sessionId: string;
 	text: string | null;
 	steps: AiChatStep[];
+	/** False while an approved write runs: it cannot be interrupted. */
+	cancellable: boolean;
 }
 
 export function upsertStep(steps: AiChatStep[], step: AiChatStep) {
@@ -130,22 +133,39 @@ export function useAiChat(connectionUuid: string) {
 		async <T,>(
 			text: string | null,
 			call: (sessionId: string) => Promise<T>,
+			cancellable = true,
 		): Promise<T | null> => {
 			if (pendingSessionRef.current) return null;
 			const sessionId = crypto.randomUUID();
 			pendingSessionRef.current = sessionId;
-			setPending({ sessionId, text, steps: [] });
+			setPending({ sessionId, text, steps: [], cancellable });
 
-			let unlisten: (() => void) | null = null;
+			const unlisteners: Array<() => void> = [];
 			try {
-				unlisten = await listen<AiChatStepEvent>(AI_CHAT_STEP_EVENT, (event) => {
-					if (event.payload.session_id !== sessionId) return;
-					setPending((current) =>
-						current?.sessionId === sessionId
-							? { ...current, steps: upsertStep(current.steps, event.payload.step) }
-							: current,
-					);
-				});
+				unlisteners.push(
+					await listen<AiChatStepEvent>(AI_CHAT_STEP_EVENT, (event) => {
+						if (event.payload.session_id !== sessionId) return;
+						setPending((current) =>
+							current?.sessionId === sessionId
+								? {
+										...current,
+										steps: upsertStep(current.steps, event.payload.step),
+									}
+								: current,
+						);
+					}),
+					await listen<{ session_id: string }>(
+						AI_CHAT_WRITE_FINISHED_EVENT,
+						(event) => {
+							if (event.payload.session_id !== sessionId) return;
+							setPending((current) =>
+								current?.sessionId === sessionId
+									? { ...current, cancellable: true }
+									: current,
+							);
+						},
+					),
+				);
 				return await call(sessionId);
 			} catch (error) {
 				toast.error("Ask AI failed", {
@@ -153,7 +173,7 @@ export function useAiChat(connectionUuid: string) {
 				});
 				return null;
 			} finally {
-				unlisten?.();
+				for (const unlisten of unlisteners) unlisten();
 				pendingSessionRef.current = null;
 				setPending(null);
 			}
@@ -195,8 +215,10 @@ export function useAiChat(connectionUuid: string) {
 
 	const resolveWrite = useCallback(
 		async (messageId: number, approve: boolean) => {
-			const resolution = await runSession(null, (sessionId) =>
-				api.aiChat.resolveWrite({ sessionId, messageId, approve }),
+			const resolution = await runSession(
+				null,
+				(sessionId) => api.aiChat.resolveWrite({ sessionId, messageId, approve }),
+				false,
 			);
 			if (!resolution) return;
 			setMessages((items) => {

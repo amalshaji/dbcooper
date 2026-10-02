@@ -194,22 +194,35 @@ impl PoolExecutor {
                         collection,
                         documents,
                     } => {
+                        // One deadline for the whole batch; the count survives a
+                        // timeout so partial inserts are reported accurately.
                         let mut inserted = 0u64;
-                        for document in documents {
-                            let insert = driver.insert_one(MongoDocumentMutation {
-                                database: database.clone(),
-                                collection: collection.clone(),
-                                document,
-                            });
-                            tokio::time::timeout(WRITE_TIMEOUT, insert)
-                                .await
-                                .map_err(|_| "MongoDB insert timed out".to_string())?
-                                .map_err(|error| {
-                                    format!(
-                                        "{error} (inserted {inserted} documents before failing)"
-                                    )
-                                })?;
-                            inserted += 1;
+                        let batch = async {
+                            for document in documents {
+                                driver
+                                    .insert_one(MongoDocumentMutation {
+                                        database: database.clone(),
+                                        collection: collection.clone(),
+                                        document,
+                                    })
+                                    .await?;
+                                inserted += 1;
+                            }
+                            Ok::<(), String>(())
+                        };
+                        let outcome = tokio::time::timeout(WRITE_TIMEOUT, batch).await;
+                        match outcome {
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => {
+                                return Err(format!(
+                                    "{error} (inserted {inserted} documents before failing)"
+                                ))
+                            }
+                            Err(_) => {
+                                return Err(format!(
+                                    "MongoDB insert timed out after inserting {inserted} documents"
+                                ))
+                            }
                         }
                         Ok(Some(inserted))
                     }
@@ -227,8 +240,8 @@ impl PoolExecutor {
 
     async fn sql_query(&self, query: &Value) -> Result<QueryOutput, String> {
         let sql = statement(query)?;
-        if matches!(self.engine, Engine::Sql { .. }) {
-            super::sql_guard::check_agent_sql(sql)?;
+        if let Engine::Sql { db_type } = &self.engine {
+            super::sql_guard::check_agent_sql(sql, db_type)?;
         }
         let mut result = tokio::time::timeout(
             QUERY_TIMEOUT,

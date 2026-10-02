@@ -18,7 +18,7 @@ use protocol::{is_plain_text, parse_action, Action};
 
 pub const MAX_STEPS: usize = 8;
 pub const MAX_RESULT_ROWS: usize = 1000;
-const MAX_HISTORY_MESSAGES: usize = 12;
+pub const MAX_HISTORY_MESSAGES: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

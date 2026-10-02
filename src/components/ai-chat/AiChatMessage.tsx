@@ -86,15 +86,19 @@ export function PendingAiChatMessage({
 				<AiChatSteps steps={pending.steps} />
 				<div className="flex items-center gap-2 text-xs text-muted-foreground">
 					<Spinner className="size-3.5" />
-					<span className="ai-shimmer">Thinking…</span>
-					<Button
-						variant="ghost"
-						size="xs"
-						className="ml-auto"
-						onClick={onCancel}
-					>
-						Stop
-					</Button>
+					<span className="ai-shimmer">
+						{pending.cancellable ? "Thinking…" : "Running the approved change…"}
+					</span>
+					{pending.cancellable ? (
+						<Button
+							variant="ghost"
+							size="xs"
+							className="ml-auto"
+							onClick={onCancel}
+						>
+							Stop
+						</Button>
+					) : null}
 				</div>
 			</div>
 		</>

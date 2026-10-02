@@ -9,12 +9,17 @@ import { DOCKER_DATABASE_ENGINES } from "../types/docker";
 
 if (!globalThis.document) GlobalRegistrator.register();
 
-type StepHandler = (event: { payload: AiChatStepEvent }) => void;
-const handlers = new Set<StepHandler>();
+type Handler = (event: { payload: never }) => void;
+const handlers = new Set<{ event: string; handler: Handler }>();
 const sendCalls: Array<{ sessionId: string; conversationId: number | null }> =
 	[];
 const cancelCalls: string[] = [];
-const resolveCalls: Array<{ messageId: number; approve: boolean }> = [];
+const resolveCalls: Array<{
+	sessionId: string;
+	messageId: number;
+	approve: boolean;
+}> = [];
+let resolveGate: Promise<void> = Promise.resolve();
 const toastErrors: string[] = [];
 let sendImpl: (args: {
 	sessionId: string;
@@ -23,9 +28,10 @@ let sendImpl: (args: {
 }) => Promise<AiChatExchange>;
 
 mock.module("@tauri-apps/api/event", () => ({
-	listen: async (_event: string, handler: StepHandler) => {
-		handlers.add(handler);
-		return () => handlers.delete(handler);
+	listen: async (event: string, handler: Handler) => {
+		const entry = { event, handler };
+		handlers.add(entry);
+		return () => handlers.delete(entry);
 	},
 }));
 mock.module("sonner", () => ({
@@ -33,6 +39,7 @@ mock.module("sonner", () => ({
 }));
 mock.module("@/lib/tauri/aiChat", () => ({
 	AI_CHAT_STEP_EVENT: "ai-chat-step",
+	AI_CHAT_WRITE_FINISHED_EVENT: "ai-chat-write-finished",
 }));
 mock.module("@/lib/tauri", () => ({
 	DOCKER_DATABASE_ENGINES,
@@ -50,8 +57,13 @@ mock.module("@/lib/tauri", () => ({
 			],
 			getMessages: async () => [],
 			deleteConversation: async () => undefined,
-			resolveWrite: async (args: { messageId: number; approve: boolean }) => {
+			resolveWrite: async (args: {
+				sessionId: string;
+				messageId: number;
+				approve: boolean;
+			}) => {
 				resolveCalls.push(args);
+				await resolveGate;
 				return {
 					conversation: {
 						id: 2,
@@ -108,8 +120,14 @@ function step(id: number, running: boolean): AiChatStep {
 	};
 }
 
+function emitTo(event: string, payload: unknown) {
+	for (const entry of handlers) {
+		if (entry.event === event) entry.handler({ payload: payload as never });
+	}
+}
+
 function emit(payload: AiChatStepEvent) {
-	for (const handler of handlers) handler({ payload });
+	emitTo("ai-chat-step", payload);
 }
 
 const pendingWrite = {
@@ -143,6 +161,7 @@ afterEach(() => {
 	sendCalls.length = 0;
 	cancelCalls.length = 0;
 	resolveCalls.length = 0;
+	resolveGate = Promise.resolve();
 	toastErrors.length = 0;
 });
 
@@ -265,4 +284,40 @@ test("a new question supersedes a pending write", async () => {
 	});
 	expect(result.current.messages[1].write?.status).toBe("rejected");
 	expect(result.current.messages).toHaveLength(4);
+});
+
+test("an approved write cannot be stopped until it finishes", async () => {
+	sendImpl = async (args) => {
+		const result = exchange(args.message);
+		return {
+			...result,
+			assistant_message: { ...result.assistant_message, write: pendingWrite },
+		};
+	};
+	const { result } = renderHook(() => useAiChat("c1"));
+	await act(async () => {
+		await result.current.send("create a notes table");
+	});
+
+	let release: () => void = () => undefined;
+	resolveGate = new Promise((resolve) => {
+		release = resolve;
+	});
+	let resolving: Promise<void> = Promise.resolve();
+	act(() => {
+		resolving = result.current.resolveWrite(11, true);
+	});
+	await waitFor(() => expect(resolveCalls).toHaveLength(1));
+	expect(result.current.pending?.cancellable).toBe(false);
+
+	act(() => {
+		emitTo("ai-chat-write-finished", { session_id: resolveCalls[0].sessionId });
+	});
+	expect(result.current.pending?.cancellable).toBe(true);
+
+	await act(async () => {
+		release();
+		await resolving;
+	});
+	expect(result.current.pending).toBeNull();
 });

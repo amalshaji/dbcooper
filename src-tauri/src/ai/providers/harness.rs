@@ -187,8 +187,7 @@ fn build_command(
                 "",
             ]);
             command.args(option_args(provider, options));
-            command.arg(prompt);
-            None
+            Some(prompt.as_bytes().to_vec())
         }
         AiProvider::CodexCli => {
             command.args([
@@ -212,8 +211,8 @@ fn build_command(
             command.args(["run", "--pure", "--dir"]);
             command.arg(workdir);
             command.args(option_args(provider, options));
-            command.args(["--format", "default", prompt]);
-            None
+            command.args(["--format", "default"]);
+            Some(prompt.as_bytes().to_vec())
         }
         AiProvider::OpenAI => None,
     };
@@ -485,7 +484,7 @@ mod tests {
         let selected = options(Some("opencode/claude-sonnet-5-5"), Some("max"));
 
         let claude = args(AiProvider::ClaudeCode, &selected);
-        assert_eq!(claude.last().map(String::as_str), Some("PROMPT"));
+        assert!(!claude.iter().any(|arg| arg == "PROMPT"));
         assert!(claude.windows(2).any(|pair| pair == ["--effort", "max"]));
 
         let codex = args(AiProvider::CodexCli, &selected);
@@ -510,13 +509,24 @@ mod tests {
         assert_eq!(permission["edit"], "deny");
 
         let opencode = args(AiProvider::OpencodeCli, &selected);
-        assert_eq!(
-            &opencode[opencode.len() - 3..],
-            ["--format", "default", "PROMPT"]
-        );
+        assert_eq!(&opencode[opencode.len() - 2..], ["--format", "default"]);
         assert!(opencode
             .windows(2)
             .any(|pair| pair == ["--model", "opencode/claude-sonnet-5-5"]));
+    }
+
+    #[test]
+    fn sends_prompts_over_stdin_for_every_cli() {
+        for provider in AiProvider::harnesses() {
+            let (_, stdin) = build_command(
+                provider,
+                "PROMPT",
+                PathBuf::from("/bin/harness"),
+                Path::new("/tmp/work"),
+                &HarnessOptions::default(),
+            );
+            assert_eq!(stdin.as_deref(), Some("PROMPT".as_bytes()), "{provider:?}");
+        }
     }
 
     #[test]

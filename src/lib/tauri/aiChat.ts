@@ -78,6 +78,8 @@ export interface AiChatStepEvent {
 }
 
 export const AI_CHAT_STEP_EVENT = "ai-chat-step";
+/** Emitted once an approved write has finished; until then it can't be stopped. */
+export const AI_CHAT_WRITE_FINISHED_EVENT = "ai-chat-write-finished";
 
 export const aiChatApi = {
 	send: (args: {

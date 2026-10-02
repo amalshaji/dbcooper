@@ -3,7 +3,7 @@ use crate::ai::chat::model::ProviderModel;
 use crate::ai::chat::store::{self, Conversation, StoredMessage};
 use crate::ai::chat::{
     history_turns, prompt, run_chat, AiChatSessions, ChatExecutor, ChatStep, Engine, InspectLevel,
-    MessageContent, Role, Turn, WriteStatus,
+    MessageContent, Role, Turn, WriteStatus, MAX_HISTORY_MESSAGES,
 };
 use crate::ai::settings::{self, AiSettings};
 use crate::database::pool_manager::PoolManager;
@@ -17,6 +17,11 @@ pub struct AiChatExchange {
     pub conversation: Conversation,
     pub user_message: StoredMessage,
     pub assistant_message: StoredMessage,
+}
+
+#[derive(Clone, Serialize)]
+struct AiChatWriteFinishedPayload<'a> {
+    session_id: &'a str,
 }
 
 #[derive(Clone, Serialize)]
@@ -137,7 +142,8 @@ pub async fn ai_chat_send(
     };
 
     store::reject_pending_writes(pool.inner(), conversation.id).await?;
-    let history = store::list_messages(pool.inner(), conversation.id).await?;
+    let history =
+        store::list_recent_messages(pool.inner(), conversation.id, MAX_HISTORY_MESSAGES).await?;
     let user_message = store::insert_message(
         pool.inner(),
         conversation.id,
@@ -177,7 +183,7 @@ pub async fn ai_chat_resolve_write(
     message_id: i64,
     approve: bool,
 ) -> Result<AiChatWriteResolution, String> {
-    resolve_write(
+    let resolution = resolve_write(
         &app,
         pool.inner(),
         pool_manager.inner(),
@@ -186,7 +192,9 @@ pub async fn ai_chat_resolve_write(
         message_id,
         approve,
     )
-    .await
+    .await;
+    sessions.finish(&session_id);
+    resolution
 }
 
 async fn resolve_write(
@@ -224,27 +232,55 @@ async fn resolve_write(
         });
     }
 
+    // Registered before running so a Stop sent in the meantime is honoured;
+    // once the write starts it cannot be interrupted, and the UI hides Stop
+    // until `ai-chat-write-finished` arrives.
+    let token = sessions.start(session_id);
     let prepared = prepare_turn(pool, pool_manager, &conversation.connection_uuid).await;
-    let outcome = match &prepared {
-        Ok(context) => context.executor.execute_write(&query).await,
-        Err(error) => Err(error.clone()),
+    let outcome = if token.is_cancelled() {
+        None
+    } else {
+        Some(match &prepared {
+            Ok(context) => context.executor.execute_write(&query).await,
+            Err(error) => Err(error.clone()),
+        })
     };
     if let Some(write) = content.write.as_mut() {
         match outcome {
-            Ok(rows_affected) => {
+            None => write.status = WriteStatus::Rejected,
+            Some(Ok(rows_affected)) => {
                 write.status = WriteStatus::Executed;
                 write.rows_affected = rows_affected;
             }
-            Err(error) => {
+            Some(Err(error)) => {
                 write.status = WriteStatus::Failed;
                 write.error = Some(error);
             }
         }
     }
+    let stopped = token.is_cancelled();
     let updated_message = store::update_message(pool, message_id, &content).await?;
-    let context = prepared?;
+    let _ = app.emit(
+        "ai-chat-write-finished",
+        AiChatWriteFinishedPayload { session_id },
+    );
+    if stopped {
+        return Ok(AiChatWriteResolution {
+            conversation,
+            updated_message,
+            assistant_message: None,
+        });
+    }
+    // The failure is recorded on the proposal; return it so the card updates.
+    let Ok(context) = prepared else {
+        return Ok(AiChatWriteResolution {
+            conversation,
+            updated_message,
+            assistant_message: None,
+        });
+    };
 
-    let history = store::list_messages(pool, conversation.id).await?;
+    let history = store::list_recent_messages(pool, conversation.id, MAX_HISTORY_MESSAGES).await?;
     let continuation =
         run_assistant_turn(app, sessions, session_id, context, history_turns(&history)).await;
     let assistant_message =

@@ -53,6 +53,44 @@ const FORBIDDEN_FUNCTIONS: [&str; 34] = [
     "read_text",
 ];
 
+/// ClickHouse table functions that only generate data; every other table
+/// function (url, s3, mongodb, sqlite, remote, cluster, …) reaches an external
+/// or server-side source, so anything not listed here is rejected.
+const CLICKHOUSE_SAFE_TABLE_FUNCTIONS: [&str; 7] = [
+    "numbers",
+    "numbers_mt",
+    "zeros",
+    "zeros_mt",
+    "generaterandom",
+    "values",
+    "null",
+];
+
+/// Keywords that end the table list started by FROM/JOIN at the same depth.
+const TABLE_LIST_END: [&str; 21] = [
+    "WHERE",
+    "PREWHERE",
+    "GROUP",
+    "ORDER",
+    "LIMIT",
+    "HAVING",
+    "SETTINGS",
+    "FORMAT",
+    "UNION",
+    "EXCEPT",
+    "INTERSECT",
+    "ON",
+    "USING",
+    "WINDOW",
+    "QUALIFY",
+    "SELECT",
+    "SAMPLE",
+    "FINAL",
+    "OFFSET",
+    "INTO",
+    "ARRAY",
+];
+
 #[derive(Debug, PartialEq)]
 enum Token {
     Word(String),
@@ -131,8 +169,47 @@ fn tokens(sql: &str) -> Vec<Token> {
     tokens
 }
 
-pub fn check_agent_sql(sql: &str) -> Result<(), String> {
+/// Reject any ClickHouse table function used as a table source unless it is
+/// known to be local and side-effect free.
+fn check_clickhouse_table_functions(tokens: &[Token]) -> Result<(), String> {
+    let mut in_table_list = vec![false];
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            Token::Symbol('(') => in_table_list.push(false),
+            Token::Symbol(')') => {
+                if in_table_list.len() > 1 {
+                    in_table_list.pop();
+                }
+            }
+            Token::Word(word) if !word.is_empty() => {
+                let upper = word.to_ascii_uppercase();
+                let current = in_table_list
+                    .last_mut()
+                    .expect("depth stack is never empty");
+                if upper == "FROM" || upper == "JOIN" {
+                    *current = true;
+                } else if TABLE_LIST_END.contains(&upper.as_str()) {
+                    *current = false;
+                } else if *current && matches!(tokens.get(index + 1), Some(Token::Symbol('('))) {
+                    let lower = word.to_ascii_lowercase();
+                    if !CLICKHOUSE_SAFE_TABLE_FUNCTIONS.contains(&lower.as_str()) {
+                        return Err(format!(
+                            "The {lower}() table function is not allowed in Ask AI queries"
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub fn check_agent_sql(sql: &str, db_type: &str) -> Result<(), String> {
     let tokens = tokens(sql);
+    if db_type.eq_ignore_ascii_case("clickhouse") {
+        check_clickhouse_table_functions(&tokens)?;
+    }
 
     let first = tokens.iter().find_map(|token| match token {
         Token::Word(word) if !word.is_empty() => Some(word.to_ascii_uppercase()),
@@ -188,7 +265,7 @@ mod tests {
             "SELECT $q$ copy to program $q$",
             "SELECT url FROM links",
         ] {
-            assert!(check_agent_sql(sql).is_ok(), "{sql}");
+            assert!(check_agent_sql(sql, "postgres").is_ok(), "{sql}");
         }
     }
 
@@ -209,7 +286,35 @@ mod tests {
             "ATTACH DATABASE '/tmp/x.db' AS x",
             "",
         ] {
-            assert!(check_agent_sql(sql).is_err(), "{sql}");
+            assert!(check_agent_sql(sql, "postgres").is_err(), "{sql}");
         }
+    }
+
+    #[test]
+    fn rejects_clickhouse_external_table_functions() {
+        for sql in [
+            "SELECT * FROM mongodb('host:27017', 'db', 'users', 'u', 'p', 'name String')",
+            "SELECT * FROM sqlite('/var/lib/clickhouse/x.db', 'users')",
+            "SELECT * FROM events JOIN redis('host:6379', 'k', 'k String') AS r ON 1",
+            "SELECT count() FROM (SELECT * FROM cluster('default', system.one))",
+            "SELECT * FROM t, remoteSecure('evil:9440', db.t)",
+            "SELECT * FROM t WHERE id IN (SELECT id FROM postgresql('h', 'd', 't', 'u', 'p'))",
+        ] {
+            assert!(check_agent_sql(sql, "clickhouse").is_err(), "{sql}");
+        }
+    }
+
+    #[test]
+    fn allows_local_clickhouse_queries() {
+        for sql in [
+            "SELECT number FROM numbers(10)",
+            "SELECT toStartOfDay(ts) AS day, count() FROM events WHERE x IN (1, 2) GROUP BY day ORDER BY day",
+            "SELECT * FROM events AS e JOIN users AS u ON e.user_id = u.id WHERE lower(u.name) = 'ada'",
+            "SELECT * FROM system.tables LIMIT 5",
+            "SELECT * FROM events SETTINGS max_threads = 2",
+        ] {
+            assert!(check_agent_sql(sql, "clickhouse").is_ok(), "{sql}");
+        }
+        assert!(check_agent_sql("SELECT * FROM generate_series(1, 5)", "postgres").is_ok());
     }
 }

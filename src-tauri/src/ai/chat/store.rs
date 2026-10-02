@@ -116,6 +116,26 @@ pub async fn list_messages(
     Ok(rows.into_iter().map(MessageRow::into_message).collect())
 }
 
+/// The newest `limit` messages in chronological order; older ones are never
+/// sent to the model, so they are not loaded.
+pub async fn list_recent_messages(
+    pool: &SqlitePool,
+    conversation_id: i64,
+    limit: usize,
+) -> Result<Vec<StoredMessage>, String> {
+    let rows: Vec<MessageRow> = sqlx::query_as(
+        "SELECT * FROM (
+            SELECT * FROM ai_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?
+         ) ORDER BY id",
+    )
+    .bind(conversation_id)
+    .bind(i64::try_from(limit).unwrap_or(i64::MAX))
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(MessageRow::into_message).collect())
+}
+
 pub async fn get_message(pool: &SqlitePool, id: i64) -> Result<StoredMessage, String> {
     let row: MessageRow = sqlx::query_as("SELECT * FROM ai_messages WHERE id = ?")
         .bind(id)
@@ -165,12 +185,18 @@ pub async fn claim_pending_write(
 
 /// A new question supersedes any change still waiting for approval.
 pub async fn reject_pending_writes(pool: &SqlitePool, conversation_id: i64) -> Result<(), String> {
-    for mut message in list_messages(pool, conversation_id).await? {
+    let rows: Vec<MessageRow> = sqlx::query_as(
+        "SELECT * FROM ai_messages
+         WHERE conversation_id = ? AND json_extract(content_json, '$.write.status') = 'pending'",
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    for mut message in rows.into_iter().map(MessageRow::into_message) {
         if let Some(write) = message.content.write.as_mut() {
-            if write.status == WriteStatus::Pending {
-                write.status = WriteStatus::Rejected;
-                claim_pending_write(pool, message.id, &message.content).await?;
-            }
+            write.status = WriteStatus::Rejected;
+            claim_pending_write(pool, message.id, &message.content).await?;
         }
     }
     Ok(())
@@ -259,6 +285,11 @@ mod tests {
 
         let messages = list_messages(&pool, conversation.id).await.unwrap();
         assert_eq!(messages.len(), 2);
+        let recent = list_recent_messages(&pool, conversation.id, 1)
+            .await
+            .unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].role, "assistant");
         assert_eq!(messages[1].content.chart.as_ref().unwrap()["type"], "bar");
         assert_eq!(list_conversations(&pool, "c1").await.unwrap().len(), 1);
 

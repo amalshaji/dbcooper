@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 interface AiChatComposerProps {
 	disabled: boolean;
 	pending: boolean;
+	cancellable: boolean;
 	placeholder: string;
 	onSend: (text: string) => Promise<boolean>;
 	onCancel: () => void;
@@ -14,6 +15,7 @@ interface AiChatComposerProps {
 export function AiChatComposer({
 	disabled,
 	pending,
+	cancellable,
 	placeholder,
 	onSend,
 	onCancel,
@@ -57,7 +59,7 @@ export function AiChatComposer({
 					<span className="text-[11px] text-muted-foreground">
 						Enter to send · Shift+Enter for a new line
 					</span>
-					{pending ? (
+					{pending && cancellable ? (
 						<Button
 							type="button"
 							size="icon-sm"
