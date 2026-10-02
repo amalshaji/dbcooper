@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isSqlFunction } from "@/lib/databaseCatalog";
 import type { QueryKind } from "@/lib/mongo/querySpec";
+import { aiChatApi } from "@/lib/tauri/aiChat";
 import { mongoApi } from "@/lib/tauri/mongo";
 import type { TestConnectionResult } from "@/lib/tauri/shared";
 import type {
@@ -241,6 +242,22 @@ export interface AiHarnessStatus {
 	available: boolean;
 	path: string | null;
 	version: string | null;
+	error: string | null;
+}
+
+export type AiHarnessProvider = Exclude<AiProvider, "openai">;
+
+export interface AiHarnessModel {
+	id: string;
+	name: string;
+	efforts: string[];
+	default_effort: string | null;
+}
+
+export interface AiHarnessModelCatalog {
+	provider: AiHarnessProvider;
+	models: AiHarnessModel[];
+	efforts: string[];
 	error: string | null;
 }
 
@@ -959,5 +976,9 @@ export const api = {
 	ai: {
 		detectHarnesses: () => invoke<AiHarnessStatus[]>("detect_ai_harnesses"),
 		getStatus: () => invoke<AiStatus>("get_ai_status"),
+		listHarnessModels: (provider: AiHarnessProvider) =>
+			invoke<AiHarnessModelCatalog>("list_ai_harness_models", { provider }),
 	},
+
+	aiChat: aiChatApi,
 };

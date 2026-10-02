@@ -8,7 +8,11 @@ pub mod mcp;
 pub mod observability;
 mod ssh_tunnel;
 
-use commands::ai::{detect_ai_harnesses, generate_query, get_ai_status};
+use commands::ai::{detect_ai_harnesses, generate_query, get_ai_status, list_ai_harness_models};
+use commands::ai_chat::{
+    ai_chat_cancel, ai_chat_delete_conversation, ai_chat_get_messages, ai_chat_list_conversations,
+    ai_chat_resolve_write, ai_chat_send,
+};
 use commands::connections::{
     create_connection, delete_connection, export_connection, get_connection_by_uuid,
     get_connections, import_connections, update_connection,
@@ -239,6 +243,7 @@ pub fn run() {
 
             let observability_manager = Arc::new(ObservabilityManager::new());
             app.manage(observability_manager);
+            app.manage(ai::chat::AiChatSessions::default());
 
             // The embedded MCP server is opt-in and token-authenticated.
             let mcp_control = Arc::new(mcp::control::McpControl::new(pool, pool_manager));
@@ -310,6 +315,13 @@ pub fn run() {
             generate_query,
             detect_ai_harnesses,
             get_ai_status,
+            list_ai_harness_models,
+            ai_chat_send,
+            ai_chat_cancel,
+            ai_chat_resolve_write,
+            ai_chat_list_conversations,
+            ai_chat_get_messages,
+            ai_chat_delete_conversation,
             pool_connect,
             pool_disconnect,
             pool_get_status,

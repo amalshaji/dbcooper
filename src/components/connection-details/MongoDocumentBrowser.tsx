@@ -71,14 +71,16 @@ export function MongoDocumentBrowser({
 		<div className="flex min-h-0 flex-1 bg-muted/10">
 			<section
 				ref={listRef}
-				className="min-w-0 flex-1 overflow-auto bg-background"
+				className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-background"
 			>
-				<div className="sticky top-0 z-10 flex h-10 items-center border-b bg-background/95 px-3 text-xs text-muted-foreground backdrop-blur">
-					{workbench.result
-						? `${workbench.result.returned_count} documents${workbench.result.has_more ? "+" : ""} · ${workbench.result.execution_time_ms} ms`
-						: "Run a query to browse documents"}
+				<div className="sticky top-0 z-10 flex h-10 items-center gap-2 border-b bg-background/95 px-3 text-xs text-muted-foreground backdrop-blur">
+					<span className="min-w-0 truncate">
+						{workbench.result
+							? `${workbench.result.returned_count} documents${workbench.result.has_more ? "+" : ""} · ${workbench.result.execution_time_ms} ms`
+							: "Run a query to browse documents"}
+					</span>
 					<Button
-						className="ml-auto"
+						className="ml-auto shrink-0"
 						size="xs"
 						variant="ghost"
 						disabled={
@@ -140,7 +142,7 @@ export function MongoDocumentBrowser({
 				}}
 			/>
 			<aside
-				className="flex shrink-0 flex-col overflow-hidden bg-card"
+				className="flex max-w-[60%] shrink-0 flex-col overflow-hidden bg-card"
 				style={{ width: inspectorWidth }}
 			>
 				<div className="flex h-10 items-center gap-1.5 border-b px-3 text-sm font-medium">

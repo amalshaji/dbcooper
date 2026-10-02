@@ -14,6 +14,38 @@ use tokio::{io::AsyncWriteExt, process::Command, time::timeout};
 
 const HARNESS_TIMEOUT: Duration = Duration::from_secs(120);
 const HARNESS_DETECT_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_OPTION_LENGTH: usize = 128;
+const OPENCODE_DENY_ALL: &str = r#"{"*":"deny","read":"deny","edit":"deny","glob":"deny","grep":"deny","list":"deny","bash":"deny","task":"deny","webfetch":"deny","websearch":"deny","codesearch":"deny","skill":"deny","todowrite":"deny","external_directory":"deny"}"#;
+
+/// Model and thinking level for a harness run; `None` keeps the CLI's own default.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HarnessOptions {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// Values become separate argv entries (never a shell string), but a leading
+/// `-` would still be parsed as a flag and Codex embeds the effort in a TOML
+/// override, so both are restricted to identifier-like characters.
+fn validate_option(kind: &str, value: &str) -> Result<(), String> {
+    let allowed = |ch: char| ch.is_ascii_alphanumeric() || "._:/@[]-".contains(ch);
+    if value.len() > MAX_OPTION_LENGTH || value.starts_with('-') || !value.chars().all(allowed) {
+        return Err(format!("Invalid {kind} \"{value}\""));
+    }
+    Ok(())
+}
+
+impl HarnessOptions {
+    fn validate(&self) -> Result<(), String> {
+        if let Some(model) = &self.model {
+            validate_option("model", model)?;
+        }
+        if let Some(effort) = &self.effort {
+            validate_option("thinking level", effort)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Serialize)]
 pub struct AiHarnessStatus {
@@ -95,11 +127,47 @@ async fn create_workdir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn option_args(provider: AiProvider, options: &HarnessOptions) -> Vec<String> {
+    let mut args = Vec::new();
+    match provider {
+        AiProvider::ClaudeCode => {
+            if let Some(model) = &options.model {
+                args.extend(["--model".to_string(), model.clone()]);
+            }
+            if let Some(effort) = &options.effort {
+                args.extend(["--effort".to_string(), effort.clone()]);
+            }
+        }
+        AiProvider::CodexCli => {
+            if let Some(model) = &options.model {
+                args.extend(["--model".to_string(), model.clone()]);
+            }
+            if let Some(effort) = &options.effort {
+                args.extend([
+                    "--config".to_string(),
+                    format!("model_reasoning_effort=\"{effort}\""),
+                ]);
+            }
+        }
+        AiProvider::OpencodeCli => {
+            if let Some(model) = &options.model {
+                args.extend(["--model".to_string(), model.clone()]);
+            }
+            if let Some(effort) = &options.effort {
+                args.extend(["--variant".to_string(), effort.clone()]);
+            }
+        }
+        AiProvider::OpenAI => {}
+    }
+    args
+}
+
 fn build_command(
     provider: AiProvider,
     prompt: &str,
     command_path: PathBuf,
     workdir: &Path,
+    options: &HarnessOptions,
 ) -> (Command, Option<Vec<u8>>) {
     let mut command = Command::new(command_path);
     command.current_dir(workdir);
@@ -117,8 +185,9 @@ fn build_command(
                 "--no-session-persistence",
                 "--tools",
                 "",
-                prompt,
             ]);
+            command.args(option_args(provider, options));
+            command.arg(prompt);
             None
         }
         AiProvider::CodexCli => {
@@ -129,15 +198,20 @@ fn build_command(
                 "--ephemeral",
                 "--ignore-rules",
                 "--skip-git-repo-check",
-                "-C",
             ]);
+            command.args(option_args(provider, options));
+            command.arg("-C");
             command.arg(workdir);
             command.arg("-");
             Some(prompt.as_bytes().to_vec())
         }
         AiProvider::OpencodeCli => {
+            // opencode's tools are enabled by default; prompts can carry
+            // untrusted database content, so deny every tool for this run.
+            command.env("OPENCODE_PERMISSION", OPENCODE_DENY_ALL);
             command.args(["run", "--pure", "--dir"]);
             command.arg(workdir);
+            command.args(option_args(provider, options));
             command.args(["--format", "default", prompt]);
             None
         }
@@ -156,9 +230,11 @@ async fn run_command(
     provider: AiProvider,
     prompt: &str,
     command_path: PathBuf,
+    options: &HarnessOptions,
 ) -> Result<String, String> {
     let workdir = create_workdir().await?;
-    let (mut command, stdin_payload) = build_command(provider, prompt, command_path, &workdir);
+    let (mut command, stdin_payload) =
+        build_command(provider, prompt, command_path, &workdir, options);
 
     let mut child = command
         .spawn()
@@ -210,7 +286,46 @@ async fn run_command(
     Ok(stdout)
 }
 
-async fn run_completion(provider: AiProvider, prompt: &str) -> Result<String, String> {
+/// Run a short, non-prompt harness command (e.g. listing models).
+pub(super) async fn run_harness_command(
+    provider: AiProvider,
+    args: &[&str],
+    limit: Duration,
+) -> Result<String, String> {
+    let command_name = provider
+        .command_name()
+        .ok_or_else(|| "Invalid AI harness provider".to_string())?;
+    let command_path =
+        find_executable(command_name).ok_or_else(|| format!("`{}` not found", command_name))?;
+    let mut command = Command::new(command_path);
+    command.args(args);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command.kill_on_drop(true);
+    if let Some(path) = gui_path() {
+        command.env("PATH", path);
+    }
+
+    let output = timeout(limit, command.output())
+        .await
+        .map_err(|_| format!("{} timed out", provider.display_name()))?
+        .map_err(|e| format!("{} failed: {}", provider.display_name(), e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("{} exited with an error", provider.display_name())
+        } else {
+            stderr
+        });
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+pub async fn run_completion(
+    provider: AiProvider,
+    prompt: &str,
+    options: &HarnessOptions,
+) -> Result<String, String> {
+    options.validate()?;
     let command_name = provider
         .command_name()
         .ok_or_else(|| "Invalid AI harness provider".to_string())?;
@@ -222,18 +337,19 @@ async fn run_completion(provider: AiProvider, prompt: &str) -> Result<String, St
         )
     })?;
 
-    run_command(provider, prompt, command_path).await
+    run_command(provider, prompt, command_path, options).await
 }
 
 pub async fn generate_query(
     app: AppHandle,
     session_id: String,
     provider: AiProvider,
+    options: HarnessOptions,
     system_prompt: String,
     user_prompt: String,
 ) -> Result<(), String> {
     let prompt = harness_prompt(&system_prompt, &user_prompt);
-    let response = run_completion(provider, &prompt).await?;
+    let response = run_completion(provider, &prompt, &options).await?;
     let cleaned = clean_generated_query(&response);
     emit_chunk(&app, &session_id, cleaned.clone());
     emit_done(&app, session_id, cleaned);
@@ -311,4 +427,110 @@ pub async fn detect_provider(provider: AiProvider) -> AiHarnessStatus {
 
 pub async fn detect_harnesses() -> Vec<AiHarnessStatus> {
     join_all(AiProvider::harnesses().map(detect_provider)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_command, option_args, HarnessOptions};
+    use crate::ai::settings::AiProvider;
+    use std::path::{Path, PathBuf};
+
+    fn options(model: Option<&str>, effort: Option<&str>) -> HarnessOptions {
+        HarnessOptions {
+            model: model.map(str::to_string),
+            effort: effort.map(str::to_string),
+        }
+    }
+
+    fn args(provider: AiProvider, options: &HarnessOptions) -> Vec<String> {
+        let (command, _) = build_command(
+            provider,
+            "PROMPT",
+            PathBuf::from("/bin/harness"),
+            Path::new("/tmp/work"),
+            options,
+        );
+        command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn maps_model_and_effort_to_each_cli() {
+        let selected = options(Some("opus"), Some("high"));
+        assert_eq!(
+            option_args(AiProvider::ClaudeCode, &selected),
+            ["--model", "opus", "--effort", "high"]
+        );
+        assert_eq!(
+            option_args(AiProvider::CodexCli, &selected),
+            [
+                "--model",
+                "opus",
+                "--config",
+                "model_reasoning_effort=\"high\""
+            ]
+        );
+        assert_eq!(
+            option_args(AiProvider::OpencodeCli, &selected),
+            ["--model", "opus", "--variant", "high"]
+        );
+        assert!(option_args(AiProvider::ClaudeCode, &HarnessOptions::default()).is_empty());
+    }
+
+    #[test]
+    fn keeps_prompt_and_workdir_positions_intact() {
+        let selected = options(Some("opencode/claude-sonnet-5-5"), Some("max"));
+
+        let claude = args(AiProvider::ClaudeCode, &selected);
+        assert_eq!(claude.last().map(String::as_str), Some("PROMPT"));
+        assert!(claude.windows(2).any(|pair| pair == ["--effort", "max"]));
+
+        let codex = args(AiProvider::CodexCli, &selected);
+        assert_eq!(&codex[codex.len() - 3..], ["-C", "/tmp/work", "-"]);
+
+        let (opencode_command, _) = build_command(
+            AiProvider::OpencodeCli,
+            "PROMPT",
+            PathBuf::from("/bin/harness"),
+            Path::new("/tmp/work"),
+            &selected,
+        );
+        let permission = opencode_command
+            .as_std()
+            .get_envs()
+            .find(|(key, _)| *key == "OPENCODE_PERMISSION")
+            .and_then(|(_, value)| value)
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap();
+        let permission: serde_json::Value = serde_json::from_str(&permission).unwrap();
+        assert_eq!(permission["bash"], "deny");
+        assert_eq!(permission["edit"], "deny");
+
+        let opencode = args(AiProvider::OpencodeCli, &selected);
+        assert_eq!(
+            &opencode[opencode.len() - 3..],
+            ["--format", "default", "PROMPT"]
+        );
+        assert!(opencode
+            .windows(2)
+            .any(|pair| pair == ["--model", "opencode/claude-sonnet-5-5"]));
+    }
+
+    #[test]
+    fn rejects_values_that_could_become_flags_or_break_config() {
+        assert!(options(Some("claude-opus-5-5[1m]"), Some("xhigh"))
+            .validate()
+            .is_ok());
+        assert!(options(Some("--dangerously-skip-permissions"), None)
+            .validate()
+            .is_err());
+        assert!(options(Some("opus model"), None).validate().is_err());
+        assert!(options(None, Some("high\"\nsandbox_mode=\"danger"))
+            .validate()
+            .is_err());
+        assert!(options(Some(&"a".repeat(129)), None).validate().is_err());
+    }
 }

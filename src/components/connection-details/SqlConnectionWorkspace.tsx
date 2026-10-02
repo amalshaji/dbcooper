@@ -8,6 +8,8 @@ import {
 } from "react";
 import { ClockCounterClockwise, Code, Table } from "@phosphor-icons/react";
 import { toast } from "sonner";
+import { AiChatDock } from "@/components/ai-chat/AiChatDock";
+import { AiChatPanel } from "@/components/ai-chat/AiChatPanel";
 import { CommandPalette } from "@/components/CommandPalette";
 import { WorkspaceLogsNavigation } from "@/components/logs/WorkspaceLogsNavigation";
 import { TabBar } from "@/components/TabBar";
@@ -29,7 +31,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useSettings } from "@/contexts/SettingsContext";
+import { useSettings } from "@/contexts/settings";
 import { useTheme } from "@/contexts/ThemeContext";
 import type { ConnectionLifecycleController } from "@/hooks/connection-details/useConnectionLifecycle";
 import { useConnectionQueryRecords } from "@/hooks/connection-details/useConnectionQueryRecords";
@@ -38,6 +40,7 @@ import { useConnectionTabActions } from "@/hooks/connection-details/useConnectio
 import { useQueryWorkspaceController } from "@/hooks/connection-details/useQueryWorkspaceController";
 import { useTableDataController } from "@/hooks/connection-details/useTableDataController";
 import { useContextualSqlGeneration } from "@/hooks/useContextualSqlGeneration";
+import { useAiChatDock } from "@/hooks/useAiChatDock";
 import { useQueryAiGeneration } from "@/hooks/useQueryAiGeneration";
 import {
 	applyTabPatch,
@@ -45,7 +48,9 @@ import {
 	type UpdateTab,
 } from "@/lib/connection-details/tabState";
 import { TabRequestController } from "@/lib/connection-details/tabRequestController";
+import { supportsAiChat } from "@/lib/connectionCapabilities";
 import { getCreateTableDbType } from "@/lib/databaseCatalog";
+import { beautifySql } from "@/lib/sqlFormat";
 import { api, type TableInfo } from "@/lib/tauri";
 import type { SqlConnection } from "@/types/connection";
 import type {
@@ -94,6 +99,7 @@ export function SqlConnectionWorkspace({
 	const [activeTabId, setActiveTabId] = useState<string | null>(null);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const requestController = useMemo(() => new TabRequestController(), []);
+	const aiChatDock = useAiChatDock(supportsAiChat(connection.type));
 
 	useEffect(() => {
 		requestController.reset();
@@ -396,27 +402,48 @@ export function SqlConnectionWorkspace({
 					onReconnect={lifecycle.commands.reconnect}
 					onStatusChange={lifecycle.commands.recordConnectionStatus}
 					onOpenSettings={openSettings}
+					aiChat={
+						aiChatDock.enabled
+							? { open: aiChatDock.open, onToggle: aiChatDock.toggle }
+							: undefined
+					}
 				/>
-				<WorkspaceLogsNavigation
-					connection={connection}
-					workspaceLabel="Workspace"
-					workspaceCloseTarget={{
-						kind: "tabs",
-						activeTabId,
-						closeTab: tabActions.handleCloseTab,
-					}}
+				<AiChatDock
+					open={aiChatDock.open}
+					panel={
+						<AiChatPanel
+							connection={connection}
+							onClose={aiChatDock.close}
+							onOpenSettings={openSettings}
+							onOpenQuery={(query) =>
+										tabActions.handleOpenQuery(
+											beautifySql(query, connection.db_type),
+										)
+									}
+						/>
+					}
 				>
-					<TabBar
-						tabs={tabs}
-						activeTabId={activeTabId}
-						onTabSelect={tabActions.handleTabSelect}
-						onTabClose={tabActions.handleCloseTab}
-						onNewQuery={tabActions.handleNewQuery}
-					/>
-					<div className="min-w-0 flex-1 overflow-auto p-3">
-						{renderActiveTab()}
-					</div>
-				</WorkspaceLogsNavigation>
+					<WorkspaceLogsNavigation
+						connection={connection}
+						workspaceLabel="Workspace"
+						workspaceCloseTarget={{
+							kind: "tabs",
+							activeTabId,
+							closeTab: tabActions.handleCloseTab,
+						}}
+					>
+						<TabBar
+							tabs={tabs}
+							activeTabId={activeTabId}
+							onTabSelect={tabActions.handleTabSelect}
+							onTabClose={tabActions.handleCloseTab}
+							onNewQuery={tabActions.handleNewQuery}
+						/>
+						<div className="min-w-0 flex-1 overflow-auto p-3">
+							{renderActiveTab()}
+						</div>
+					</WorkspaceLogsNavigation>
+				</AiChatDock>
 			</SidebarInset>
 
 			<AlertDialog

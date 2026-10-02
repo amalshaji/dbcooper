@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
 
+pub mod chat;
 pub mod prompts;
 pub mod providers;
 pub mod settings;
@@ -180,6 +181,7 @@ pub async fn generate_query(
                 app,
                 session_id,
                 provider,
+                settings.harness,
                 system_prompt,
                 user_prompt,
             )

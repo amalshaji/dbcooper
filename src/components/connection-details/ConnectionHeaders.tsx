@@ -1,4 +1,4 @@
-import { Gear, X } from "@phosphor-icons/react";
+import { Gear, Sparkle, X } from "@phosphor-icons/react";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,23 @@ interface ConnectionHeaderProps<TConnection extends Connection = Connection> {
 	onReconnect: () => Promise<void>;
 	onStatusChange: (status: "connected" | "disconnected") => void;
 	onOpenSettings: () => void;
+	aiChat?: { open: boolean; onToggle: () => void };
+}
+
+function AiChatToggle({ aiChat }: Pick<ConnectionHeaderProps, "aiChat">) {
+	if (!aiChat) return null;
+	return (
+		<Button
+			variant={aiChat.open ? "secondary" : "ghost"}
+			size="sm"
+			onClick={aiChat.onToggle}
+			aria-pressed={aiChat.open}
+			title="Ask AI (⌘I)"
+		>
+			<Sparkle className="size-4" />
+			Ask AI
+		</Button>
+	);
 }
 
 export function ConnectionHeader({
@@ -26,6 +43,7 @@ export function ConnectionHeader({
 	onReconnect,
 	onStatusChange,
 	onOpenSettings,
+	aiChat,
 }: ConnectionHeaderProps<SqlConnection>) {
 	const { state } = useSidebar();
 	const isCollapsed = state === "collapsed";
@@ -38,13 +56,13 @@ export function ConnectionHeader({
 			}`}
 		>
 			<SidebarTrigger className="-ml-1" />
-			<div className="flex flex-1 items-center gap-2">
+			<div data-tauri-drag-region className="flex flex-1 items-center gap-2">
 				<Button variant="ghost" size="sm" onClick={onClose}>
 					<X className="size-4" />
 					Close connection
 				</Button>
 			</div>
-			<div className="flex items-center gap-2">
+			<div data-tauri-drag-region className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
@@ -60,6 +78,7 @@ export function ConnectionHeader({
 				>
 					SSL: {connection.ssl ? "Yes" : "No"}
 				</Badge>
+				<AiChatToggle aiChat={aiChat} />
 				<Button
 					variant="ghost"
 					size="icon-sm"
@@ -81,23 +100,26 @@ export function ConnectionWorkspaceHeader({
 	onReconnect,
 	onStatusChange,
 	onOpenSettings,
+	aiChat,
 }: ConnectionHeaderProps) {
 	return (
 		<header
 			data-tauri-drag-region
 			className="app-titlebar sticky top-0 z-20 flex h-12 shrink-0 select-none items-center border-b pl-20 pr-4"
 		>
-			<div className="ml-4 flex flex-1 items-center gap-2">
+			<div data-tauri-drag-region className="ml-4 flex flex-1 items-center gap-2">
 				<Button variant="ghost" size="sm" onClick={onClose}>
 					<X className="size-4" />
 					Close connection
 				</Button>
-				<span className="text-sm font-semibold">{connection.name}</span>
-				<span className="text-xs text-muted-foreground">
+				<span data-tauri-drag-region className="text-sm font-semibold">
+					{connection.name}
+				</span>
+				<span data-tauri-drag-region className="text-xs text-muted-foreground">
 					{getConnectionDisplayEndpoint(connection)}
 				</span>
 			</div>
-			<div className="flex items-center gap-2">
+			<div data-tauri-drag-region className="flex items-center gap-2">
 				<ConnectionStatus
 					connectionUuid={connection.uuid}
 					status={connectionStatus}
@@ -107,6 +129,7 @@ export function ConnectionWorkspaceHeader({
 				<Badge variant="secondary" className="h-5 px-2 text-[10px]">
 					{getConnectionCapabilities(connection.type).label}
 				</Badge>
+				<AiChatToggle aiChat={aiChat} />
 				<Button
 					variant="ghost"
 					size="icon-sm"

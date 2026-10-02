@@ -72,8 +72,9 @@ mock.module("@/components/ui/dropdown-menu", () => ({
 	),
 	DropdownMenuTrigger: ({ render }: { render: ReactNode }) => render,
 }));
-mock.module("@/lib/databaseCapabilities", () => ({
-	getSqlFormatterLanguage: () => "postgresql",
+mock.module("@/lib/sqlFormat", () => ({
+	formatSql: (query: string) => query,
+	beautifySql: (query: string) => query,
 }));
 
 const { QueryWorkspace } = await import(

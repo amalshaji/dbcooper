@@ -116,14 +116,8 @@ pub fn query_prompts(context: &QueryGenerationContext, instruction: &str) -> (St
     }
 }
 
-pub fn sql_prompts(
-    db_type: &str,
-    instruction: &str,
-    existing_sql: &str,
-    tables: &[TableSchema],
-) -> (String, String) {
-    let schema_description = build_schema_description(tables);
-    let (db_name, syntax_note) = match db_type.to_lowercase().as_str() {
+pub fn sql_dialect(db_type: &str) -> (&'static str, &'static str) {
+    match db_type.to_lowercase().as_str() {
         "sqlite" | "sqlite3" => ("SQLite", "Use SQLite syntax"),
         "duckdb" => ("DuckDB", "Use DuckDB SQL syntax"),
         "d1" | "cloudflare-d1" => ("Cloudflare D1", "Use Cloudflare D1's SQLite syntax"),
@@ -132,7 +126,17 @@ pub fn sql_prompts(
         "redis" => ("Redis", "Generate Redis commands"),
         "clickhouse" => ("ClickHouse", "Use ClickHouse syntax"),
         _ => ("PostgreSQL", "Use PostgreSQL syntax"),
-    };
+    }
+}
+
+pub fn sql_prompts(
+    db_type: &str,
+    instruction: &str,
+    existing_sql: &str,
+    tables: &[TableSchema],
+) -> (String, String) {
+    let schema_description = build_schema_description(tables);
+    let (db_name, syntax_note) = sql_dialect(db_type);
 
     let system_prompt = format!(
         r#"You are a {} SQL expert. Generate SQL queries based on user instructions.

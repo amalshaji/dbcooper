@@ -1,4 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { AiChatDock } from "@/components/ai-chat/AiChatDock";
+import { AiChatPanel } from "@/components/ai-chat/AiChatPanel";
 import { ConnectionWorkspaceHeader } from "@/components/connection-details/ConnectionHeaders";
 import {
 	ConnectionOpeningScreen,
@@ -9,8 +11,9 @@ import { RedisWorkspace } from "@/components/connection-details/RedisWorkspace";
 import { SqlConnectionWorkspace } from "@/components/connection-details/SqlConnectionWorkspace";
 import { MongoConnectionWorkspace } from "@/components/connection-details/MongoConnectionWorkspace";
 import { WorkspaceLogsNavigation } from "@/components/logs/WorkspaceLogsNavigation";
-import { useSettings } from "@/contexts/SettingsContext";
+import { useSettings } from "@/contexts/settings";
 import { useConnectionLifecycle } from "@/hooks/connection-details/useConnectionLifecycle";
+import { useAiChatDock } from "@/hooks/useAiChatDock";
 import { useNativeCloseListener } from "@/hooks/connection-details/useNativeCloseListener";
 import { isMongoConnection, isSqlConnection } from "@/types/connection";
 
@@ -22,6 +25,7 @@ export function ConnectionDetails() {
 	const connection = lifecycle.connection.value;
 	const closeConnection = () => navigate("/");
 	const ready = lifecycle.opening.phase === "complete" && connection !== null;
+	const aiChatDock = useAiChatDock(ready && connection.type === "redis");
 	const initiallyDisconnected =
 		ready &&
 		lifecycle.connection.status === "disconnected" &&
@@ -84,16 +88,28 @@ export function ConnectionDetails() {
 				onReconnect={lifecycle.commands.reconnect}
 				onStatusChange={lifecycle.commands.recordConnectionStatus}
 				onOpenSettings={openSettings}
+				aiChat={{ open: aiChatDock.open, onToggle: aiChatDock.toggle }}
 			/>
-			<WorkspaceLogsNavigation
-				connection={connection}
-				workspaceLabel="Keys"
-				workspaceCloseTarget={{ kind: "window" }}
+			<AiChatDock
+				open={aiChatDock.open}
+				panel={
+					<AiChatPanel
+						connection={connection}
+						onClose={aiChatDock.close}
+						onOpenSettings={openSettings}
+					/>
+				}
 			>
-				<div className="h-full min-w-0 overflow-auto p-3">
-					<RedisWorkspace connection={connection} />
-				</div>
-			</WorkspaceLogsNavigation>
+				<WorkspaceLogsNavigation
+					connection={connection}
+					workspaceLabel="Keys"
+					workspaceCloseTarget={{ kind: "window" }}
+				>
+					<div className="h-full min-w-0 overflow-auto p-3">
+						<RedisWorkspace connection={connection} />
+					</div>
+				</WorkspaceLogsNavigation>
+			</AiChatDock>
 		</div>
 	);
 }
