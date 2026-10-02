@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import type React from "react";
-import { format as formatSQL } from "sql-formatter";
 import {
 	CaretDown,
 	Check,
@@ -32,7 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
-import { getSqlFormatterLanguage } from "@/lib/databaseCapabilities";
+import { formatSql } from "@/lib/sqlFormat";
 import type { SqlConnection } from "@/types/connection";
 import type { DatabaseTable } from "@/types/table";
 import type { QueryTab, TableColumn } from "@/types/tabTypes";
@@ -162,13 +161,10 @@ export function QueryWorkspace({
 										variant="outline"
 										onClick={() => {
 											try {
-												const formatted = formatSQL(tab.query, {
-													language: getSqlFormatterLanguage(
-														connection?.db_type || "postgres",
-													),
-													tabWidth: 2,
-													keywordCase: "upper",
-												});
+												const formatted = formatSql(
+													tab.query,
+													connection?.db_type || "postgres",
+												);
 												controller.changeQuery(formatted);
 												toast.success("SQL formatted");
 											} catch (error) {

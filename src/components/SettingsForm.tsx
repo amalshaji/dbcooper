@@ -20,13 +20,25 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { useTheme } from "@/contexts/ThemeContext";
+import {
+	type HarnessSelection,
+	readHarnessSelections,
+	serializeHarnessSelections,
+} from "@/lib/harnessModels";
 import { loadSettingsFormData } from "@/lib/settingsFormData";
-import { type AiHarnessStatus, type AiProvider, api } from "@/lib/tauri";
+import {
+	type AiHarnessProvider,
+	type AiHarnessStatus,
+	type AiProvider,
+	api,
+} from "@/lib/tauri";
+import type { AiInspectLevel } from "@/lib/tauri/aiChat";
 import {
 	resolveUpdateChannel,
 	type UpdateChannel,
 	UPDATE_CHANNEL_CHANGED_EVENT,
 } from "@/lib/updateChannel";
+import { HarnessModelSettings } from "./HarnessModelSettings";
 import { McpSettings } from "./McpSettings";
 import { ThemeSelector } from "./ThemeSelector";
 import { UpdateChannelSetting } from "./UpdateChannelSetting";
@@ -42,6 +54,13 @@ const aiProviderOptions: Array<{ value: AiProvider; label: string }> = [
 	{ value: "codex_cli", label: "Codex CLI" },
 	{ value: "opencode_cli", label: "opencode" },
 ];
+
+const aiChatDataAccessOptions: Array<{ value: AiInspectLevel; label: string }> =
+	[
+		{ value: "rows", label: "Let AI decide (up to 50 sample rows)" },
+		{ value: "summary", label: "Column summaries only" },
+		{ value: "none", label: "Result shape only" },
+	];
 
 export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const [loading, setLoading] = useState(true);
@@ -59,6 +78,11 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 	const [openaiEndpoint, setOpenaiEndpoint] = useState("");
 	const [openaiApiKey, setOpenaiApiKey] = useState("");
 	const [openaiModel, setOpenaiModel] = useState("gpt-4.1");
+	const [harnessSelections, setHarnessSelections] = useState(() =>
+		readHarnessSelections({}),
+	);
+	const [aiChatDataAccess, setAiChatDataAccess] =
+		useState<AiInspectLevel>("rows");
 
 	useEffect(() => {
 		loadSettings();
@@ -80,6 +104,12 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 			setOpenaiEndpoint(settings.openai_endpoint || "");
 			setOpenaiApiKey(settings.openai_api_key || "");
 			setOpenaiModel(settings.openai_model || "gpt-4.1");
+			setHarnessSelections(readHarnessSelections(settings));
+			setAiChatDataAccess(
+				aiChatDataAccessOptions.find(
+					(option) => option.value === settings.ai_chat_data_access,
+				)?.value ?? "rows",
+			);
 		} catch (error) {
 			console.error("Failed to load settings:", error);
 		} finally {
@@ -99,6 +129,8 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 				openai_endpoint: openaiEndpoint,
 				openai_api_key: openaiApiKey,
 				openai_model: openaiModel,
+				ai_chat_data_access: aiChatDataAccess,
+				...serializeHarnessSelections(harnessSelections),
 			});
 
 			if (updateChannel !== savedUpdateChannelRef.current) {
@@ -227,88 +259,89 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 
 				{aiProvider === "openai" ? (
 					<>
-						<div className="space-y-2">
-							<Label
-								htmlFor="openai-endpoint"
-								className={compact ? "text-sm" : ""}
-							>
-								Endpoint (optional)
-							</Label>
-							<Input
-								id="openai-endpoint"
-								placeholder="https://api.openai.com/v1"
-								value={openaiEndpoint}
-								onChange={(e) => setOpenaiEndpoint(e.target.value)}
-							/>
-						</div>
-						<div className="space-y-2">
-							<Label className={compact ? "text-sm" : ""}>Model</Label>
-							<Combobox
-								value={openaiModel}
-								onValueChange={(val) => val && setOpenaiModel(val as string)}
-							>
-								<ComboboxInput
-									placeholder="Select or type model..."
-									value={openaiModel}
-									onChange={(e) => setOpenaiModel(e.target.value)}
-								/>
-								<ComboboxContent>
-									<ComboboxList>
-										<ComboboxItem value="gpt-4o">gpt-4o</ComboboxItem>
-										<ComboboxItem value="gpt-4o-mini">gpt-4o-mini</ComboboxItem>
-										<ComboboxItem value="gpt-4.1">gpt-4.1</ComboboxItem>
-										<ComboboxItem value="gpt-4.1-mini">
-											gpt-4.1-mini
-										</ComboboxItem>
-										{![
-											"gpt-4o",
-											"gpt-4o-mini",
-											"gpt-4.1",
-											"gpt-4.1-mini",
-										].includes(openaiModel) && (
-											<ComboboxItem value={openaiModel}>
-												{openaiModel}
-											</ComboboxItem>
-										)}
-									</ComboboxList>
-								</ComboboxContent>
-							</Combobox>
-							<p className="text-[0.8rem] text-muted-foreground">
-								You can select a predefined model or type a custom model ID
-								{compact ? "." : " for your endpoint."}
-							</p>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="openai-key" className={compact ? "text-sm" : ""}>
-								API key
-							</Label>
-							<div className="relative">
-								<Input
-									id="openai-key"
-									type={showApiKey ? "text" : "password"}
-									placeholder="sk-..."
-									value={openaiApiKey}
-									onChange={(e) => setOpenaiApiKey(e.target.value)}
-									className="pr-10"
-								/>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon"
-									className="absolute right-0 top-0 h-full"
-									onClick={() => setShowApiKey(!showApiKey)}
-									aria-label={showApiKey ? "Hide API key" : "Show API key"}
+							<div className="space-y-2">
+								<Label
+									htmlFor="openai-endpoint"
+									className={compact ? "text-sm" : ""}
 								>
-									{showApiKey ? (
-										<EyeSlash className="h-4 w-4" />
-									) : (
-										<Eye className="h-4 w-4" />
-									)}
-								</Button>
+									Endpoint (optional)
+								</Label>
+								<Input
+									id="openai-endpoint"
+									placeholder="https://api.openai.com/v1"
+									value={openaiEndpoint}
+									onChange={(e) => setOpenaiEndpoint(e.target.value)}
+								/>
 							</div>
-						</div>
+							<div className="space-y-2">
+								<Label className={compact ? "text-sm" : ""}>Model</Label>
+								<Combobox
+									value={openaiModel}
+									onValueChange={(val) => val && setOpenaiModel(val as string)}
+								>
+									<ComboboxInput
+										placeholder="Select or type model..."
+										value={openaiModel}
+										onChange={(e) => setOpenaiModel(e.target.value)}
+									/>
+									<ComboboxContent>
+										<ComboboxList>
+											<ComboboxItem value="gpt-4o">gpt-4o</ComboboxItem>
+											<ComboboxItem value="gpt-4o-mini">gpt-4o-mini</ComboboxItem>
+											<ComboboxItem value="gpt-4.1">gpt-4.1</ComboboxItem>
+											<ComboboxItem value="gpt-4.1-mini">
+												gpt-4.1-mini
+											</ComboboxItem>
+											{![
+												"gpt-4o",
+												"gpt-4o-mini",
+												"gpt-4.1",
+												"gpt-4.1-mini",
+											].includes(openaiModel) && (
+												<ComboboxItem value={openaiModel}>
+													{openaiModel}
+												</ComboboxItem>
+											)}
+										</ComboboxList>
+									</ComboboxContent>
+								</Combobox>
+								<p className="text-[0.8rem] text-muted-foreground">
+									You can select a predefined model or type a custom model ID
+									{compact ? "." : " for your endpoint."}
+								</p>
+							</div>
+							<div className="space-y-2">
+								<Label htmlFor="openai-key" className={compact ? "text-sm" : ""}>
+									API key
+								</Label>
+								<div className="relative">
+									<Input
+										id="openai-key"
+										type={showApiKey ? "text" : "password"}
+										placeholder="sk-..."
+										value={openaiApiKey}
+										onChange={(e) => setOpenaiApiKey(e.target.value)}
+										className="pr-10"
+									/>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="absolute right-0 top-0 h-full"
+										onClick={() => setShowApiKey(!showApiKey)}
+										aria-label={showApiKey ? "Hide API key" : "Show API key"}
+									>
+										{showApiKey ? (
+											<EyeSlash className="h-4 w-4" />
+										) : (
+											<Eye className="h-4 w-4" />
+										)}
+									</Button>
+								</div>
+							</div>
 					</>
 				) : (
+					<>
 					<div className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground">
 						<p>
 							DBcooper will call your local{" "}
@@ -342,7 +375,56 @@ export function SettingsForm({ onSaveSuccess, compact }: SettingsFormProps) {
 							</div>
 						</div>
 					</div>
+					<HarnessModelSettings
+						provider={aiProvider as AiHarnessProvider}
+						selection={
+							harnessSelections[aiProvider as AiHarnessProvider] ?? {
+								model: "",
+								effort: "",
+							}
+						}
+						onChange={(selection: HarnessSelection) =>
+							setHarnessSelections((current) => ({
+								...current,
+								[aiProvider]: selection,
+							}))
+						}
+						compact={compact}
+					/>
+					</>
 				)}
+
+				<div className="space-y-2">
+					<Label className={compact ? "text-sm" : ""}>Ask AI data access</Label>
+					<Combobox
+						value={aiChatDataAccess}
+						onValueChange={(val) =>
+							val && setAiChatDataAccess(val as AiInspectLevel)
+						}
+					>
+						<ComboboxInput
+							value={
+								aiChatDataAccessOptions.find(
+									(option) => option.value === aiChatDataAccess,
+								)?.label ?? aiChatDataAccess
+							}
+							readOnly
+						/>
+						<ComboboxContent>
+							<ComboboxList>
+								{aiChatDataAccessOptions.map((option) => (
+									<ComboboxItem key={option.value} value={option.value}>
+										{option.label}
+									</ComboboxItem>
+								))}
+							</ComboboxList>
+						</ComboboxContent>
+					</Combobox>
+					<p className="text-xs text-muted-foreground">
+						What Ask AI may read from the read-only queries it runs. Charts
+						and tables are always built locally from the full result.
+					</p>
+				</div>
 			</div>
 
 			<div className={compact ? "pt-2" : "pt-4"}>

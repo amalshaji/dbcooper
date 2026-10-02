@@ -128,3 +128,7 @@ export function getConnectionDisplayEndpoint(connection: Connection): string {
 		return "MongoDB";
 	}
 }
+
+export function supportsAiChat(type: ConnectionType): boolean {
+	return type !== "d1";
+}

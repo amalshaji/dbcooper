@@ -1,6 +1,8 @@
 import { BracketsCurly, FloppyDisk, Trash } from "@phosphor-icons/react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { AiChatDock } from "@/components/ai-chat/AiChatDock";
+import { AiChatPanel } from "@/components/ai-chat/AiChatPanel";
 import { MongoAiAssistant } from "@/components/connection-details/MongoAiAssistant";
 import { ConnectionWorkspaceHeader } from "@/components/connection-details/ConnectionHeaders";
 import { MongoCatalogSidebar } from "@/components/connection-details/MongoCatalogSidebar";
@@ -33,6 +35,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ConnectionLifecycleController } from "@/hooks/connection-details/useConnectionLifecycle";
 import { useMongoAiGeneration } from "@/hooks/connection-details/useMongoAiGeneration";
 import { useMongoWorkbench } from "@/hooks/connection-details/useMongoWorkbench";
+import { useAiChatDock } from "@/hooks/useAiChatDock";
 import type { MongoConnection } from "@/types/connection";
 
 type CollectionView = "documents" | "indexes" | "validation";
@@ -57,6 +60,7 @@ export function MongoConnectionWorkspace({
 	const [newNamespace, setNewNamespace] = useState("");
 	const [dropDialogOpen, setDropDialogOpen] = useState(false);
 	const [collectionBusy, setCollectionBusy] = useState(false);
+	const aiChatDock = useAiChatDock(true);
 	const ai = useMongoAiGeneration(connection.uuid, workbench);
 	const namespace = `${workbench.namespace.database}.${workbench.namespace.collection}`;
 
@@ -99,126 +103,138 @@ export function MongoConnectionWorkspace({
 				onReconnect={lifecycle.commands.reconnect}
 				onStatusChange={lifecycle.commands.recordConnectionStatus}
 				onOpenSettings={onOpenSettings}
+				aiChat={{ open: aiChatDock.open, onToggle: aiChatDock.toggle }}
 			/>
-			<WorkspaceLogsNavigation
-				connection={connection}
-				workspaceLabel="Documents"
-				workspaceCloseTarget={{ kind: "window" }}
+			<AiChatDock
+				open={aiChatDock.open}
+				panel={
+					<AiChatPanel
+						connection={connection}
+						onClose={aiChatDock.close}
+						onOpenSettings={onOpenSettings}
+					/>
+				}
 			>
-				<div className="flex h-full min-h-0">
-				<MongoCatalogSidebar
-					workbench={workbench}
-					onCreateCollection={() => setCreateDialogOpen(true)}
-				/>
-				<main className="flex min-w-0 flex-1 flex-col">
-					<div className="flex min-h-12 items-center gap-2 border-b bg-card/45 px-3 py-2">
-						<Tabs
-							value={collectionView}
-							onValueChange={(value) =>
-								setCollectionView(value as CollectionView)
-							}
-						>
-							<TabsList>
-								{(["documents", "indexes", "validation"] as const).map(
-									(view) => (
-										<TabsTrigger key={view} value={view}>
-											{view[0].toUpperCase() + view.slice(1)}
-										</TabsTrigger>
-									),
-								)}
-							</TabsList>
-						</Tabs>
-						{collectionView === "documents" && (
-							<>
-								<span className="mx-0.5 h-5 border-l" />
-								<Tabs
-									value={workbench.editor.type}
-									onValueChange={(value) =>
-										workbench.actions.setMode(value as "find" | "aggregate")
-									}
-								>
-									<TabsList variant="line">
-										<TabsTrigger value="find">Find</TabsTrigger>
-										<TabsTrigger value="aggregate">Aggregate</TabsTrigger>
-									</TabsList>
-								</Tabs>
-							</>
-						)}
-						<span className="ml-1 flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground">
-							<BracketsCurly className="size-3.5 shrink-0" />
-							{workbench.namespace.database && workbench.namespace.collection
-								? namespace
-								: "Select a collection"}
-						</span>
-						{workbench.namespace.collection && !workbench.namespaceReadOnly && (
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								aria-label="Drop collection"
-								onClick={() => setDropDialogOpen(true)}
-							>
-								<Trash />
-							</Button>
-						)}
-						{collectionView === "documents" && (
-							<div className="ml-auto flex items-center gap-1.5">
-								<Input
-									className="h-8 w-40"
-									value={workbench.queryName}
-									onChange={(event) =>
-										workbench.actions.setQueryName(event.target.value)
-									}
-									placeholder="Saved query name"
-								/>
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => void workbench.actions.saveQuery()}
-								>
-									<FloppyDisk />
-									Save
-								</Button>
-							</div>
-						)}
-					</div>
-					{collectionView === "documents" ? (
-						<>
-							<MongoAiAssistant
-								state={ai.state}
-								configured={ai.configured}
-								available={Boolean(workbench.namespace.collection)}
-								context={
-									workbench.namespace.collection
-										? `Using ${namespace}`
-										: "Select a collection first"
+				<WorkspaceLogsNavigation
+					connection={connection}
+					workspaceLabel="Documents"
+					workspaceCloseTarget={{ kind: "window" }}
+				>
+					<div className="flex h-full min-h-0">
+					<MongoCatalogSidebar
+						workbench={workbench}
+						onCreateCollection={() => setCreateDialogOpen(true)}
+					/>
+					<main className="flex min-w-0 flex-1 flex-col">
+						<div className="flex min-h-12 flex-wrap items-center gap-2 border-b bg-card/45 px-3 py-2">
+							<Tabs
+								value={collectionView}
+								onValueChange={(value) =>
+									setCollectionView(value as CollectionView)
 								}
-								onInstructionChange={ai.setInstruction}
-								onGenerate={() => void ai.generate()}
-								onUse={ai.useDraft}
-								onDiscard={ai.discard}
+							>
+								<TabsList>
+									{(["documents", "indexes", "validation"] as const).map(
+										(view) => (
+											<TabsTrigger key={view} value={view}>
+												{view[0].toUpperCase() + view.slice(1)}
+											</TabsTrigger>
+										),
+									)}
+								</TabsList>
+							</Tabs>
+							{collectionView === "documents" && (
+								<>
+									<span className="mx-0.5 h-5 border-l" />
+									<Tabs
+										value={workbench.editor.type}
+										onValueChange={(value) =>
+											workbench.actions.setMode(value as "find" | "aggregate")
+										}
+									>
+										<TabsList variant="line">
+											<TabsTrigger value="find">Find</TabsTrigger>
+											<TabsTrigger value="aggregate">Aggregate</TabsTrigger>
+										</TabsList>
+									</Tabs>
+								</>
+							)}
+							<span className="ml-1 flex min-w-0 items-center gap-1.5 truncate text-xs text-muted-foreground">
+								<BracketsCurly className="size-3.5 shrink-0" />
+								{workbench.namespace.database && workbench.namespace.collection
+									? namespace
+									: "Select a collection"}
+							</span>
+							{workbench.namespace.collection && !workbench.namespaceReadOnly && (
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									aria-label="Drop collection"
+									onClick={() => setDropDialogOpen(true)}
+								>
+									<Trash />
+								</Button>
+							)}
+							{collectionView === "documents" && (
+								<div className="ml-auto flex items-center gap-1.5">
+									<Input
+										className="h-8 w-40"
+										value={workbench.queryName}
+										onChange={(event) =>
+											workbench.actions.setQueryName(event.target.value)
+										}
+										placeholder="Saved query name"
+									/>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => void workbench.actions.saveQuery()}
+									>
+										<FloppyDisk />
+										Save
+									</Button>
+								</div>
+							)}
+						</div>
+						{collectionView === "documents" ? (
+							<>
+								<MongoAiAssistant
+									state={ai.state}
+									configured={ai.configured}
+									available={Boolean(workbench.namespace.collection)}
+									context={
+										workbench.namespace.collection
+											? `Using ${namespace}`
+											: "Select a collection first"
+									}
+									onInstructionChange={ai.setInstruction}
+									onGenerate={() => void ai.generate()}
+									onUse={ai.useDraft}
+									onDiscard={ai.discard}
+								/>
+								<MongoQueryEditor
+									key={workbench.editorLoadRevision}
+									editor={workbench.editor}
+									onChange={workbench.actions.setEditor}
+									onRun={() => void workbench.actions.run()}
+									loading={workbench.loading}
+									disabled={!workbench.namespace.collection}
+								/>
+								<MongoDocumentBrowser workbench={workbench} />
+							</>
+						) : (
+							<MongoCollectionAdmin
+								uuid={connection.uuid}
+								database={workbench.namespace.database}
+								collection={workbench.namespace.collection}
+								view={collectionView}
+								readOnly={workbench.namespaceReadOnly}
 							/>
-							<MongoQueryEditor
-								key={workbench.editorLoadRevision}
-								editor={workbench.editor}
-								onChange={workbench.actions.setEditor}
-								onRun={() => void workbench.actions.run()}
-								loading={workbench.loading}
-								disabled={!workbench.namespace.collection}
-							/>
-							<MongoDocumentBrowser workbench={workbench} />
-						</>
-					) : (
-						<MongoCollectionAdmin
-							uuid={connection.uuid}
-							database={workbench.namespace.database}
-							collection={workbench.namespace.collection}
-							view={collectionView}
-							readOnly={workbench.namespaceReadOnly}
-						/>
-					)}
-				</main>
-				</div>
-			</WorkspaceLogsNavigation>
+						)}
+					</main>
+					</div>
+				</WorkspaceLogsNavigation>
+			</AiChatDock>
 
 			<Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
 				<DialogContent className="max-w-sm">

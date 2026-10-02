@@ -1,4 +1,5 @@
-use crate::ai::{self, AiHarnessStatus, AiStatus, QueryGenerationContext};
+use crate::ai::providers::harness_models::{self, HarnessModelCatalog};
+use crate::ai::{self, AiHarnessStatus, AiProvider, AiStatus, QueryGenerationContext};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, State};
 
@@ -23,4 +24,10 @@ pub async fn detect_ai_harnesses() -> Result<Vec<AiHarnessStatus>, String> {
 #[tauri::command]
 pub async fn get_ai_status(pool: State<'_, SqlitePool>) -> Result<AiStatus, String> {
     ai::get_status(pool.inner()).await
+}
+
+#[tauri::command]
+pub async fn list_ai_harness_models(provider: String) -> Result<HarnessModelCatalog, String> {
+    let provider = AiProvider::from_setting(Some(&provider))?;
+    Ok(harness_models::list_models(provider).await)
 }

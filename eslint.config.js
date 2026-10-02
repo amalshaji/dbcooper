@@ -44,7 +44,6 @@ export default defineConfig([
 			"src/components/ui/combobox.tsx",
 			"src/components/ui/sidebar.tsx",
 			"src/components/ui/tabs.tsx",
-			"src/contexts/SettingsContext.tsx",
 			"src/contexts/ThemeContext.tsx",
 		],
 		rules: { "react-refresh/only-export-components": "off" },

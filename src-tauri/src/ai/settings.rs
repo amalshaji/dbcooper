@@ -1,3 +1,4 @@
+use crate::ai::providers::harness::HarnessOptions;
 use crate::db::models::Setting;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -48,6 +49,13 @@ impl AiProvider {
         }
     }
 
+    /// Settings keys holding this harness's model and thinking level.
+    pub fn harness_option_keys(self) -> Option<(String, String)> {
+        self.command_name()?;
+        let prefix = self.as_str();
+        Some((format!("{prefix}_model"), format!("{prefix}_effort")))
+    }
+
     pub fn harnesses() -> [Self; 3] {
         [Self::ClaudeCode, Self::CodexCli, Self::OpencodeCli]
     }
@@ -58,15 +66,36 @@ pub struct AiSettings {
     pub api_key: Option<String>,
     pub endpoint: String,
     pub model: String,
+    pub chat_data_access: Option<String>,
+    pub harness: HarnessOptions,
 }
 
 pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
-    let settings: Vec<Setting> = sqlx::query_as(
-        "SELECT key, value FROM settings WHERE key IN ('ai_provider', 'openai_api_key', 'openai_endpoint', 'openai_model')",
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    let mut keys: Vec<String> = [
+        "ai_provider",
+        "openai_api_key",
+        "openai_endpoint",
+        "openai_model",
+        "ai_chat_data_access",
+    ]
+    .map(String::from)
+    .to_vec();
+    for (model_key, effort_key) in AiProvider::harnesses()
+        .into_iter()
+        .filter_map(AiProvider::harness_option_keys)
+    {
+        keys.extend([model_key, effort_key]);
+    }
+    let sql = format!(
+        "SELECT key, value FROM settings WHERE key IN ({})",
+        vec!["?"; keys.len()].join(", ")
+    );
+    let settings: Vec<Setting> = keys
+        .iter()
+        .fold(sqlx::query_as(&sql), |query, key| query.bind(key))
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
 
     let settings_map: HashMap<String, String> =
         settings.into_iter().map(|s| (s.key, s.value)).collect();
@@ -87,10 +116,84 @@ pub async fn load(pool: &SqlitePool) -> Result<AiSettings, String> {
         .cloned()
         .unwrap_or_else(|| "gpt-4.1".to_string());
 
+    let chat_data_access = settings_map.get("ai_chat_data_access").cloned();
+    let non_empty = |key: &str| {
+        settings_map
+            .get(key)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+    let harness = provider
+        .harness_option_keys()
+        .map(|(model_key, effort_key)| HarnessOptions {
+            model: non_empty(&model_key),
+            effort: non_empty(&effort_key),
+        })
+        .unwrap_or_default();
+
     Ok(AiSettings {
         provider,
         api_key,
         endpoint,
         model,
+        chat_data_access,
+        harness,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load, AiProvider};
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn pool(settings: &[(&str, &str)]) -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for (key, value) in settings {
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+                .bind(key)
+                .bind(value)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool
+    }
+
+    #[test]
+    fn harness_option_keys_follow_the_provider_id() {
+        assert_eq!(
+            AiProvider::CodexCli.harness_option_keys(),
+            Some((
+                "codex_cli_model".to_string(),
+                "codex_cli_effort".to_string()
+            ))
+        );
+        assert_eq!(AiProvider::OpenAI.harness_option_keys(), None);
+    }
+
+    #[tokio::test]
+    async fn loads_only_the_selected_harness_options() {
+        let settings = load(
+            &pool(&[
+                ("ai_provider", "codex_cli"),
+                ("codex_cli_model", " gpt-a "),
+                ("codex_cli_effort", ""),
+                ("claude_code_model", "opus"),
+            ])
+            .await,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(settings.harness.model.as_deref(), Some("gpt-a"));
+        assert_eq!(settings.harness.effort, None);
+    }
 }

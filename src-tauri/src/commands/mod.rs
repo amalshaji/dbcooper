@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_chat;
 pub mod connections;
 pub mod database;
 pub mod mcp;
