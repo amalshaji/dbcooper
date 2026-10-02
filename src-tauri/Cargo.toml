@@ -57,7 +57,7 @@ mongodb = "3.8"
 fs2 = "0.4"
 sha2 = "0.10"
 zip = { version = "2.4", default-features = false, features = ["deflate-flate2", "flate2"] }
-rmcp = { version = "1", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "2", features = ["server", "transport-streamable-http-server"] }
 axum = "0.8"
 tokio-util = "0.7"
 

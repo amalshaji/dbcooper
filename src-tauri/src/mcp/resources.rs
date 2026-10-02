@@ -7,10 +7,9 @@ use serde_json::json;
 /// plus a resource for each currently-connected database's schema.
 pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, McpError> {
     let mut resources = vec![
-        RawResource::new("dbcooper://connections", "Database Connections")
+        Resource::new("dbcooper://connections", "Database Connections")
             .with_description("All saved database connections (credentials redacted)")
-            .with_mime_type("application/json")
-            .no_annotation(),
+            .with_mime_type("application/json"),
     ];
 
     let connections: Vec<crate::db::models::Connection> =
@@ -27,7 +26,7 @@ pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, M
                 "schema"
             };
             resources.push(
-                RawResource::new(
+                Resource::new(
                     format!("dbcooper://connection/{}/{}", conn.uuid, suffix),
                     format!(
                         "{} {}",
@@ -43,8 +42,7 @@ pub async fn list_resources(server: &McpServer) -> Result<ListResourcesResult, M
                     "Schema overview for {} ({})",
                     conn.name, conn.db_type
                 ))
-                .with_mime_type("application/json")
-                .no_annotation(),
+                .with_mime_type("application/json"),
             );
         }
     }

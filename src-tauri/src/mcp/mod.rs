@@ -91,10 +91,9 @@ impl ServerHandler for McpServer {
     ) -> impl std::future::Future<Output = Result<ListResourceTemplatesResult, McpError>> + Send + '_
     {
         std::future::ready(Ok(ListResourceTemplatesResult::with_all_items(vec![
-            RawResourceTemplate::new("dbcooper://connection/{uuid}/schema", "Connection Schema")
+            ResourceTemplate::new("dbcooper://connection/{uuid}/schema", "Connection Schema")
                 .with_description("Full schema overview for a connected database")
-                .with_mime_type("application/json")
-                .no_annotation(),
+                .with_mime_type("application/json"),
         ])))
     }
 }
