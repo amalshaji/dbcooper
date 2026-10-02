@@ -990,6 +990,76 @@ async fn test_get_schema_overview_marks_views_and_lists_functions() {
 }
 
 #[tokio::test]
+async fn test_get_schema_overview_keeps_same_named_foreign_keys_separate() {
+    let driver = create_test_driver();
+    let first_schema = test_table_name("fk_a");
+    let second_schema = test_table_name("fk_b");
+
+    for schema in [&first_schema, &second_schema] {
+        driver
+            .execute_query(&format!("CREATE SCHEMA \"{}\"", schema))
+            .await
+            .unwrap();
+    }
+
+    driver
+        .execute_query(&format!(
+            "CREATE TABLE \"{0}\".parent (k1 INT, k2 TEXT, PRIMARY KEY (k1, k2));
+             CREATE TABLE \"{0}\".child (
+                 id INT PRIMARY KEY,
+                 p1 INT,
+                 p2 TEXT,
+                 CONSTRAINT fk_parent FOREIGN KEY (p1, p2) REFERENCES \"{0}\".parent (k1, k2)
+             );
+             CREATE INDEX child_lookup ON \"{0}\".child (p1) INCLUDE (p2);
+             CREATE TABLE \"{1}\".parent (id INT PRIMARY KEY);
+             CREATE TABLE \"{1}\".child (
+                 id INT PRIMARY KEY,
+                 parent_id INT,
+                 CONSTRAINT fk_parent FOREIGN KEY (parent_id) REFERENCES \"{1}\".parent (id)
+             )",
+            first_schema, second_schema
+        ))
+        .await
+        .unwrap();
+
+    let overview = driver.get_schema_overview().await.unwrap();
+    let child = |schema: &str| {
+        overview
+            .tables
+            .iter()
+            .find(|table| table.schema == schema && table.name == "child")
+            .expect("Should include child table")
+    };
+
+    let composite_fks: Vec<_> = child(&first_schema)
+        .foreign_keys
+        .iter()
+        .map(|fk| (fk.column.as_str(), fk.references_column.as_str()))
+        .collect();
+    assert_eq!(composite_fks, vec![("p1", "k1"), ("p2", "k2")]);
+
+    let single_fks: Vec<_> = child(&second_schema)
+        .foreign_keys
+        .iter()
+        .map(|fk| (fk.column.as_str(), fk.references_column.as_str()))
+        .collect();
+    assert_eq!(single_fks, vec![("parent_id", "id")]);
+
+    let indexes = &child(&first_schema).indexes;
+    let lookup = indexes
+        .iter()
+        .find(|index| index.name == "child_lookup")
+        .expect("Should include lookup index");
+    assert_eq!(lookup.columns, vec!["p1"]);
+    assert!(!lookup.primary);
+    assert!(indexes.iter().any(|index| index.primary && index.unique));
+
+    drop_schema(&driver, &first_schema).await;
+    drop_schema(&driver, &second_schema).await;
+}
+
+#[tokio::test]
 async fn test_get_function_definition_for_overload() {
     let driver = create_test_driver();
     let schema_name = test_table_name("function_ns");

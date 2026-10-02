@@ -1,95 +1,104 @@
 pub const SCHEMA_OVERVIEW_QUERY: &str = r#"
-WITH object_types AS (
-    SELECT
-        table_schema,
-        table_name,
-        CASE
-            WHEN table_type = 'VIEW' THEN 'view'
-            ELSE 'table'
-        END AS object_type
-    FROM information_schema.tables
-    WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
-),
-columns_data AS (
-    SELECT 
-        c.table_schema,
-        c.table_name,
-        ot.object_type,
-        json_agg(json_build_object(
-            'name', c.column_name,
-            'type', c.data_type,
-            'nullable', c.is_nullable = 'YES',
-            'default', c.column_default,
-            'primary_key', CASE WHEN pk.column_name IS NOT NULL THEN true ELSE false END
-        ) ORDER BY c.ordinal_position) as columns
-    FROM information_schema.columns c
-    JOIN object_types ot
-        ON c.table_schema = ot.table_schema
-        AND c.table_name = ot.table_name
-    LEFT JOIN (
-        SELECT ku.table_schema, ku.table_name, ku.column_name
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage ku
-            ON tc.constraint_name = ku.constraint_name
-            AND tc.table_schema = ku.table_schema
-        WHERE tc.constraint_type = 'PRIMARY KEY'
-    ) pk ON c.table_schema = pk.table_schema 
-        AND c.table_name = pk.table_name 
-        AND c.column_name = pk.column_name
-    WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
-    GROUP BY c.table_schema, c.table_name, ot.object_type
-),
-foreign_keys_data AS (
-    SELECT 
-        tc.table_schema,
-        tc.table_name,
-        json_agg(json_build_object(
-            'name', tc.constraint_name,
-            'column', kcu.column_name,
-            'references_table', ccu.table_name,
-            'references_column', ccu.column_name
-        )) as foreign_keys
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-        AND tc.table_schema = kcu.table_schema
-    JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-    WHERE tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-    GROUP BY tc.table_schema, tc.table_name
-),
-indexes_data AS (
-    SELECT 
-        schemaname as table_schema,
-        tablename as table_name,
-        json_agg(json_build_object(
-            'name', indexname,
-            'columns', regexp_split_to_array(
-                substring(indexdef from '\((.*)\)'), ', '
-            ),
-            'unique', indexdef LIKE '%UNIQUE%',
-            'primary', indexdef LIKE '%PRIMARY%'
-        )) as indexes
-    FROM pg_indexes
-    WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-    GROUP BY schemaname, tablename
-)
-SELECT 
-    cd.table_schema as schema,
-    cd.table_name as name,
-    cd.object_type as type,
-    cd.columns,
-    COALESCE(fk.foreign_keys, '[]'::json) as foreign_keys,
-    COALESCE(idx.indexes, '[]'::json) as indexes
-FROM columns_data cd
-LEFT JOIN foreign_keys_data fk 
-    ON cd.table_schema = fk.table_schema 
-    AND cd.table_name = fk.table_name
-LEFT JOIN indexes_data idx 
-    ON cd.table_schema = idx.table_schema 
-    AND cd.table_name = idx.table_name
-ORDER BY cd.table_schema, cd.table_name;
+SELECT
+    n.nspname AS schema,
+    c.relname AS name,
+    CASE WHEN c.relkind = 'v' THEN 'view' ELSE 'table' END AS type,
+    cols.columns,
+    fks.foreign_keys,
+    idx.indexes
+FROM pg_catalog.pg_class AS c
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+CROSS JOIN LATERAL (
+    SELECT json_agg(json_build_object(
+        'name', a.attname,
+        'type', CASE
+            WHEN t.typtype = 'd' THEN CASE
+                WHEN bt.typelem <> 0 AND bt.typlen = -1 THEN 'ARRAY'
+                WHEN bn.nspname = 'pg_catalog' THEN pg_catalog.format_type(t.typbasetype, NULL)
+                ELSE 'USER-DEFINED'
+            END
+            WHEN t.typelem <> 0 AND t.typlen = -1 THEN 'ARRAY'
+            WHEN tn.nspname = 'pg_catalog' THEN pg_catalog.format_type(a.atttypid, NULL)
+            ELSE 'USER-DEFINED'
+        END,
+        'nullable', NOT (a.attnotnull OR (t.typtype = 'd' AND t.typnotnull)),
+        'default', CASE WHEN a.attgenerated = '' THEN pg_catalog.pg_get_expr(d.adbin, d.adrelid) END,
+        'primary_key', EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_constraint AS pk
+            WHERE pk.conrelid = c.oid
+                AND pk.contype = 'p'
+                AND a.attnum = ANY (pk.conkey)
+                AND (
+                    pg_catalog.pg_has_role(c.relowner, 'USAGE')
+                    OR pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+                    OR pg_catalog.has_any_column_privilege(c.oid, 'INSERT, UPDATE, REFERENCES')
+                )
+        )
+    ) ORDER BY a.attnum) AS columns
+    FROM pg_catalog.pg_attribute AS a
+    JOIN pg_catalog.pg_type AS t ON t.oid = a.atttypid
+    JOIN pg_catalog.pg_namespace AS tn ON tn.oid = t.typnamespace
+    LEFT JOIN pg_catalog.pg_type AS bt ON t.typtype = 'd' AND bt.oid = t.typbasetype
+    LEFT JOIN pg_catalog.pg_namespace AS bn ON bn.oid = bt.typnamespace
+    LEFT JOIN pg_catalog.pg_attrdef AS d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE a.attrelid = c.oid
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND (
+            pg_catalog.pg_has_role(c.relowner, 'USAGE')
+            OR pg_catalog.has_column_privilege(c.oid, a.attnum, 'SELECT, INSERT, UPDATE, REFERENCES')
+        )
+) AS cols
+CROSS JOIN LATERAL (
+    SELECT COALESCE(json_agg(json_build_object(
+        'name', fk.conname,
+        'column', src.attname,
+        'references_table', target.relname,
+        'references_column', dst.attname
+    ) ORDER BY fk.oid, pair.ord), '[]'::json) AS foreign_keys
+    FROM pg_catalog.pg_constraint AS fk
+    JOIN pg_catalog.pg_class AS target ON target.oid = fk.confrelid
+    CROSS JOIN LATERAL unnest(fk.conkey, fk.confkey) WITH ORDINALITY AS pair(src_num, dst_num, ord)
+    JOIN pg_catalog.pg_attribute AS src ON src.attrelid = c.oid AND src.attnum = pair.src_num
+    JOIN pg_catalog.pg_attribute AS dst ON dst.attrelid = target.oid AND dst.attnum = pair.dst_num
+    WHERE fk.conrelid = c.oid
+        AND fk.contype = 'f'
+        AND pg_catalog.pg_has_role(target.relowner, 'USAGE')
+        AND (
+            pg_catalog.pg_has_role(c.relowner, 'USAGE')
+            OR pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+            OR pg_catalog.has_any_column_privilege(c.oid, 'INSERT, UPDATE, REFERENCES')
+        )
+        AND (
+            pg_catalog.pg_has_role(c.relowner, 'USAGE')
+            OR pg_catalog.has_column_privilege(c.oid, src.attnum, 'SELECT, INSERT, UPDATE, REFERENCES')
+        )
+) AS fks
+CROSS JOIN LATERAL (
+    SELECT COALESCE(json_agg(json_build_object(
+        'name', ic.relname,
+        'columns', (
+            SELECT array_agg(pg_catalog.pg_get_indexdef(i.indexrelid, k, true) ORDER BY k)
+            FROM pg_catalog.generate_series(1, i.indnkeyatts) AS k
+        ),
+        'unique', i.indisunique,
+        'primary', i.indisprimary
+    ) ORDER BY ic.relname), '[]'::json) AS indexes
+    FROM pg_catalog.pg_index AS i
+    JOIN pg_catalog.pg_class AS ic ON ic.oid = i.indexrelid
+    WHERE i.indrelid = c.oid
+) AS idx
+WHERE c.relkind IN ('r', 'p', 'v', 'f')
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND NOT pg_catalog.pg_is_other_temp_schema(n.oid)
+    AND (
+        pg_catalog.pg_has_role(c.relowner, 'USAGE')
+        OR pg_catalog.has_table_privilege(c.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
+        OR pg_catalog.has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
+    )
+    AND cols.columns IS NOT NULL
+ORDER BY n.nspname, c.relname;
 "#;
 
 pub const FUNCTION_SUMMARIES_QUERY: &str = r#"
