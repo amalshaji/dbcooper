@@ -8,7 +8,7 @@ DBcooper 0.0.70 adds Ask AI, a chat panel that answers questions about your conn
 
 - Open Ask AI from the header or with ⌘I in SQL, MongoDB, and Redis workspaces to ask questions about the connected database.
 - Answers can include bar, line, area, pie, scatter, or single-metric charts drawn locally from up to 1,000 result rows, with PNG export, copy, and open-in-tab for the underlying query.
-- Watch each step stream live and stop a run at any point; conversations are saved and can be reopened.
+- Watch each step stream live and stop a run at any time, except while an approved change is running; approved changes always run to completion. Conversations are saved and can be reopened.
 - AI-generated queries run read-only and pass an additional guard that rejects file, network, and session functions.
 - Proposed table or data changes never run until you choose **Approve & run**, and each approval runs at most once.
 - Choose how much query data the model may see with the new Ask AI data access setting.
