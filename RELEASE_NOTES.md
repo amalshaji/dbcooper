@@ -1,19 +1,27 @@
-# DBcooper v0.0.69
+# DBcooper v0.0.70
 
-DBcooper 0.0.69 adds a live observability workspace for database logs and current server activity, and strengthens macOS release verification.
+DBcooper 0.0.70 adds Ask AI, a chat panel that answers questions about your connected database and charts the results, and makes large PostgreSQL schemas load quickly.
 
-## What's changed since v0.0.68
+## What's changed since v0.0.69
 
-### Live logs and activity
+### Ask AI
 
-- Open Logs from a connected database workspace to view current database output without persisting it in DBcooper.
-- Stream logs from DBcooper-linked Docker containers and use engine-native log sources when the server exposes them.
-- Inspect current database activity separately from logs, with capability-aware sources for supported engines.
-- Search visible entries, filter by severity, pause automatic following, copy individual or visible lines, and clear the in-memory buffer.
-- Parse common PostgreSQL, ClickHouse, and Redis log formats while preserving the original text.
-- Keep activity rows stable between refreshes and retain final diagnostic entries when a stream stops.
+- Open Ask AI from the header or with ⌘I in SQL, MongoDB, and Redis workspaces to ask questions about the connected database.
+- Answers can include bar, line, area, pie, scatter, or single-metric charts drawn locally from up to 1,000 result rows, with PNG export, copy, and open-in-tab for the underlying query.
+- Watch each step stream live and stop a run at any time, except while an approved change is running; approved changes always run to completion. Conversations are saved and can be reopened.
+- AI-generated queries run read-only and pass an additional guard that rejects file, network, and session functions.
+- Proposed table or data changes never run until you choose **Approve & run**, and each approval runs at most once.
+- Choose how much query data the model may see with the new Ask AI data access setting.
+- Pick the model and thinking level for Claude Code, Codex, and opencode in Settings.
 
-### macOS distribution
+### PostgreSQL
 
-- Submit, staple, validate, and Gatekeeper-check the final DMG before publishing it.
-- Continue signing updater artifacts and the bundled app for verified stable updates.
+- Load the schema overview from `pg_catalog`, so databases with thousands of tables and same-named foreign keys load in under a second instead of timing out.
+- Show correct foreign key pairs for composite and cross-schema keys, correct index columns, and the primary flag on primary key indexes.
+
+### Fixes
+
+- Loading spinners rotate in place instead of wobbling.
+- DBcooper-linked Docker containers reconnect on their current published host port after a container restart.
+- Connection title bars can be dragged from their empty areas again.
+- The MongoDB toolbar and document browser no longer overflow when the Ask AI panel is open.
